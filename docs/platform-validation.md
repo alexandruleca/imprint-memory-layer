@@ -152,6 +152,25 @@ toolbar gesture behavior, or PDF/attachment/editor-export support. See
 [browser extension setup and limitations](browser-extension.md) and
 [ADR 0029](adr/0029-paired-browser-capture.md).
 
+### Chrome capture redesign and full-page OCR — 2026-11-19
+
+On Linux x64/WSL2 with Node 22.23.5 and Playwright's Chromium 1248 (runtime
+libraries extracted into a scratch directory, as above): the extension's Node
+checks and the browser smoke against the packaged ZIP passed, including the new
+full-page case (a 3,640 px fixture with a sticky header and a fixed banner,
+uploaded as one 3,640 px PNG, the page restored to its scroll position and
+styles). A local harness rendered every popup state in light and dark at 380 px:
+each fits Chrome's 600 px popup height. With a test-only `<all_urls>` copy of the
+extension, the real `captureVisibleTab` stitched a 70-section article into a
+1,280 × 10,843 PNG in 7.3 s.
+
+On the Windows install's Python 3.13 runtime with RapidOCR 3.10.0, the OCR tests
+passed and banded reading recovered 70/70 paragraphs from that capture (0/70 in
+one pass) and 333/333 lines from a synthetic 12,000 px page (0/333). Not run: a
+real toolbar click in headed Chrome on Windows or macOS, device pixel ratios
+above 1, and the Tesseract path. See [ADR 0190](adr/0190-ocr-reads-tall-images-in-bands.md)
+and [ADR 0191](adr/0191-chrome-full-page-screenshots-are-stitched-in-the-popup.md).
+
 ### Existing subsystem checks
 
 | Check | Result | What it establishes |

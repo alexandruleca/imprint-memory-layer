@@ -28,6 +28,11 @@ const api = createServer(async (request, response) => {
       : "<main>Please sign in to read this article.</main>");
     return;
   }
+  if (request.url === "/long") {
+    response.setHeader("Content-Type", "text/html");
+    response.end(`<title>Long fixture</title><style>body{margin:0}header{position:sticky;top:0;height:40px;background:#123}.banner{position:fixed;bottom:0;height:30px;width:100%;background:#fd0}p{height:300px;margin:0}</style><header>Sticky header</header><main>${"<p>Long page paragraph.</p>".repeat(12)}</main><div class="banner">Fixed banner</div>`);
+    return;
+  }
   if (request.url === "/download/fixture") {
     response.setHeader("Content-Type", "text/plain");
     response.setHeader("Content-Disposition", "attachment; filename*=UTF-8''attachment.txt");
@@ -72,8 +77,8 @@ try {
   await options.waitForFunction(() => !document.getElementById('save').disabled);
   await options.getByLabel("Local Imprint address").fill(`http://127.0.0.1:${api.address().port}`);
   await options.getByRole("button", {name: "Check and save"}).click();
-  await options.waitForFunction(() => document.getElementById('feedback').textContent.length > 0);
-  assert.equal(await options.locator('#feedback').textContent(), 'Connected · 2 local workspace(s)');
+  await options.locator('#feedback:is(.success, .error)').waitFor();
+  assert.equal(await options.locator('#feedback').textContent(), 'Connected · 2 local workspaces');
   assert.equal(requests[0].headers["x-imprint-extension-id"], extensionId);
   assert.equal(requests[0].headers.authorization, undefined);
 
@@ -136,20 +141,21 @@ try {
     chrome.tabs.captureVisibleTab = async () => screenshot;
   }, {url, screenshot});
   await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-  await popup.getByText("Connected to local Imprint").waitFor();
+  await popup.locator('#connection[data-state="connected"]').waitFor();
   assert.deepEqual(await popup.locator('#workspace option').allTextContents(), ["fixture", "reading"]);
   await popup.getByLabel("Workspace").selectOption("reading");
   await popup.getByRole("button", {name: "Page text"}).click();
   await popup.getByLabel("Content to save").fill("Private workspace article, edited in preview.");
   await popup.getByRole("button", {name: "Save to Imprint"}).click();
-  await popup.getByText("Indexed in Imprint.").waitFor();
+  await popup.getByText(/Indexed in Imprint/).waitFor();
+  assert.equal(await popup.locator("#job-title").textContent(), "Signed in");
   await popup.reload();
-  await popup.getByText("Connected to local Imprint").waitFor();
+  await popup.locator('#connection[data-state="connected"]').waitFor();
   assert.equal(await popup.getByLabel("Workspace").inputValue(), "reading");
-  await popup.getByRole("button", {name: "URL", exact: true}).click();
+  await popup.getByRole("button", {name: "Link", exact: true}).click();
   await popup.locator("#preview").getByText(url).waitFor();
   await popup.getByRole("button", {name: "Save to Imprint"}).click();
-  await popup.getByText("Sent to reading.").waitFor();
+  await popup.getByText("Sent to reading › browser.").waitFor();
   const [pageCapture, urlCapture] = requests.filter((request) => request.url.endsWith("/captures"));
   assert.equal(pageCapture.headers.cookie, undefined);
   assert.equal(pageCapture.headers.authorization, undefined);
@@ -160,10 +166,10 @@ try {
   assert.equal(pagePayload.documents[0].text, "Private workspace article, edited in preview.");
   assert.deepEqual(JSON.parse(urlCapture.body), {url, project: "browser", workspace: "reading"});
   await privatePage.getByRole("link", {name: "Planning attachment"}).focus();
-  await popup.getByRole("button", {name: "Tab file"}).click();
-  await popup.locator("#preview").getByText("attachment.txt").waitFor();
+  await popup.getByRole("button", {name: "File in this tab"}).click();
+  await popup.locator("#preview").getByText(/attachment\.txt/).waitFor();
   await popup.getByRole("button", {name: "Save to Imprint"}).click();
-  await popup.getByText("Sent to reading.").waitFor();
+  await popup.getByText("Sent to reading › browser.").waitFor();
   const attachment = requests.find((request) => request.url.endsWith("/files"));
   assert.equal(attachment.body.toString(), "The attachment is available only in the signed-in session.");
   assert.equal(attachment.headers.cookie, undefined);
@@ -171,20 +177,52 @@ try {
   assert.equal(attachment.headers["content-type"], "application/octet-stream");
   assert.equal(JSON.parse(decodeURIComponent(attachment.headers["x-imprint-file"])).workspace, "reading");
 
-  await popup.getByRole("button", {name: "OCR visible tab"}).click();
+  await popup.getByRole("button", {name: "Screenshot of the visible area"}).click();
   await popup.getByRole("img", {name: "Visible tab to send for text recognition"}).waitFor();
   await popup.getByRole("button", {name: "Save to Imprint"}).click();
-  await popup.getByText("Sent to reading.").waitFor();
+  await popup.getByText("Sent to reading › browser.").waitFor();
   const image = requests.filter((request) => request.url.endsWith("/files")).at(-1);
   assert.equal(JSON.parse(decodeURIComponent(image.headers["x-imprint-file"])).kind, "screenshot");
 
   const [uploads] = await Promise.all([
     context.waitForEvent("page"),
-    popup.getByRole("button", {name: "Upload file"}).click(),
+    popup.getByRole("button", {name: "Upload a file"}).click(),
   ]);
+  await uploads.locator('#connection[data-state="connected"]').waitFor();
   await uploads.getByLabel("Choose a file").setInputFiles({name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("Chosen document for upload.")});
   await uploads.getByRole("button", {name: "Save to Imprint"}).click();
-  await uploads.getByText("Sent to reading.").waitFor();
+  await uploads.getByText("Sent to reading › browser.").waitFor();
+
+  // A full-page screenshot scrolls the tab, stitches each viewport and puts the
+  // page back as it was, sticky header and fixed banner included.
+  const long = await context.newPage();
+  await long.setViewportSize({width: 400, height: 300});
+  await long.goto(origin + "/long");
+  await long.evaluate(() => scrollTo(0, 500));
+  const viewport = "data:image/png;base64," + (await long.screenshot()).toString("base64");
+  const fullPopup = await context.newPage();
+  await fullPopup.addInitScript(({url, viewport}) => {
+    const query = chrome.tabs.query.bind(chrome.tabs);
+    chrome.tabs.query = () => query({url});
+    chrome.tabs.captureVisibleTab = async () => viewport;
+  }, {url: origin + "/long", viewport});
+  await fullPopup.goto(`chrome-extension://${extensionId}/popup.html`);
+  await fullPopup.locator('#connection[data-state="connected"]').waitFor();
+  await fullPopup.getByRole("button", {name: "Full-page screenshot"}).click();
+  await fullPopup.getByRole("img", {name: "Full page to send for text recognition"}).waitFor({timeout: 30000});
+  await fullPopup.getByText(/Full page · 3,640 px tall/).waitFor();
+  assert.deepEqual(await long.evaluate(() => [scrollY, ...[...document.querySelectorAll("header, .banner")].map((e) => getComputedStyle(e).visibility)]),
+    [500, "visible", "visible"]);
+  await fullPopup.getByRole("button", {name: "Save to Imprint"}).click();
+  await fullPopup.getByText("Sent to reading › browser.").waitFor();
+  const full = requests.filter((request) => request.url.endsWith("/files")).at(-1);
+  const fullMetadata = JSON.parse(decodeURIComponent(full.headers["x-imprint-file"]));
+  assert.deepEqual([fullMetadata.kind, fullMetadata.filename, fullMetadata.title], ["screenshot", "full-page.png", "Long fixture"]);
+  assert.equal(full.body.readUInt32BE(20), 3640);
+  await fullPopup.getByRole("button", {name: "Dismiss"}).click();
+  await fullPopup.reload();
+  await fullPopup.locator('#connection[data-state="connected"]').waitFor();
+  assert.equal(await fullPopup.locator("#job-card").isHidden(), true);
 
   await popup.getByLabel("Search memory").fill("planning & decisions");
   const [search] = await Promise.all([
@@ -222,7 +260,7 @@ try {
     }});
   }, local.url());
   assert.deepEqual(contentAccess[0].result, {storageDenied: true, bridgeDenied: true});
-  console.log("Packaged Chromium extension: token-free discovery, workspace choice, signed-in page capture, URL submission, file intake, export requests, OCR preview, search and recording handoff, and isolation passed.");
+  console.log("Packaged Chromium extension: token-free discovery, workspace choice, signed-in page capture, URL submission, file intake, export requests, OCR and full-page previews, search and recording handoff, and isolation passed.");
 } finally {
   await context?.close();
   await new Promise((done) => api.close(done));

@@ -25,7 +25,7 @@ export async function requestAPI(settings, path, body, fetcher = fetch) {
     credentials: "omit", redirect: "error", cache: "no-store", signal: AbortSignal.timeout(isFile ? 60000 : 10000),
   });
   if (response.status === 404 && path.startsWith("jobs/")) {
-    throw new Error("This capture job is no longer available.");
+    throw Object.assign(new Error("This capture job is no longer available."), {gone: true});
   }
   const result = await response.json().catch(() => null);
   if (path === "status" && (response.status === 404 || result?.detail === "Extension is not paired with this Imprint")) {

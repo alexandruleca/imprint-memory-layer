@@ -23,16 +23,20 @@ Settings to change the address if your local service uses another port.
 USE
 Click the Imprint toolbar icon and choose a workspace and project. Select
 Page text or Selection to review and edit text from the current tab, including
-signed-in pages. Choose URL to let Imprint fetch it directly. Click Save to
-Imprint to start the job. Accepted jobs continue after the popup closes.
-Use Tab file for a signed-in Google Doc, Sheet, or supported attachment link.
-If the viewer blocks direct capture, download the file and use Upload file.
-Choose OCR visible tab to preview a screenshot and index its text locally.
+signed-in pages. Choose Link to let Imprint fetch it directly. Click Save to
+Imprint (or press Ctrl+Enter) to start the job. Accepted jobs continue after
+the popup closes, and the popup shows the last capture's status.
+Use File in this tab for a signed-in Google Doc, Sheet, or supported attachment
+link. If the viewer blocks direct capture, download the file and use Upload a
+file, where you can also drop or paste a file. Under Screenshot text, choose
+Visible for what you see now or Full page to scroll and capture the whole page;
+Imprint reads the text locally.
 
 Search opens the dashboard in your chosen workspace. Record meeting opens
 the recording form with the Meet or Teams title when available. Confirm the
 participants know, click Start recording, and share the call tab with audio.
 Your workspace's normal sync and model settings apply.
+To open Capture from the keyboard, use Set a shortcut in its Settings.
 
 UPDATE
 Download the new ZIP, replace the files in the same extracted folder, and click

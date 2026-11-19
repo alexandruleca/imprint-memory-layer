@@ -6,7 +6,9 @@ description: Bound uploaded browser files and reuse the native extractors and OC
 - Status: Amended
 - Date: 2026-11-19
 - Amends: [ADR 0185](0185-local-chrome-capture.md) — adds bounded binary file submission to the capture API
-- Amended by: [ADR 0189](0189-captured-files-are-kept-only-while-a-job-can-use-them.md) — a stored file is deleted once its capture is indexed, or a week after it failed
+- Amended by:
+  - [ADR 0189](0189-captured-files-are-kept-only-while-a-job-can-use-them.md) — a stored file is deleted once its capture is indexed, or a week after it failed
+  - [ADR 0191](0191-chrome-full-page-screenshots-are-stitched-in-the-popup.md) — a screenshot can cover the whole page, not only the visible tab
 - Related: [ADR 0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md)
 
 ## Context

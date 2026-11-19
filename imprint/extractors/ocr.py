@@ -8,6 +8,14 @@ from . import ExtractorUnavailable, ExtractionError, OcrRuntimeMissing
 
 _lock = threading.Lock()
 
+# RapidOCR shrinks an image whose longer side exceeds its Global.max_side_len
+# (2000 px) before reading it, so a full-page screenshot 15,000 px tall would be
+# read at an eighth of its size. Taller images are read in overlapping bands no
+# taller than that; each line is kept from the one band that owns its centre,
+# and a line up to BAND_OVERLAP px tall lies whole inside that band (ADR 0190).
+BAND_HEIGHT = 2000
+BAND_OVERLAP = 200
+
 
 @lru_cache(maxsize=1)
 def _engine():
@@ -40,13 +48,42 @@ def recognize(image, lang: str = 'eng') -> str:
         except Exception as error:
             raise ExtractionError(f'Tesseract OCR ({lang}) failed: {error}') from error
     try:
-        with _lock:
-            result = _engine()(image)
-        return '\n'.join(result.txts or ()).strip()
+        return '\n'.join(_read_bands(image)).strip()
     except ExtractorUnavailable:
         raise
     except Exception as error:
         raise ExtractionError(f'OCR failed: {error}') from error
+
+
+def bands(height: int) -> list[tuple[int, int, int, int]]:
+    """(top, bottom, owned_from, owned_to) rows covering an image of this height.
+
+    Neighbouring bands overlap by at least BAND_OVERLAP and split the overlap
+    in its middle; the last band ends at the bottom edge.
+    """
+    if height <= BAND_HEIGHT:
+        return [(0, height, 0, height)]
+    step = BAND_HEIGHT - BAND_OVERLAP
+    tops = list(range(0, height - BAND_HEIGHT, step)) + [height - BAND_HEIGHT]
+    edges = [0] + [(tops[i + 1] + tops[i] + BAND_HEIGHT) // 2 for i in range(len(tops) - 1)] + [height]
+    return [(top, top + BAND_HEIGHT, edges[i], edges[i + 1]) for i, top in enumerate(tops)]
+
+
+def _read_bands(image) -> list[str]:
+    width, height = image.size
+    if height <= BAND_HEIGHT:
+        with _lock:
+            return list(_engine()(image).txts or ())
+    lines = []
+    for top, bottom, owned_from, owned_to in bands(height):
+        with _lock:
+            result = _engine()(image.crop((0, top, width, bottom)))
+        boxes = result.boxes if result.boxes is not None else ()
+        for box, text in zip(boxes, result.txts or ()):
+            centre = top + sum(point[1] for point in box) / len(box)
+            if owned_from <= centre < owned_to:
+                lines.append(text)
+    return lines
 
 
 def available(lang: str = 'eng') -> bool:
