@@ -3,9 +3,10 @@ title: ADR 0187 — Chrome sends explicit file captures to the ingestion queue
 description: Bound uploaded browser files and reuse the native extractors and OCR in the selected workspace.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-19
 - Amends: [ADR 0185](0185-local-chrome-capture.md) — adds bounded binary file submission to the capture API
+- Amended by: [ADR 0189](0189-captured-files-are-kept-only-while-a-job-can-use-them.md) — a stored file is deleted once its capture is indexed, or a week after it failed
 - Related: [ADR 0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md)
 
 ## Context

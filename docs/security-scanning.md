@@ -32,6 +32,8 @@ On 2026-11-18 the scan failed on picomatch `CVE-2026-112366` (high, no fixed rel
 
 The same minimatch advisory sits in the desktop build, where no electron-builder release requires minimatch 11 yet. `ui-electron/package.json` overrides only the copies in the vulnerable range (`minimatch@>=7.0.0 <11.0.1`). Builds with and without the override package the same files, and a replay of every packaging decision on the Linux, Windows and macOS matching rules found no difference ([ADR 0186](adr/0186-electron-builder-matches-the-desktop-apps-files-with-minimatch-11.md)).
 
+A recheck the same day cleared the two low `DS-0026` findings (no `HEALTHCHECK`) in `Dockerfile.base` and the CI runner image, `.github/runners/Dockerfile.ci-runner`. Neither runs a service a probe could check. The base is only the parent of `Dockerfile.imprint`, which declares its own API probe, and a child's `HEALTHCHECK` replaces the parent's. Each runner container takes one job and is removed by `docker run --rm`, which does nothing with health status. Both images now state `HEALTHCHECK NONE`. Neither upstream parent image (Python slim, `myoung34/github-runner`) declares a healthcheck, so the containers behave as before. Changing `Dockerfile.base` gives the base image a new tag, which the next `main` build creates. Only the unfixed diskcache finding remains.
+
 ## Reproduction and maintenance
 
 Use the workflow's pinned Trivy version (initially 0.76.1), with a separate output directory:

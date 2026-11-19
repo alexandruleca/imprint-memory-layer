@@ -118,13 +118,17 @@ test('voice preferences keep only supported choices and recover from broken brow
     exports: preferences, localStorage: { getItem: () => stored, setItem: (_key, value) => { stored = value; } },
   });
   const read = () => ({ ...preferences.readVoicePreferences() });
-  assert.deepEqual(read(), { engine: 'lfm', mode: 'handsfree', microphoneEnabled: true });
-  preferences.saveVoicePreferences({ mode: 'ptt' });
-  assert.deepEqual(JSON.parse(stored), { engine: 'lfm', mode: 'ptt', microphoneEnabled: true });
+  const defaults = { engine: 'chat', mode: 'ptt', microphoneEnabled: false, inputDevice: '', outputDevice: '' };
+  assert.deepEqual(read(), { engine: 'lfm', mode: 'handsfree', microphoneEnabled: true, inputDevice: '', outputDevice: '' });
+  preferences.saveVoicePreferences({ mode: 'ptt', inputDevice: 'usb-mic' });
+  assert.deepEqual(JSON.parse(stored), { engine: 'lfm', mode: 'ptt', microphoneEnabled: true, inputDevice: 'usb-mic', outputDevice: '' });
   stored = '{broken';
-  assert.deepEqual(read(), { engine: 'chat', mode: 'ptt', microphoneEnabled: false });
+  assert.deepEqual(read(), defaults);
   stored = '{"engine":"remote","mode":"always","microphoneEnabled":"true"}';
-  assert.deepEqual(read(), { engine: 'chat', mode: 'ptt', microphoneEnabled: false });
+  assert.deepEqual(read(), defaults);
+  // Device IDs are browser strings, bounded; anything else means the system default.
+  stored = JSON.stringify({ inputDevice: 'x'.repeat(600), outputDevice: 42 });
+  assert.deepEqual(read(), { ...defaults, inputDevice: 'x'.repeat(512) });
 });
 
 test('a microphone the OS refused names its recovery; restricted and unknown answers are not refusals', () => {

@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -242,6 +243,58 @@ class BrowserAPITests(TemporaryData, unittest.IsolatedAsyncioTestCase):
             conn.execute("UPDATE jobs SET status='failed' WHERE id=?", (job_id,))
         retry = queue.resubmit(job_id)
         self.assertEqual(queue.get_job(retry['job_id'])['body']['file_digest'], body['file_digest'])
+
+
+class FileRetentionTests(TemporaryData, unittest.TestCase):
+    def submit(self, data, status, ended_days_ago=0.0):
+        job_id = queue.submit_browser_file({'filename': 'notes.txt', 'workspace': 'other',
+                                            '_browser_extension_id': EXTENSION}, data)
+        ended = None if status in ('queued', 'running') else time.time() - ended_days_ago * 86400
+        with queue._connect() as conn:
+            conn.execute('UPDATE jobs SET status=?, ended_at=? WHERE id=?', (status, ended, job_id))
+        return job_id, queue.get_job(job_id)['body']['file_digest']
+
+    def stored(self):
+        with queue._connect() as conn:
+            return {row['digest'] for row in conn.execute('SELECT digest FROM browser_files')}
+
+    def on_disk(self):
+        return b''.join(path.read_bytes() for path in self.data.glob('queue.sqlite3*'))
+
+    def test_files_stay_only_while_a_job_can_still_use_them(self):
+        indexed_bytes = b'indexed private notes ' * 40
+        indexed, _ = self.submit(indexed_bytes, 'done')
+        failed, failed_digest = self.submit(b'failed notes', 'failed', 1)
+        expired, _ = self.submit(b'expired notes', 'cancelled', 8)
+        _, waiting_digest = self.submit(b'waiting notes', 'queued')
+        _, shared_digest = self.submit(b'shared notes', 'done')
+        self.submit(b'shared notes', 'running')
+        with queue._connect() as conn:
+            conn.execute('INSERT INTO browser_files VALUES (?, ?)', ('0' * 64, b'orphan'))
+        self.assertTrue(indexed_bytes in self.on_disk())
+        self.assertEqual(queue.collect_browser_files(), 3)
+        self.assertEqual(self.stored(), {failed_digest, waiting_digest, shared_digest})
+        self.assertFalse(indexed_bytes[:40] in self.on_disk(), 'deleted file bytes remain on disk')
+        for job_id in (indexed, expired):
+            with self.assertRaisesRegex(queue.NotRetryable, 'capture it again'):
+                queue.resubmit(job_id)
+        # A retry names the file, so it outlives the failed job's window.
+        queue.resubmit(failed)
+        with queue._connect() as conn:
+            conn.execute('UPDATE jobs SET ended_at=? WHERE id=?', (time.time() - 30 * 86400, failed))
+        self.assertEqual(queue.collect_browser_files(), 0)
+        self.assertIn(failed_digest, self.stored())
+
+    def test_dispatcher_and_startup_collect(self):
+        self.submit(b'indexed notes', 'done')
+        job_id, digest = self.submit(b'unreadable', 'queued')
+        asyncio.run(queue._run_job(queue.get_job(job_id)))
+        self.assertEqual(queue.get_job(job_id)['status'], 'failed')
+        self.assertEqual(self.stored(), {digest})
+        with queue._connect() as conn:
+            conn.execute('UPDATE jobs SET ended_at=? WHERE id=?', (time.time() - 8 * 86400, job_id))
+        queue.recover_on_startup()
+        self.assertEqual(self.stored(), set())
 
 
 class WorkerTests(TemporaryData, unittest.TestCase):

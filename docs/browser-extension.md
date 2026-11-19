@@ -122,9 +122,12 @@ the chosen workspace at submission and validates it again before ingestion.
 Job status returns status and timing fields for the submitting extension ID.
 
 Captured text and metadata are retained in the local queue database/history
-as well as indexed memories. Uploaded bytes are retained locally in the queue
-for retries and deduplicated by digest. They do not appear in job status, logs
-or command arguments. Browser job status excludes raw payloads; the
+as well as indexed memories. Uploaded bytes are kept locally in the queue,
+deduplicated by digest, only while a job can use them: until the capture is
+indexed, or for a week after it failed or was cancelled, so **Retry** works
+without another upload. They are then deleted and their pages zeroed
+([ADR 0189](adr/0189-captured-files-are-kept-only-while-a-job-can-use-them.md)).
+They do not appear in job status, logs or command arguments. Browser job status excludes raw payloads; the
 local dashboard still has its normal queue access. These captures inherit the
 selected workspace's sync settings and Imprint's model/tagger configuration;
 an explicitly configured remote provider may receive content through existing

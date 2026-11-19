@@ -35,3 +35,7 @@ RUN python -m venv /app/.venv \
 # Imprint and back to this user, so neither image runs as root.
 RUN useradd --create-home --uid 1000 imprint
 USER imprint
+
+# This image runs no service of its own: Dockerfile.imprint declares the probe
+# against the server it adds. Stating "none" here keeps that choice explicit.
+HEALTHCHECK NONE

@@ -208,8 +208,9 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) **Symmetric uninstall and branch synchronization.** Disconnect managed clients before uninstall, retry failures and fast-forward dev after main changes. Amended by [ADR 0028](0028-complete-uninstall.md) (data retention), [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) (dev publishes prereleases) and [ADR 0085](0085-main-only-fast-forwards-to-dev.md) (no dev sync).
 - [ADR 0028](0028-complete-uninstall.md) **Complete uninstall.** Uninstall stops every process of the installation and removes its runtime and data unless the user keeps the data. Amended by [ADR 0074](0074-uninstall-removes-the-shared-desktop-profile.md) (desktop profile).
 - [ADR 0185](0185-local-chrome-capture.md) **Chrome capture discovers local workspaces.** The popup connects over loopback, selects a destination, and submits a text snapshot or a URL. Amended by [ADR 0187](0187-browser-file-capture.md) and [ADR 0188](0188-browser-dashboard-handoff.md).
-- [ADR 0187](0187-browser-file-capture.md) **Chrome sends explicit file captures to the ingestion queue.** Files and screenshots use existing extractors and local OCR.
+- [ADR 0187](0187-browser-file-capture.md) **Chrome sends explicit file captures to the ingestion queue.** Files and screenshots use existing extractors and local OCR. Amended by [ADR 0189](0189-captured-files-are-kept-only-while-a-job-can-use-them.md) (stored files deleted once no job can use them).
 - [ADR 0188](0188-browser-dashboard-handoff.md) **Chrome hands search and meeting setup to the dashboard.** Both use the selected workspace and the dashboard's existing controls.
+- [ADR 0189](0189-captured-files-are-kept-only-while-a-job-can-use-them.md) **Captured files are kept only while a job can use them.** A Chrome capture's file is deleted once it is indexed, or a week after it failed or was cancelled, with its pages zeroed and the write-ahead log truncated.
 - [ADR 0030](0030-chrome-extension-release-zip.md) **Chrome preview ZIP and release downloads.** Allowlisted Chrome preview ZIP in validated releases, website download/install guide and coming-soon integrations.
 - [ADR 0055](0055-ad-hoc-signed-macos-desktop-bundle.md) **Ad-hoc signed macOS desktop bundle.** The macOS desktop app is signed ad hoc as a bundle so privacy consent can read its microphone usage text; packaging rejects an unsigned bundle. Amended by [ADR 0075](0075-microphone-purpose-in-the-macos-installer-wrapper.md) (enclosing installer app), [ADR 0111](0111-intel-macs-are-not-supported.md) (arm64-only app).
 - [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) **Dev prereleases from the dev branch.** Releasable dev pushes publish `vX.Y.Z-dev.N` prereleases of the next stable version through the release pipeline, skipping commits main holds; `--dev` installs the highest release version. Amended by [ADR 0108](0108-installations-opt-in-to-dev-builds-in-settings.md) (installations opt in to dev builds).
@@ -447,8 +448,9 @@ Every record in number order. *Date* is when the decision was made.
 | [0184](0184-a-recordings-audio-states-its-length-and-can-be-sought.md) | 2026-11-12 | Accepted | A recording's audio states its length and can be sought |
 | [0185](0185-local-chrome-capture.md) | 2026-11-19 | Amended by [ADR 0187](0187-browser-file-capture.md) and [ADR 0188](0188-browser-dashboard-handoff.md) | Chrome capture discovers local workspaces |
 | [0186](0186-electron-builder-matches-the-desktop-apps-files-with-minimatch-11.md) | 2026-11-19 | Accepted | electron-builder matches the desktop app's files with minimatch 11 |
-| [0187](0187-browser-file-capture.md) | 2026-11-19 | Accepted | Chrome sends explicit file captures to the ingestion queue |
+| [0187](0187-browser-file-capture.md) | 2026-11-19 | Amended by [ADR 0189](0189-captured-files-are-kept-only-while-a-job-can-use-them.md) | Chrome sends explicit file captures to the ingestion queue |
 | [0188](0188-browser-dashboard-handoff.md) | 2026-11-19 | Accepted | Chrome hands search and meeting setup to the dashboard |
+| [0189](0189-captured-files-are-kept-only-while-a-job-can-use-them.md) | 2026-11-19 | Accepted | Captured files are kept only while a job can use them |
 
 ## How to write and maintain ADRs
 

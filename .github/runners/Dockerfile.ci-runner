@@ -43,3 +43,8 @@ RUN set -eu; \
     tar -xzf /tmp/go.tgz -C "$dest" --strip-components=1; \
     touch "$dest.complete"; \
     rm /tmp/go.tgz
+
+# A runner takes one job and its container is discarded (jit-runners.sh runs
+# it with docker run --rm, which acts on no health status); a job that hangs
+# ends at its workflow timeout. The upstream image declares no probe either.
+HEALTHCHECK NONE
