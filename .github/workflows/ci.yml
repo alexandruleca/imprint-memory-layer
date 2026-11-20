@@ -131,6 +131,12 @@ jobs:
         timeout-minutes: 60
         working-directory: imprint/ui
       - run: node extensions/chrome/tests/browser-smoke.mjs
+      # The same extension as a Firefox add-on, in a pinned Firefox ESR (ADR 0193).
+      - run: npx playwright install-deps firefox
+        timeout-minutes: 30
+        working-directory: imprint/ui
+      - run: scripts/fetch-firefox.sh "$RUNNER_TEMP/firefox"
+      - run: node extensions/chrome/tests/firefox-smoke.mjs
       # Trusted runners share the host's network: serve the dashboard on a
       # free port, not one another job may hold.
       - run: echo "PLAYWRIGHT_PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')" >> "$GITHUB_ENV"

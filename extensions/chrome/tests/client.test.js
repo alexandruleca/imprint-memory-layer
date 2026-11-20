@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {apiBase, requestAPI, trustedSender} from "../client.js";
+import {apiBase, originHost, requestAPI, trustedSender} from "../client.js";
 import {meetingTitle} from "../files.js";
 
 test("only literal loopback HTTP API addresses are accepted", () => {
@@ -12,12 +12,20 @@ test("only literal loopback HTTP API addresses are accepted", () => {
 
 test("content scripts and other extensions cannot use the privileged bridge", () => {
   const id = "a".repeat(32);
-  const sender = {id, url: `chrome-extension://${id}/popup.html`};
-  assert.equal(trustedSender(sender, id), true);
-  assert.equal(trustedSender({...sender, tab: {id: 1}}, id), true);
-  assert.equal(trustedSender({...sender, tab: {id: 1}, url: "https://example.com"}, id), false);
-  assert.equal(trustedSender({...sender, url: "https://example.com"}, id), false);
-  assert.equal(trustedSender({...sender, id: "b".repeat(32)}, id), false);
+  const root = `chrome-extension://${id}/`;
+  const sender = {id, url: `${root}popup.html`};
+  assert.equal(trustedSender(sender, id, root), true);
+  assert.equal(trustedSender({...sender, tab: {id: 1}}, id, root), true);
+  assert.equal(trustedSender({...sender, tab: {id: 1}, url: "https://example.com"}, id, root), false);
+  assert.equal(trustedSender({...sender, url: "https://example.com"}, id, root), false);
+  assert.equal(trustedSender({...sender, id: "b".repeat(32)}, id, root), false);
+  // Firefox: the ID names the add-on, the origin carries a per-install UUID.
+  const gecko = "capture@imprintmcp.alexandruleca.com";
+  const firefox = "moz-extension://6a8a5c4e-1b2d-4c3e-9f00-123456789abc/";
+  assert.equal(trustedSender({id: gecko, url: `${firefox}options.html`}, gecko, firefox), true);
+  assert.equal(trustedSender({id: gecko, url: "moz-extension://00000000-0000-4000-8000-000000000000/options.html"}, gecko, firefox), false);
+  assert.equal(originHost(root), id);
+  assert.equal(originHost(firefox), "6a8a5c4e-1b2d-4c3e-9f00-123456789abc");
 });
 
 test("requests use the fixed local browser API and redirects are refused", async () => {

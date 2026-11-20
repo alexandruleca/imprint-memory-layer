@@ -18,7 +18,7 @@ export function googleExport(value, title = "") {
   return {url: exportURL.href, source_url: canonical, filename, title: name, kind: isDoc ? "google-doc" : "google-sheet"};
 }
 
-// Serialized by executeScript and run only on the active tab, in Chrome's
+// Serialized by executeScript and run only on the active tab, in the browser's
 // isolated world. The page's browser session supplies the fetch credentials.
 export async function readTabFile(explicitURL, expectedPage, extensions, limit) {
   try {
@@ -35,12 +35,12 @@ export async function readTabFile(explicitURL, expectedPage, extensions, limit) 
       if (link) url = new URL(link.href);
     }
     if (!["http:", "https:"].includes(url.protocol) || url.origin !== page.origin || url.username || url.password) {
-      throw new Error("Download this attachment in Chrome, then use Upload file.");
+      throw new Error("Download this attachment, then use Upload a file.");
     }
     const response = await fetch(url, {credentials: "same-origin", cache: "no-store", signal: AbortSignal.timeout(30000)});
     const mime = response.headers.get("Content-Type")?.split(";")[0].trim().toLowerCase();
     if (!response.ok || !response.body || mime === "text/html") {
-      throw new Error("Chrome could not read the file. Download or export it, then use Upload file.");
+      throw new Error("The browser couldn’t read the file. Download or export it, then use Upload a file.");
     }
     let filename = decodeURIComponent(url.pathname.split("/").pop());
     if (!explicitURL) {
@@ -60,7 +60,7 @@ export async function readTabFile(explicitURL, expectedPage, extensions, limit) 
           "image/webp": ".webp",
         };
         const suffix = types[mime];
-        if (!extensions.includes(suffix)) throw new Error("Download this attachment, then use Upload file.");
+        if (!extensions.includes(suffix)) throw new Error("Download this attachment, then use Upload a file.");
         filename = (filename || "attachment") + suffix;
       }
     }

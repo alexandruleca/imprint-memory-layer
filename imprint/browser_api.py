@@ -23,13 +23,13 @@ async def boundary(request, call_next):
     cors = {}
     try:
         if request.method == 'OPTIONS':
-            prefix = 'chrome-extension://'
-            extension_id = origin[len(prefix):] if origin and origin.startswith(prefix) else ''
+            scheme = next((s for s in browser.ORIGIN_SCHEMES if origin and origin.startswith(s)), '')
+            extension_id = origin[len(scheme):] if scheme else ''
         else:
             extension_id = request.headers.get('x-imprint-extension-id', '')
         expected = browser.extension_origin(extension_id)
         if local and request.method == 'POST' and origin is None:
-            raise ValueError('Capture submission requires a Chrome extension origin')
+            raise ValueError('Capture submission requires a browser extension origin')
         if origin is not None and origin != expected:
             raise ValueError('Extension origin does not match extension ID')
         pairing = None if local else browser.grant(extension_id)

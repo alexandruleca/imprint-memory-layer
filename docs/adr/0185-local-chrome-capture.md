@@ -9,6 +9,7 @@ description: Use the native loopback trust boundary for Chrome capture and let t
 - Amended by:
   - [ADR 0187](0187-browser-file-capture.md) — bounded binary files through the capture queue
   - [ADR 0188](0188-browser-dashboard-handoff.md) — dashboard search and recording handoff
+  - [ADR 0192](0192-the-capture-api-accepts-firefox-extension-origins.md) — the local routes also accept a Firefox extension's UUID and `moz-extension://` origin
 - Related: [ADR 0024](0024-enforce-local-service-boundaries.md) and [ADR 0030](0030-chrome-extension-release-zip.md)
 
 ## Context

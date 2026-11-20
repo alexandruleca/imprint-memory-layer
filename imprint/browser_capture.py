@@ -20,12 +20,19 @@ FILE_EXTENSIONS = frozenset({
     '.png', '.jpeg', '.jpg', '.webp', '.gif', '.bmp', '.tiff', '.tif',
 })
 EXTENSION_ID = re.compile(r'[a-p]{32}')
+# Firefox names an extension's pages by a random UUID per installation, so the
+# local routes take that UUID where Chrome sends its extension ID (ADR 0192).
+FIREFOX_ID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
+ORIGIN_SCHEMES = ('chrome-extension://', 'moz-extension://')
 
 
 def extension_origin(extension_id):
-    if not isinstance(extension_id, str) or not EXTENSION_ID.fullmatch(extension_id):
-        raise ValueError('Expected a Chrome extension ID (32 letters a–p)')
-    return 'chrome-extension://' + extension_id
+    """The only Origin a request naming this extension ID may carry."""
+    if isinstance(extension_id, str) and EXTENSION_ID.fullmatch(extension_id):
+        return 'chrome-extension://' + extension_id
+    if isinstance(extension_id, str) and FIREFOX_ID.fullmatch(extension_id):
+        return 'moz-extension://' + extension_id
+    raise ValueError('Expected a Chrome extension ID (32 letters a–p) or a Firefox extension UUID')
 
 
 @contextmanager

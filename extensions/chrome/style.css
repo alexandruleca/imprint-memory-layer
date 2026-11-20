@@ -15,7 +15,9 @@
   --radius: 10px;
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--background); color: var(--foreground); }
+/* Chrome gives extension pages body { font-family: <system UI font>; font-size: 75% },
+   which would win over the font inherited from :root. */
+body { margin: 0; font: inherit; background: var(--background); color: var(--foreground); }
 /* A popup is as wide as its content: a fixed width, never vw, which would
    resolve against the popup's own starting size. */
 .popup { width: 380px; }
