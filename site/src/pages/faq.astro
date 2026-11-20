@@ -33,15 +33,19 @@ const faqs = [
   },
   {
     q: 'Which agents does it work with?',
-    a: 'Any MCP-capable host. `imprint setup all` auto-wires Claude Code (with a once-per-session reminder to search Imprint first, which never blocks a tool), Claude Desktop, ChatGPT Desktop (through the Codex profile it shares), Cursor, GitHub Copilot (VS Code, the Copilot CLI and JetBrains), Codex CLI, Cline, OpenCode and OpenClaw; `imprint clients` shows which are connected. Adding a new host is a config file and a CLI subcommand away.',
+    a: 'Any MCP-capable host. `imprint setup all` auto-wires Claude Code (with a once-per-session reminder to search Imprint first, which never blocks a tool), Claude Desktop, ChatGPT Desktop (through the Codex profile it shares), Cursor, GitHub Copilot (VS Code, the Copilot CLI and JetBrains), Codex CLI, Cline, OpenCode and OpenClaw; `imprint clients` shows which are connected. Your skills and personas are kept once and written into the folders each connected client reads, and offered to every other MCP client. Adding a new host is a config file and a CLI subcommand away.',
   },
   {
     q: 'Can I share memory across my machines or with my team?',
-    a: 'Yes. `imprint sync serve` prints a one-time share code; the other machine joins with `imprint sync <code>`, the serving side approves its device, and memories and facts arrive deduplicated. Joining only receives: add `--two-way` to send back as well, and you are shown the serving device and asked before anything leaves. The serving side can be `--send-only` or `--receive-only`. Sessions are end-to-end encrypted: the code becomes the key (SPAKE2) without crossing the relay, so even the default public relay cannot read your memories. Project identity comes from the manifest (package.json, go.mod, pyproject.toml…), so the same repo lines up on every machine. Each machine keeps its own copy: a session merges once, and devices you pair (`--remember` on both sides, or the dashboard’s automatic sync) merge what changed about once a minute while the dashboard or `imprint sync watch` runs on both. It is not a live shared database.',
+    a: 'Yes. `imprint sync serve` prints a one-time share code; the other machine joins with `imprint sync <code>`, the serving side approves its device, and memories and facts arrive deduplicated. Between paired devices, memories you delete are deleted on the other side too. Joining only receives: add `--two-way` to send back as well, and you are shown the serving device and asked before anything leaves. The serving side can be `--send-only` or `--receive-only`. Sessions are end-to-end encrypted: the code becomes the key (SPAKE2) without crossing the relay, so even the default public relay cannot read your memories. Project identity comes from the manifest (package.json, go.mod, pyproject.toml…), so the same repo lines up on every machine. Each machine keeps its own copy: a session merges once, and devices you pair (`--remember` on both sides, or the dashboard’s automatic sync) merge what changed about once a minute while the dashboard or `imprint sync watch` runs on both. It is not a live shared database.',
   },
   {
     q: 'Can I share only part of my memory?',
     a: 'Yes, through workspaces. Each workspace is a separate memory with its own vector collection and fact graph. Copy a project, topic or single source into a dedicated workspace with `imprint migrate --from default --to team --project <name> --copy`, then sync just that one with `imprint sync serve --workspace team --send-only`. Your own workspace keeps everything, and nothing else is sent. The dashboard has the same controls.',
+  },
+  {
+    q: 'What does the browser extension send, and where?',
+    a: 'Imprint Capture for Chrome and Firefox reads a tab only when you open it there and choose what to save: page text, a selection, a link, a file, a Google Doc or Sheet export, or a screenshot for local text recognition. You see a preview first. It sends that only to Imprint on your own computer at 127.0.0.1, has no analytics, and does not read cookies, passwords or browsing history. The privacy policy on this site lists everything it stores.',
   },
   {
     q: 'Will it slow my agent down?',

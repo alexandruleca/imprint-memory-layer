@@ -17,9 +17,12 @@ The marketing + docs site deployed to https://imprintmcp.alexandruleca.com via G
 | `/` | `src/pages/index.astro` — hand-authored landing |
 | `/benchmarks` | `src/pages/benchmarks.astro` — full benchmark tables from `BENCHMARK.md` |
 | `/faq` | `src/pages/faq.astro` — SEO-targeted "MCP memory layer" Q&A |
-| `/chrome-extension/` | `src/pages/chrome-extension.astro` — Chrome preview download, manual installation and coming-soon integrations |
+| `/chrome-extension/` | `src/pages/chrome-extension.astro` — Chrome ZIP and signed Firefox add-on downloads, manual installation and coming-soon integrations |
+| `/privacy/` | `src/pages/privacy.astro` — privacy policy for the app, the capture extension (its Chrome Web Store / AMO policy URL), the sync relay and this site |
 | `/installation`, `/mcp`, `/architecture`, … | `../docs/*.md` via Starlight content collection |
 | `/404` | `src/pages/404.astro` |
+
+Links to a section (`/#sync`, a docs heading) land on it after the web fonts arrive: `public/scripts/anchors.js`, loaded by the landing layout and the Starlight head, lands again once fonts and images have loaded unless the visitor has scrolled, then turns on smooth scrolling for in-page links (`html.smooth-scroll`).
 
 ## Develop
 
@@ -53,6 +56,8 @@ Builds with `PUBLIC_GA4_ID` set (the Pages workflow sets it) load Google Analyti
 | `select_option` | Changing a `<select>` (the docs theme) | `option` |
 | `link_click` | Any other link | `link_text`, `link_url`, `outbound` |
 | `button_click` | Any other button | `label` |
+
+The [privacy policy](src/pages/privacy.astro) describes these events and cookies to visitors; change it with them.
 
 Every event also carries `placement`: the id of the nearest `section[id]`, or the nearest `header`, `footer`, `nav`, `aside` or `main`. To give an element its own event, add `data-track="<event>"` and `data-track-<param>` attributes. `link_text`, `link_url`, `file_name`, `file_extension` and `outbound` fill GA's built-in dimensions; register `placement`, `command`, `tab_group`, `tab`, `label`, `option` and `version` as event-scoped custom dimensions to report on them.
 

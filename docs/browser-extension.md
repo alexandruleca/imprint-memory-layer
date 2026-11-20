@@ -197,6 +197,8 @@ is not verified source authenticity.
 
 Use Imprint's existing source purge workflow to remove indexed captures.
 
+The [privacy policy](https://imprintmcp.alexandruleca.com/privacy/#extension) states the same boundaries for users and for the Chrome Web Store and addons.mozilla.org reviews: what each action reads, that captures go only to the loopback backend, and what the extension keeps in `chrome.storage.local`. Update it with any change to permissions, network destinations or stored settings.
+
 ## Coming soon and validation
 
 Gmail message capture, iframe/shadow-DOM text capture, background capture,

@@ -50,6 +50,10 @@ const mermaidHead = [
   { tag: 'script', attrs: { type: 'module', src: '/scripts/mermaid.js' } },
 ];
 
+// Links to a heading land on it after the web fonts arrive (as on the landing pages).
+/** @type {import('@astrojs/starlight/types').HeadConfig} */
+const anchorHead = [{ tag: 'script', attrs: { src: '/scripts/anchors.js' } }];
+
 // Same faces as the landing pages; Starlight's theme already names them.
 /** @type {import('@astrojs/starlight/types').HeadConfig} */
 const fontHead = [
@@ -86,7 +90,7 @@ export default defineConfig({
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/alexandruleca/imprint-memory-layer' },
       ],
-      head: [...analyticsHead, ...fontHead, ...mermaidHead],
+      head: [...anchorHead, ...analyticsHead, ...fontHead, ...mermaidHead],
       customCss: ['./src/styles/starlight.css'],
       sidebar: [
         {
@@ -96,7 +100,8 @@ export default defineConfig({
             { label: 'Dashboard', slug: 'dashboard' },
             { label: 'Audio ingestion', slug: 'audio-ingestion' },
             { label: 'Echo voice companion', slug: 'live-voice' },
-            { label: 'Chrome extension (preview)', slug: 'browser-extension' },
+            { label: 'Browser extension (preview)', slug: 'browser-extension' },
+            { label: 'Skills and personas', slug: 'skills' },
             { label: 'MCP tools', slug: 'mcp' },
             { label: 'HTTP API', slug: 'api' },
           ],

@@ -103,7 +103,7 @@ const faqs = [
   },
   {
     q: 'Do deletions sync?',
-    a: 'No. Sync merges; it never deletes. A memory you remove after sharing stays on the other machine until it is removed there too.',
+    a: 'Between paired devices, yes. A memory you delete (with the delete tool, a purge or a deleted recording) is deleted on each paired device that holds it at their next sync, in the direction the pairing sends data, and passed on to their own pairings. Deletions are kept 180 days, and one sync deletes at most half of a workspace. A one-time sync only adds, and a file that merely disappeared from disk is not deleted elsewhere.',
   },
   {
     q: 'What if a transfer is interrupted?',
@@ -261,8 +261,8 @@ imprint sync f5b9c62d-CYHSeQEC --workspace from-alice</code></pre>
           </li>
         </ol>
         <p class="mt-5 text-sm text-[color:var(--color-text-dim)] max-w-3xl">
-          Re-run the copy and the sync to refresh: both deduplicate. Neither deletes, so what you shared stays
-          shared.
+          Re-run the copy and the sync to refresh: both deduplicate. A one-time sync never deletes, so what you
+          shared stays shared.
         </p>
       </div>
     </section>

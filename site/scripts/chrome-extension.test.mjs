@@ -13,3 +13,11 @@ test('prereleases and unrelated platform ZIPs are not extension downloads', () =
   assert.equal(latestChromeExtension({releases: [{prerelease: true, assets: [{name: extensionAssetName}]}, {assets: [{name: 'imprint-windows-amd64.zip'}]}]}), null);
   assert.equal(latestChromeExtension({}), null);
 });
+
+test('only the signed Firefox add-on is offered for download', async () => {
+  const {latestFirefoxExtension, firefoxAssetName} = await import('../src/lib/chrome-extension.mjs');
+  const signed = {tag: 'v1', publishedAt: '2026-11-20', assets: [{name: firefoxAssetName, url: 'https://github.com/release/addon.xpi'}]};
+  const unsigned = {tag: 'v2', publishedAt: '2026-11-21', assets: [{name: 'imprint-firefox-extension-unsigned.xpi'}]};
+  assert.equal(latestFirefoxExtension({releases: [signed, unsigned]}).release.tag, 'v1');
+  assert.equal(latestFirefoxExtension({releases: [unsigned]}), null);
+});
