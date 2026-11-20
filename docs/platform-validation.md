@@ -171,6 +171,22 @@ real toolbar click in headed Chrome on Windows or macOS, device pixel ratios
 above 1, and the Tesseract path. See [ADR 0190](adr/0190-ocr-reads-tall-images-in-bands.md)
 and [ADR 0191](adr/0191-chrome-full-page-screenshots-are-stitched-in-the-popup.md).
 
+### Firefox capture add-on — 2026-11-20
+
+On Linux x64/WSL2 with Node 22.23.5, the Firefox add-on packaged from the Chrome
+extension's source passed its smoke test in Firefox ESR 153.7.0esr with geckodriver
+0.37.1, both checked against their pinned SHA-256. The run covered discovery,
+workspace choice, signed-in page, selection and file capture, full-page stitching,
+upload, search handoff and bridge isolation. Real Firefox submissions carried
+`Origin: moz-extension://<UUID>` with the UUID in `X-Imprint-Extension-Id` and no
+cookies. The Chrome smoke test and the extension's Node tests passed on the same
+tree. On the Windows install's Python 3.13 runtime, the browser capture (22) and
+HTTP security (10) tests passed, including the Firefox origin cases. The AMO signer
+passed against a stand-in API. Not run: signing against the real addons.mozilla.org,
+a toolbar click in headed Firefox, and Firefox on Windows or macOS. See
+[ADR 0192](adr/0192-the-capture-api-accepts-firefox-extension-origins.md) and
+[ADR 0193](adr/0193-firefox-capture-is-the-chrome-extension-signed-as-an-unlisted-add-on.md).
+
 ### Existing subsystem checks
 
 | Check | Result | What it establishes |

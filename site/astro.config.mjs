@@ -13,17 +13,9 @@ const ga4Id = env.PUBLIC_GA4_ID || process.env.PUBLIC_GA4_ID;
 /** @type {import('@astrojs/starlight/types').HeadConfig} */
 const analyticsHead = ga4Id
   ? [
-      {
-        tag: 'script',
-        attrs: { async: true, src: `https://www.googletagmanager.com/gtag/js?id=${ga4Id}` },
-      },
-      {
-        tag: 'script',
-        content:
-          `window.dataLayer=window.dataLayer||[];` +
-          `function gtag(){dataLayer.push(arguments);}` +
-          `gtag('js',new Date());gtag('config','${ga4Id}');`,
-      },
+      // Google Analytics loads only after the visitor accepts in the consent
+      // banner, as on the landing pages (Analytics.astro).
+      { tag: 'script', attrs: { defer: true, src: '/scripts/consent.js', 'data-ga4': ga4Id } },
       // Visitor actions as events; the same script runs on the landing pages.
       { tag: 'script', attrs: { type: 'module', src: '/scripts/events.js' } },
     ]
@@ -49,6 +41,10 @@ const mermaidFences = {
 const mermaidHead = [
   { tag: 'script', attrs: { type: 'module', src: '/scripts/mermaid.js' } },
 ];
+
+// Links to a heading land on it after the web fonts arrive (as on the landing pages).
+/** @type {import('@astrojs/starlight/types').HeadConfig} */
+const anchorHead = [{ tag: 'script', attrs: { src: '/scripts/anchors.js' } }];
 
 // Same faces as the landing pages; Starlight's theme already names them.
 /** @type {import('@astrojs/starlight/types').HeadConfig} */
@@ -86,7 +82,7 @@ export default defineConfig({
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/alexandruleca/imprint-memory-layer' },
       ],
-      head: [...analyticsHead, ...fontHead, ...mermaidHead],
+      head: [...anchorHead, ...analyticsHead, ...fontHead, ...mermaidHead],
       customCss: ['./src/styles/starlight.css'],
       sidebar: [
         {
@@ -96,7 +92,8 @@ export default defineConfig({
             { label: 'Dashboard', slug: 'dashboard' },
             { label: 'Audio ingestion', slug: 'audio-ingestion' },
             { label: 'Echo voice companion', slug: 'live-voice' },
-            { label: 'Chrome extension (preview)', slug: 'browser-extension' },
+            { label: 'Browser extension (preview)', slug: 'browser-extension' },
+            { label: 'Skills and personas', slug: 'skills' },
             { label: 'MCP tools', slug: 'mcp' },
             { label: 'HTTP API', slug: 'api' },
           ],

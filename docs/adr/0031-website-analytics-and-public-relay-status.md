@@ -3,8 +3,9 @@ title: ADR 0031 — Website analytics events and public relay status
 description: GA4 events for visitor actions on the website, a live public-relay status read from /health, and opt-in analytics on the relay's browser page.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-24
+- Amended by: [ADR 0194](0194-website-and-relay-analytics-load-only-after-consent.md) — the website's and the relay page's Google Analytics load only after the visitor consents
 - Related: [ADR 0018](0018-single-sync-implementation-and-end-to-end-encryption.md), [ADR 0013](0013-remediate-security-scan-dependencies.md)
 - Restructured: 2026-10-25
 

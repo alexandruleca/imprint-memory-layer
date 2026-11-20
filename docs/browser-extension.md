@@ -1,13 +1,15 @@
 ---
-title: Chrome capture extension (WIP)
-description: Connect to local Imprint, choose a workspace, and capture pages and files, start meetings, and search Imprint from Chrome.
+title: Chrome and Firefox capture extension (WIP)
+description: Connect to local Imprint, choose a workspace, and capture pages and files, start meetings, and search Imprint from Chrome or Firefox.
 ---
 
 ## Status and scope
 
 The Manifest V3 extension lives in [`extensions/chrome`](../extensions/chrome/)
-and is distributed as `imprint-chrome-extension.zip` in GitHub releases. This is
-a preview, installed manually rather than through the Chrome Web Store. No cloud capture service or Gmail OAuth client
+and is distributed as `imprint-chrome-extension.zip` in GitHub releases. The same
+source is built as a Firefox add-on, `imprint-firefox-extension.xpi`
+([Firefox](#firefox) below). This is a preview, installed manually rather than
+through the Chrome Web Store or a listing on addons.mozilla.org. No cloud capture service or Gmail OAuth client
 is required. The popup connects automatically to the local Imprint HTTP API and lists existing
 workspaces. Choose a destination and preview what you want to save.
 
@@ -98,6 +100,33 @@ package manifests, development dependencies, caches and local credentials are
 excluded. Release CI loads the extracted ZIP in disposable Chromium before
 including it in the complete release and `SHA256SUMS`. See [ADR 0030](adr/0030-chrome-extension-release-zip.md).
 
+## Firefox
+
+The Firefox add-on is the same extension with a Firefox manifest, for Firefox 140
+or later ([ADR 0193](adr/0193-firefox-capture-is-the-chrome-extension-signed-as-an-unlisted-add-on.md)).
+It behaves as described above; the differences are where the browser differs.
+
+- **Install.** Download `imprint-firefox-extension.xpi` from the release and open it
+  in Firefox (drag it onto a window, or **File → Open File**), then confirm. Mozilla
+  signs it as an unlisted add-on: it installs in any Firefox but is not listed on
+  addons.mozilla.org and does not update itself, so install each release's file again.
+- **Unsigned builds.** Prereleases, and releases made before signing was set up,
+  carry `imprint-firefox-extension-unsigned.xpi`. Release Firefox refuses it. Load it
+  for the session from `about:debugging#/runtime/this-firefox` with **Load Temporary
+  Add-on**, or install it in Developer Edition or Nightly with
+  `xpinstall.signatures.required` set to `false` in `about:config`.
+- **Shortcut.** **Set a shortcut** in the add-on's settings opens Firefox's
+  **Manage Extension Shortcuts**.
+- **Connection.** Firefox gives the add-on a random ID for each installation; Imprint
+  checks requests against it ([ADR 0192](adr/0192-the-capture-api-accepts-firefox-extension-origins.md)).
+  Reinstalling starts a new ID, so the popup forgets the previous installation's last capture.
+
+Maintainers: signing needs an addons.mozilla.org API key (**Developer Hub → Manage
+API Keys**) stored as the repository secrets `AMO_JWT_ISSUER` (the JWT issuer) and
+`AMO_JWT_SECRET`. With both set, each stable release signs the add-on through
+`scripts/sign_firefox_extension.py` and attaches the signed file in place of the
+unsigned one; a signing failure fails the release.
+
 ## Install from this checkout
 
 1. Use this branch's backend and an interpreter with Imprint's base requirements.
@@ -125,8 +154,9 @@ Generic extraction excludes forms, editable regions, hidden text and common
 navigation elements. Review the preview on sites with unusual markup.
 
 The credential-free capture routes under `/api/browser/local/` require an
-actual loopback peer, a loopback Host, a Chrome extension ID header, and an
-exact extension Origin on submissions. Chrome can omit Origin on GET requests. Website origins are rejected, and an extension cannot
+actual loopback peer, a loopback Host, an extension ID header (Chrome's
+extension ID, or the UUID Firefox gives the installation), and the exact
+matching extension Origin on submissions. Browsers can omit Origin on GET requests. Website origins are rejected, and an extension cannot
 use this header to reach general dashboard routes. Any installed extension
 with loopback host access can use the capture routes. This is a local trust
 boundary. The automatic connection requires a native loopback backend and
@@ -167,6 +197,8 @@ is not verified source authenticity.
 
 Use Imprint's existing source purge workflow to remove indexed captures.
 
+The [privacy policy](https://imprintmcp.alexandruleca.com/privacy/#extension) states the same boundaries for users and for the Chrome Web Store and addons.mozilla.org reviews: what each action reads, that captures go only to the loopback backend, and what the extension keeps in `chrome.storage.local`. Update it with any change to permissions, network destinations or stored settings.
+
 ## Coming soon and validation
 
 Gmail message capture, iframe/shadow-DOM text capture, background capture,
@@ -185,6 +217,12 @@ make chrome-extension-zip
 npm ci --prefix imprint/ui
 npx --prefix imprint/ui playwright install chromium
 node extensions/chrome/tests/browser-smoke.mjs dist/imprint-chrome-extension.zip
+# Firefox: a pinned Firefox ESR and geckodriver (Linux x86-64), then the add-on smoke.
+npx --prefix imprint/ui playwright install-deps firefox   # system libraries, Debian/Ubuntu
+export $(scripts/fetch-firefox.sh /tmp/imprint-firefox)
+python3 scripts/package_chrome_extension.py --browser firefox
+node extensions/chrome/tests/firefox-smoke.mjs dist/imprint-firefox-extension-unsigned.xpi
+python -m unittest discover -s tests -p 'test_sign_firefox_extension.py' -v
 ```
 
 The browser smoke extracts the actual ZIP and uses a disposable Chromium profile

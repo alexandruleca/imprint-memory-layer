@@ -63,8 +63,14 @@
 }
 
 html {
-  scroll-behavior: smooth;
   scroll-padding-top: 5rem;
+}
+/* Set by public/scripts/anchors.js once the page has settled, so the first
+   jump to a #section is not animated through a page still changing height. */
+@media (prefers-reduced-motion: no-preference) {
+  html.smooth-scroll {
+    scroll-behavior: smooth;
+  }
 }
 
 html, body {

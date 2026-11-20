@@ -3,9 +3,10 @@ title: ADR 0030 — Chrome preview ZIP and release downloads
 description: Publish a minimal manual-install extension ZIP with validated releases, keep Gmail and document capture coming soon, and expose the newest available ZIP on the website.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-23
 - Amends: [ADR 0029](0029-paired-browser-capture.md) — supersedes its initial availability of Gmail in the extension UI and its unpacked-only distribution; the pairing and storage architecture remains accepted
+- Amended by: [ADR 0193](0193-firefox-capture-is-the-chrome-extension-signed-as-an-unlisted-add-on.md) — releases also carry a Firefox add-on, and both packages take the release's version
 - Related: [ADR 0002](0002-build-and-validate-before-publication.md) and [ADR 0014](0014-main-only-release-packaging.md), which this record extends
 - Restructured: 2026-10-25
 

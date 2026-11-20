@@ -17,9 +17,12 @@ The marketing + docs site deployed to https://imprintmcp.alexandruleca.com via G
 | `/` | `src/pages/index.astro` — hand-authored landing |
 | `/benchmarks` | `src/pages/benchmarks.astro` — full benchmark tables from `BENCHMARK.md` |
 | `/faq` | `src/pages/faq.astro` — SEO-targeted "MCP memory layer" Q&A |
-| `/chrome-extension/` | `src/pages/chrome-extension.astro` — Chrome preview download, manual installation and coming-soon integrations |
+| `/chrome-extension/` | `src/pages/chrome-extension.astro` — Chrome ZIP and signed Firefox add-on downloads, manual installation and coming-soon integrations |
+| `/privacy/` | `src/pages/privacy.astro` — privacy policy for the app, the capture extension (its Chrome Web Store / AMO policy URL), the sync relay and this site |
 | `/installation`, `/mcp`, `/architecture`, … | `../docs/*.md` via Starlight content collection |
 | `/404` | `src/pages/404.astro` |
+
+Links to a section (`/#sync`, a docs heading) land on it after the web fonts arrive: `public/scripts/anchors.js`, loaded by the landing layout and the Starlight head, lands again once fonts and images have loaded unless the visitor has scrolled, then turns on smooth scrolling for in-page links (`html.smooth-scroll`).
 
 ## Develop
 
@@ -42,7 +45,7 @@ kept in `extensions/chrome`; runtime ZIP assembly and validation live in
 
 ## Analytics
 
-Builds with `PUBLIC_GA4_ID` set (the Pages workflow sets it) load Google Analytics on every page: `src/components/Analytics.astro` for the landing pages and the Starlight `head` in `astro.config.mjs` for docs. Both also load `public/scripts/events.js`, one capturing listener that turns visitor actions into GA4 events:
+Builds with `PUBLIC_GA4_ID` set (the Pages workflow sets it) load `public/scripts/consent.js` on every page: `src/components/Analytics.astro` for the landing pages and the Starlight `head` in `astro.config.mjs` for docs. It shows a consent banner and loads Google Analytics only after the visitor accepts; no answer, declining or Global Privacy Control loads nothing, and **Cookie settings** (any `[data-consent-open]` control: the footer, the privacy policy) changes the choice ([ADR 0194](../docs/adr/0194-website-and-relay-analytics-load-only-after-consent.md)). The relay embeds a copy as `cmd/relay-consent.js`; copy the file after changing it (a Go test compares them). Both pages also load `public/scripts/events.js`, one capturing listener that turns visitor actions into GA4 events once Google Analytics has loaded:
 
 | Event | When | Parameters |
 |-------|------|------------|
@@ -54,7 +57,9 @@ Builds with `PUBLIC_GA4_ID` set (the Pages workflow sets it) load Google Analyti
 | `link_click` | Any other link | `link_text`, `link_url`, `outbound` |
 | `button_click` | Any other button | `label` |
 
-Every event also carries `placement`: the id of the nearest `section[id]`, or the nearest `header`, `footer`, `nav`, `aside` or `main`. To give an element its own event, add `data-track="<event>"` and `data-track-<param>` attributes. `link_text`, `link_url`, `file_name`, `file_extension` and `outbound` fill GA's built-in dimensions; register `placement`, `command`, `tab_group`, `tab`, `label`, `option` and `version` as event-scoped custom dimensions to report on them.
+The [privacy policy](src/pages/privacy.astro) describes these events and cookies to visitors; change it with them.
+
+Every event also carries `placement`: the id of the nearest `section[id]`, or the nearest `header`, `footer`, `nav`, `aside` or `main`. To give an element its own event, add `data-track="<event>"` and `data-track-<param>` attributes; `data-track-ignore` on an element or an ancestor sends nothing. `link_text`, `link_url`, `file_name`, `file_extension` and `outbound` fill GA's built-in dimensions; register `placement`, `command`, `tab_group`, `tab`, `label`, `option` and `version` as event-scoped custom dimensions to report on them.
 
 The landing page's Sync section shows the public relay's live status (`src/components/RelayStatus.astro`): the browser reads `https://sync.alexandruleca.com/health` on load and every 30 seconds while the tab is visible, and links to the relay in a new tab.
 

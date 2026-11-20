@@ -19,7 +19,10 @@ chrome.commands?.getAll?.().then((commands) => {
   $("shortcut").textContent = shortcut ? `Current: ${shortcut}` : "None set";
 }, () => {});
 
-$("shortcuts").addEventListener("click", () => chrome.tabs.create({url: "chrome://extensions/shortcuts"}));
+// Firefox opens its shortcut settings itself; Chrome has a page for them.
+$("shortcuts").addEventListener("click", () => (chrome.commands?.openShortcutSettings
+  ? chrome.commands.openShortcutSettings()
+  : chrome.tabs.create({url: "chrome://extensions/shortcuts"})));
 $("reset").addEventListener("click", () => {
   $("base").value = defaultBase;
   $("connect").requestSubmit();

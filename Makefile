@@ -20,6 +20,7 @@ build:
 # Extract the ZIP, then Load unpacked in chrome://extensions.
 chrome-extension-zip:
 	python3 scripts/package_chrome_extension.py
+	python3 scripts/package_chrome_extension.py --browser firefox
 
 # Cross-compile all platforms into bin/. UI and site have dedicated targets.
 all: $(PLATFORMS)

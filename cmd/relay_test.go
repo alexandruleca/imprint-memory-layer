@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -408,24 +409,69 @@ func TestRelayCountsPairedSessions(t *testing.T) {
 	}
 }
 
+// TestRelayConsentMatchesSite: the relay embeds the website's consent script
+// unchanged, so the banner behaves the same on both.
+func TestRelayConsentMatchesSite(t *testing.T) {
+	site, err := os.ReadFile("../site/public/scripts/consent.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(site, relayConsent) {
+		t.Fatal("cmd/relay-consent.js differs from site/public/scripts/consent.js; copy it")
+	}
+}
+
 // TestRelayPageAnalytics: the page stays script-free without a measurement
-// ID; with one it reports views without the address, which may hold a code.
+// ID; with one it carries the consent banner, which loads Google Analytics
+// only after the visitor accepts and reports views without the address,
+// which may hold a code.
 func TestRelayPageAnalytics(t *testing.T) {
-	if !bytes.Equal(relayPageFor(""), relayPage) {
+	if !bytes.Equal(relayPageFor("", ""), relayPage) {
 		t.Fatal("the page changed without a measurement ID")
 	}
-	page := string(relayPageFor("G-TEST123"))
-	head := page[:strings.Index(page, "</head>")]
-	for _, want := range []string{
-		`<script async src="https://www.googletagmanager.com/gtag/js?id=G-TEST123"></script>`,
-		`gtag('config','G-TEST123',{page_location:location.origin+(location.pathname==='/'?'/':'/not-found')});`,
-	} {
-		if !strings.Contains(head, want) {
-			t.Errorf("head lacks %s", want)
+	// relay.html is checked out with LF here and CRLF on Windows; both must work.
+	lf := bytes.ReplaceAll(relayPage, []byte("\r\n"), []byte("\n"))
+	for name, source := range map[string][]byte{"LF": lf, "CRLF": bytes.ReplaceAll(lf, []byte("\n"), []byte("\r\n"))} {
+		page := string(withConsent(source, "G-TEST123", ""))
+		script := "<script data-ga4=\"G-TEST123\" data-page-location=\"root\" data-privacy=\"\">\n" + string(relayConsent) + "</script>\n</body>"
+		if !strings.Contains(page[strings.Index(page, "</head>"):], script) {
+			t.Errorf("%s: the banner is not before </body>", name)
+		}
+		// Cookie settings follows the footer's last link, inside its nav.
+		link := strings.Index(page, `GitHub</a> <a href="#" data-consent-open data-track-ignore>Cookie settings</a>`)
+		footerNav := strings.LastIndex(page[:strings.LastIndex(page, "</footer>")], "</nav>")
+		if link < 0 || link < strings.LastIndex(page, "<footer") || strings.TrimSpace(page[link+len(`GitHub</a> <a href="#" data-consent-open data-track-ignore>Cookie settings</a>`):footerNav]) != "" {
+			t.Errorf("%s: Cookie settings is not the footer nav's last link", name)
+		}
+		// Nothing from Google loads with the page itself: only the banner's
+		// script adds gtag.js, after a visitor accepts.
+		if strings.Contains(page, "<script async") || strings.Contains(page, `src="https://www.googletagmanager.com`) {
+			t.Errorf("%s: the page loads Google Analytics before consent", name)
+		}
+		// The script's own text names these attributes; count the tags.
+		if strings.Count(page, "<script data-ga4=") != 1 || strings.Count(page, ">Cookie settings</a>") != 1 || strings.Count(page, "</body>") != 1 {
+			t.Errorf("%s: the banner was not added exactly once", name)
 		}
 	}
-	if strings.Count(page, "googletagmanager") != 1 || strings.Count(page, "</head>") != 1 {
-		t.Fatal("analytics not added exactly once")
+	if string(relayPageFor("G-TEST123", "")) != string(withConsent(relayPage, "G-TEST123", "")) {
+		t.Fatal("relayPageFor does not serve the embedded page with the banner")
+	}
+	if bytes.Contains(relayConsent, []byte("</script")) || !bytes.Contains(relayConsent, []byte("pageLocation === 'root'")) {
+		t.Fatal("the consent script cannot be inlined, or lost its root-only page location")
+	}
+	linked := string(relayPageFor("G-TEST123", `https://example.com/privacy?a=1&b="2"`))
+	if !strings.Contains(linked, `data-privacy="https://example.com/privacy?a=1&amp;b=&#34;2&#34;"`) {
+		t.Error("the privacy address is not escaped into its attribute")
+	}
+	for _, raw := range []string{"https://imprintmcp.alexandruleca.com/privacy/#relay", "https://example.com/p"} {
+		if !validPrivacyURL(raw) {
+			t.Errorf("%s refused", raw)
+		}
+	}
+	for _, raw := range []string{"http://example.com/p", "javascript:alert(1)", "https://user@example.com/", "/privacy/", "https://"} {
+		if validPrivacyURL(raw) {
+			t.Errorf("%q accepted", raw)
+		}
 	}
 	for _, id := range []string{"G-TEST123", "G-ZPW1M6BCC7"} {
 		if !ga4IDPattern.MatchString(id) {

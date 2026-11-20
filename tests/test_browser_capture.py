@@ -203,6 +203,31 @@ class BrowserAPITests(TemporaryData, unittest.IsolatedAsyncioTestCase):
             result = await self.request(prefix + 'captures', method='POST', headers=headers, json=body)
             self.assertEqual(result.status_code, 400)
 
+    async def test_firefox_sends_its_per_install_uuid_and_matching_moz_extension_origin(self):
+        firefox, other = '6a8a5c4e-1b2d-4c3e-9f00-123456789abc', '00000000-0000-4000-8000-000000000000'
+        prefix = '/api/browser/local/'
+        headers = {'X-Imprint-Extension-Id': firefox, 'Origin': 'moz-extension://' + firefox}
+        self.assertEqual((await self.request(prefix + 'status', headers={'X-Imprint-Extension-Id': firefox})).status_code, 200)
+        result = await self.request(prefix + 'captures', method='POST', headers=headers, json={**capture(), 'workspace': 'other'})
+        self.assertEqual(result.status_code, 202, result.text)
+        job = prefix + 'jobs/' + result.json()['job_id']
+        self.assertEqual((await self.request(job, headers=headers)).status_code, 200)
+        self.assertEqual((await self.request(job, headers={'X-Imprint-Extension-Id': other})).status_code, 404)
+        preflight = await self.request(prefix + 'captures', method='OPTIONS', headers={
+            'Origin': 'moz-extension://' + firefox, 'Access-Control-Request-Method': 'POST',
+            'Access-Control-Request-Headers': 'content-type, x-imprint-extension-id'})
+        self.assertEqual(preflight.status_code, 204)
+        self.assertEqual(preflight.headers['access-control-allow-origin'], 'moz-extension://' + firefox)
+        # The origin must be the one this UUID names, in Firefox's scheme.
+        for origin in ('moz-extension://' + other, 'chrome-extension://' + firefox, 'moz-extension://' + EXTENSION,
+                       'moz-extension://' + firefox.upper()):
+            result = await self.request(prefix + 'captures', method='POST', json={**capture(), 'workspace': 'other'},
+                                        headers={**headers, 'Origin': origin})
+            self.assertEqual(result.status_code, 403, origin)
+        for bad in (firefox.upper(), firefox + '0', 'capture@imprintmcp.alexandruleca.com'):
+            result = await self.request(prefix + 'status', headers={'X-Imprint-Extension-Id': bad})
+            self.assertEqual(result.status_code, 403, bad)
+
     async def test_local_routes_reject_website_origins_and_container_peers(self):
         from imprint.api import app
         path = '/api/browser/local/captures'

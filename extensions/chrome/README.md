@@ -13,6 +13,10 @@ for local downloads, or **Screenshot text** (**Visible** or **Full page**) for
 OCR. **Search** and **Record meeting** continue in the local dashboard using the
 selected workspace. The recording form prefills available Meet or Teams titles.
 
+The same source is the Firefox add-on: releases carry `imprint-firefox-extension.xpi`,
+which installs in Firefox 140 or later. `scripts/package_chrome_extension.py --browser firefox`
+builds it with a Firefox manifest.
+
 See [setup, permissions, data retention and validation](../../docs/browser-extension.md).
 
 ```bash
@@ -20,4 +24,7 @@ node --test extensions/chrome/tests/*.test.js
 make chrome-extension-zip  # creates dist/imprint-chrome-extension.zip + checksum
 # From the repository root, after installing the dashboard's Playwright tooling:
 node extensions/chrome/tests/browser-smoke.mjs
+# Firefox (Linux x86-64): pinned Firefox ESR and geckodriver, then the add-on smoke.
+export $(scripts/fetch-firefox.sh /tmp/imprint-firefox)
+node extensions/chrome/tests/firefox-smoke.mjs
 ```

@@ -15,7 +15,9 @@
   --radius: 10px;
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--background); color: var(--foreground); }
+/* Chrome gives extension pages body { font-family: <system UI font>; font-size: 75% },
+   which would win over the font inherited from :root. */
+body { margin: 0; font: inherit; background: var(--background); color: var(--foreground); }
 /* A popup is as wide as its content: a fixed width, never vw, which would
    resolve against the popup's own starting size. */
 .popup { width: 380px; }
@@ -61,8 +63,8 @@ kbd { font: 11px/1 ui-monospace, SFMono-Regular, Consolas, monospace; padding: 2
 .status[data-state="connected"] .dot { background: var(--success); }
 .status[data-state="offline"] .dot { background: var(--error); }
 
-main { display: grid; gap: 8px; padding: 12px; }
-#home { display: grid; gap: 8px; }
+main { display: grid; gap: 8px; padding: 10px; }
+#home { display: grid; gap: 6px; }
 .card, .actions-card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
 .card { padding: 14px; }
 
@@ -94,8 +96,8 @@ main { display: grid; gap: 8px; padding: 12px; }
 /* Capture actions */
 .actions-card { padding: 6px; }
 .section-label { padding: 4px 8px 6px; font-size: 11.5px; font-weight: 600; color: var(--muted); letter-spacing: .01em; }
-.action-list { display: flex; flex-direction: column; gap: 2px; }
-.action { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 11px; width: 100%; padding: 7px 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; text-align: left; white-space: normal; }
+.action-list { display: flex; flex-direction: column; gap: 0; }
+.action { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 11px; width: 100%; padding: 5px 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; text-align: left; white-space: normal; }
 .action > .icon { color: var(--muted); }
 .action-text { display: grid; min-width: 0; }
 .action-label { font-weight: 600; }
@@ -130,7 +132,7 @@ input:focus-visible + .drop-zone, .drop-zone:has(+ input:focus-visible) { outlin
 .source { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--muted); font-size: 12px; }
 .source span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .count { margin-top: -4px; color: var(--muted); font-size: 11.5px; text-align: right; }
-.shot { max-height: 230px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--accent); }
+.shot { max-height: 216px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--accent); }
 .shot img { display: block; width: 100%; height: auto; }
 .shot-note { color: var(--muted); font-size: 12px; }
 .shot-note.warning { color: var(--warning); }

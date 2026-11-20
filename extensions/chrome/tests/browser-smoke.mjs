@@ -119,7 +119,7 @@ try {
       return route.fulfill({contentType: "application/octet-stream", body: `fixture ${format} bytes`});
     });
     await google.goto(docURL);
-    assert.match((await google.evaluate(extractCapture)).error, /Use Tab file/);
+    assert.match((await google.evaluate(extractCapture)).error, /Use Google Doc or Google Sheet/);
     const args = JSON.stringify([exportURL, docURL, [".docx", ".xlsx"], 1024]);
     const result = await google.evaluate(`(${readTabFile.toString()})(...${args})`);
     assert.equal(Buffer.from(result.base64, "base64").toString(), `fixture ${format} bytes`);

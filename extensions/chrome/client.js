@@ -6,9 +6,17 @@ export function apiBase(value) {
   return url.origin;
 }
 
-export function trustedSender(sender, extensionId) {
+// The host of the extension's own origin: the extension ID in Chrome
+// (chrome-extension://<id>/), a per-install UUID in Firefox (moz-extension://<uuid>/).
+// Imprint compares it with the Origin of each submission.
+export function originHost(root) {
+  return new URL(root).host;
+}
+
+// root is chrome.runtime.getURL(""); sender.id is the extension ID in both browsers.
+export function trustedSender(sender, extensionId, root) {
   return sender.id === extensionId &&
-    ["popup.html", "popup.html?upload", "options.html"].some((page) => sender.url === `chrome-extension://${extensionId}/${page}`);
+    ["popup.html", "popup.html?upload", "options.html"].some((page) => sender.url === root + page);
 }
 
 export async function requestAPI(settings, path, body, fetcher = fetch) {

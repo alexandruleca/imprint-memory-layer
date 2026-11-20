@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Imprint Capture",
   "version": "0.4.0",
-  "description": "Capture pages, files and meetings, and search your local Imprint.",
+  "description": "Save web pages, files and screenshot text to Imprint, the local memory your AI assistants search.",
   "minimum_chrome_version": "114",
   "permissions": [
     "activeTab",

@@ -2,7 +2,7 @@ import {decodedFile} from "./files.js";
 
 // A full-page screenshot without the debugger permission: scroll the tab one
 // viewport at a time, capture each with captureVisibleTab and stitch them on a
-// canvas (ADR 0190). Chrome allows two captures a second.
+// canvas (ADR 0191). Chrome allows two captures a second.
 const CAPTURE_INTERVAL = 550;
 // Bounds the canvas (4 bytes a pixel) and stays under Chrome's 32,767 px side.
 export const MAX_PIXELS = 48_000_000;
@@ -81,7 +81,7 @@ export async function captureFullPage(tab, onProgress = () => {}) {
   try {
     page = await run("start");
   } catch {
-    throw new Error("Chrome cannot capture this page. Try Screenshot for the visible area.");
+    throw new Error("The browser can’t capture this page. Try Visible for the visible area.");
   }
   try {
     const scrolls = page.total > page.height + 1;

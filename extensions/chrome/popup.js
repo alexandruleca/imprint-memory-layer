@@ -1,10 +1,11 @@
 import {extractCapture} from "./capture.js";
-import {requestAPI} from "./client.js";
+import {originHost, requestAPI} from "./client.js";
 import {decodedFile, googleExport, meetingTitle, readTabFile} from "./files.js";
 import {captureFullPage} from "./screenshot.js";
 import {friendlyMessage, send, showError, unreachable} from "./ui.js";
 
 const $ = (id) => document.getElementById(id);
+const extensionId = originHost(chrome.runtime.getURL(""));
 const uploadPage = location.search === "?upload";
 const tabModes = ["page", "selection", "url", "file", "screenshot", "fullpage"];
 const fileModes = new Set(["file", "screenshot", "fullpage"]);
@@ -42,7 +43,7 @@ function describeTab(current) {
   const url = safeURL(current?.url);
   const info = {chip: "Web page", recommended: "page", reasons: {}, meeting: false};
   if (!url || !["http:", "https:"].includes(url.protocol)) {
-    for (const mode of tabModes) info.reasons[mode] = "Chrome doesn’t let extensions read this page";
+    for (const mode of tabModes) info.reasons[mode] = "Your browser doesn’t let extensions read this page";
     return {...info, chip: "Browser page", recommended: "upload", blocked: true};
   }
   if (exportTarget) {
@@ -66,7 +67,7 @@ function describeTab(current) {
 
 function render() {
   const off = busy || !connected;
-  const noFiles = connected && !fileLimit && "Update Imprint to save files from Chrome";
+  const noFiles = connected && !fileLimit && "Update Imprint to save files from the browser";
   for (const mode of tabModes) {
     $(mode).disabled = off || Boolean(tab.reasons[mode] || (fileModes.has(mode) && noFiles));
   }
@@ -84,7 +85,7 @@ function render() {
     $(id).classList.toggle("recommended", tab.recommended === id && !uploadPage);
   }
   $("record").classList.toggle("recommended", tab.meeting);
-  // On Chrome's own pages only Upload applies; one line says why.
+  // On the browser's own pages only Upload applies; one line says why.
   $("tab-blocked").hidden = !tab.blocked || uploadPage;
   for (const id of ["page", "selection", "url", "file", "ocr"]) $(id).hidden = Boolean(tab.blocked);
 }
@@ -172,10 +173,10 @@ async function previewTabFile(current) {
       target: {tabId: current.id}, func: readTabFile, args: [exportTarget?.url ?? null, current.url, extensions, fileLimit],
     });
   } catch {
-    throw new Error("Chrome can’t read this viewer directly. Download the file, then use Upload a file.");
+    throw new Error("The browser can’t read this viewer directly. Download the file, then use Upload a file.");
   }
   const data = result?.result;
-  if (data?.error) throw new Error(data.error.replace("use Upload file", "use Upload a file"));
+  if (data?.error) throw new Error(data.error);
   if (!data?.base64) throw new Error("The file is empty or unavailable. Download it, then use Upload a file.");
   const metadata = exportTarget || {filename: data.filename, source_url: data.url};
   const {filename, source_url, title = filename, kind = "file"} = metadata;
@@ -365,7 +366,7 @@ async function connect() {
   if ($("offline").hidden) setConnection("connecting", "Connecting…");
   try {
     const [settings, status] = await Promise.all([send("settings"), send("status")]);
-    apiSettings = {base: settings.base, extensionId: chrome.runtime.id};
+    apiSettings = {base: settings.base, extensionId};
     fileLimit = status.max_file_bytes || 0;
     extensions = status.file_extensions || [];
     $("attachment").accept = extensions.join(",");
@@ -383,7 +384,7 @@ async function connect() {
     await pollJob();
   } catch (error) {
     connected = false;
-    if (!apiSettings) apiSettings = await send("settings").then((settings) => ({base: settings.base, extensionId: chrome.runtime.id}), () => undefined);
+    if (!apiSettings) apiSettings = await send("settings").then((settings) => ({base: settings.base, extensionId}), () => undefined);
     render();
     showOffline(error);
   }

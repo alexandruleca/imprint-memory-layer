@@ -1,6 +1,10 @@
-import {apiBase, requestAPI, trustedSender} from "./client.js";
+import {apiBase, originHost, requestAPI, trustedSender} from "./client.js";
 
-const storageReady = chrome.storage.local.setAccessLevel({accessLevel: "TRUSTED_CONTEXTS"});
+// Chrome keeps content scripts out of saved settings; Firefox has no such
+// switch, and this extension injects only its own capture functions.
+const storageReady = chrome.storage.local.setAccessLevel?.({accessLevel: "TRUSTED_CONTEXTS"}) ?? Promise.resolve();
+const root = chrome.runtime.getURL("");
+const extensionId = originHost(root);
 const defaultBase = "http://127.0.0.1:8420";
 // The popup shows the last capture for a day, and offers recent projects.
 const JOB_SHOWN_FOR = 24 * 3600 * 1000;
@@ -24,7 +28,7 @@ async function handle(message) {
   );
   const projects = Array.isArray(stored) ? stored.filter((name) => typeof name === "string") : [];
   const base = settings.base || defaultBase;
-  const request = (path, body, address = base) => requestAPI({base: address, extensionId: chrome.runtime.id}, path, body);
+  const request = (path, body, address = base) => requestAPI({base: address, extensionId}, path, body);
 
   switch (message.type) {
     case "settings":
@@ -75,7 +79,7 @@ async function handle(message) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (!trustedSender(sender, chrome.runtime.id)) return false;
+  if (!trustedSender(sender, chrome.runtime.id, root)) return false;
   handle(message).then((data) => sendResponse({ok: true, data}), (error) => sendResponse({ok: false, error: error.message}));
   return true;
 });
