@@ -429,24 +429,32 @@ func TestRelayPageAnalytics(t *testing.T) {
 	if !bytes.Equal(relayPageFor("", ""), relayPage) {
 		t.Fatal("the page changed without a measurement ID")
 	}
-	page := string(relayPageFor("G-TEST123", ""))
-	body := page[strings.Index(page, "</head>"):]
-	for _, want := range []string{
-		"<script data-ga4=\"G-TEST123\" data-page-location=\"root\" data-privacy=\"\">\n" + string(relayConsent) + "</script>\n</body>",
-		"<a href=\"#\" data-consent-open data-track-ignore>Cookie settings</a>\n    </nav>\n  </div>\n</footer>",
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("body lacks %.80s", want)
+	// relay.html is checked out with LF here and CRLF on Windows; both must work.
+	lf := bytes.ReplaceAll(relayPage, []byte("\r\n"), []byte("\n"))
+	for name, source := range map[string][]byte{"LF": lf, "CRLF": bytes.ReplaceAll(lf, []byte("\n"), []byte("\r\n"))} {
+		page := string(withConsent(source, "G-TEST123", ""))
+		script := "<script data-ga4=\"G-TEST123\" data-page-location=\"root\" data-privacy=\"\">\n" + string(relayConsent) + "</script>\n</body>"
+		if !strings.Contains(page[strings.Index(page, "</head>"):], script) {
+			t.Errorf("%s: the banner is not before </body>", name)
+		}
+		// Cookie settings follows the footer's last link, inside its nav.
+		link := strings.Index(page, `GitHub</a> <a href="#" data-consent-open data-track-ignore>Cookie settings</a>`)
+		footerNav := strings.LastIndex(page[:strings.LastIndex(page, "</footer>")], "</nav>")
+		if link < 0 || link < strings.LastIndex(page, "<footer") || strings.TrimSpace(page[link+len(`GitHub</a> <a href="#" data-consent-open data-track-ignore>Cookie settings</a>`):footerNav]) != "" {
+			t.Errorf("%s: Cookie settings is not the footer nav's last link", name)
+		}
+		// Nothing from Google loads with the page itself: only the banner's
+		// script adds gtag.js, after a visitor accepts.
+		if strings.Contains(page, "<script async") || strings.Contains(page, `src="https://www.googletagmanager.com`) {
+			t.Errorf("%s: the page loads Google Analytics before consent", name)
+		}
+		// The script's own text names these attributes; count the tags.
+		if strings.Count(page, "<script data-ga4=") != 1 || strings.Count(page, ">Cookie settings</a>") != 1 || strings.Count(page, "</body>") != 1 {
+			t.Errorf("%s: the banner was not added exactly once", name)
 		}
 	}
-	// Nothing from Google loads with the page itself: only the banner's script
-	// adds gtag.js, after a visitor accepts.
-	if strings.Contains(page, "<script async") || strings.Contains(page, `src="https://www.googletagmanager.com`) {
-		t.Fatal("the page loads Google Analytics before consent")
-	}
-	// The script's own text names these attributes; count the tags.
-	if strings.Count(page, "<script data-ga4=") != 1 || strings.Count(page, ">Cookie settings</a>") != 1 || strings.Count(page, "</body>") != 1 {
-		t.Fatal("the banner was not added exactly once")
+	if string(relayPageFor("G-TEST123", "")) != string(withConsent(relayPage, "G-TEST123", "")) {
+		t.Fatal("relayPageFor does not serve the embedded page with the banner")
 	}
 	if bytes.Contains(relayConsent, []byte("</script")) || !bytes.Contains(relayConsent, []byte("pageLocation === 'root'")) {
 		t.Fatal("the consent script cannot be inlined, or lost its root-only page location")

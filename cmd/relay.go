@@ -153,18 +153,37 @@ func Relay(args []string, version string) {
 // so an address carrying a share code never leaves the browser. The banner
 // links privacyURL when one is given; a self-hosted relay has its own policy.
 func relayPageFor(ga4ID, privacyURL string) []byte {
+	return withConsent(relayPage, ga4ID, privacyURL)
+}
+
+func withConsent(page []byte, ga4ID, privacyURL string) []byte {
 	if ga4ID == "" {
-		return relayPage
+		return page
 	}
 	script := fmt.Sprintf("<script data-ga4=\"%s\" data-page-location=\"root\" data-privacy=\"%s\">\n%s</script>\n</body>",
 		ga4ID, html.EscapeString(privacyURL), relayConsent)
-	page := bytes.Replace(relayPage, []byte("</body>"), []byte(script), 1)
-	return bytes.Replace(page, []byte(relayFooterNavEnd),
-		[]byte("\n      <a href=\"#\" data-consent-open data-track-ignore>Cookie settings</a>"+relayFooterNavEnd), 1)
+	return withCookieSettings(bytes.Replace(page, []byte("</body>"), []byte(script), 1))
 }
 
-// Where the footer's links end in relay.html.
-const relayFooterNavEnd = "\n    </nav>\n  </div>\n</footer>"
+// withCookieSettings adds the link that reopens the banner after the footer's
+// last link. It finds the footer's </nav> by tags, not by the whitespace
+// around them: a Windows checkout gives relay.html CRLF line endings.
+func withCookieSettings(page []byte) []byte {
+	footer := bytes.LastIndex(page, []byte("</footer>"))
+	if footer < 0 {
+		return page
+	}
+	end := bytes.LastIndex(page[:footer], []byte("</nav>"))
+	if end < 0 {
+		return page
+	}
+	at := len(bytes.TrimRight(page[:end], " \t\r\n"))
+	link := ` <a href="#" data-consent-open data-track-ignore>Cookie settings</a>`
+	out := make([]byte, 0, len(page)+len(link))
+	out = append(out, page[:at]...)
+	out = append(out, link...)
+	return append(out, page[at:]...)
+}
 
 func validPrivacyURL(raw string) bool {
 	u, err := url.Parse(raw)
