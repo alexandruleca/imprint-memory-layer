@@ -147,8 +147,9 @@ Usage:
   imprint sync import <dir>   Import snapshot bundle from another device
   imprint sync peers          List paired devices; enable|disable <id> resumes|pauses one,
                              forget <id> unpairs on both devices, remove <id> on this one now
-  imprint relay [--port N] [--ga4-id G-…]
-                             Run the sync relay server; --ga4-id adds Google Analytics to its browser page
+  imprint relay [--port N] [--ga4-id G-…] [--privacy-url URL]
+                             Run the sync relay server; --ga4-id adds Google Analytics, behind a consent
+                             banner, to its browser page; --privacy-url is the policy the banner links
   imprint ui [--port N]      Dashboard UI foreground (FastAPI + Next.js; Ctrl+C to stop)
   imprint ui start [--port N]  Start the UI server detached in the background
   imprint ui stop            Stop the running UI server (also the desktop app's)

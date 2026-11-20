@@ -13,17 +13,9 @@ const ga4Id = env.PUBLIC_GA4_ID || process.env.PUBLIC_GA4_ID;
 /** @type {import('@astrojs/starlight/types').HeadConfig} */
 const analyticsHead = ga4Id
   ? [
-      {
-        tag: 'script',
-        attrs: { async: true, src: `https://www.googletagmanager.com/gtag/js?id=${ga4Id}` },
-      },
-      {
-        tag: 'script',
-        content:
-          `window.dataLayer=window.dataLayer||[];` +
-          `function gtag(){dataLayer.push(arguments);}` +
-          `gtag('js',new Date());gtag('config','${ga4Id}');`,
-      },
+      // Google Analytics loads only after the visitor accepts in the consent
+      // banner, as on the landing pages (Analytics.astro).
+      { tag: 'script', attrs: { defer: true, src: '/scripts/consent.js', 'data-ga4': ga4Id } },
       // Visitor actions as events; the same script runs on the landing pages.
       { tag: 'script', attrs: { type: 'module', src: '/scripts/events.js' } },
     ]

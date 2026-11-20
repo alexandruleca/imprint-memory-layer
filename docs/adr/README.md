@@ -28,7 +28,8 @@ The records in force, by area. An amended record is listed with the records that
 
 - [ADR 0001](0001-record-significant-decisions.md) **Record significant decisions.** Repository documentation and ADRs are the durable engineering record.
 - [ADR 0019](0019-reproducible-benchmark-evidence.md) **Reproducible benchmark evidence.** Frozen public corpora, paired trials, visible failures and auditable JSON statistics for benchmark claims.
-- [ADR 0031](0031-website-analytics-and-public-relay-status.md) **Website analytics events and public relay status.** GA4 events for website actions, a live public-relay status from a CORS-readable `/health`, and opt-in analytics on the relay page.
+- [ADR 0031](0031-website-analytics-and-public-relay-status.md) **Website analytics events and public relay status.** GA4 events for website actions, a live public-relay status from a CORS-readable `/health`, and opt-in analytics on the relay page. Amended by [ADR 0194](0194-website-and-relay-analytics-load-only-after-consent.md) (analytics only after consent).
+- [ADR 0194](0194-website-and-relay-analytics-load-only-after-consent.md) **Website and relay analytics load only after consent.** Google Analytics loads only after the visitor accepts a banner; no answer, declining or Global Privacy Control loads nothing, and withdrawing deletes its cookies.
 
 ### Storage and retrieval
 
@@ -295,7 +296,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0028](0028-complete-uninstall.md) | 2026-10-23 | Amended by [ADR 0074](0074-uninstall-removes-the-shared-desktop-profile.md) | Complete uninstall |
 | [0029](0029-paired-browser-capture.md) | 2026-10-23 | Amended by [ADR 0030](0030-chrome-extension-release-zip.md) and [ADR 0185](0185-local-chrome-capture.md) | Paired local browser capture prototype |
 | [0030](0030-chrome-extension-release-zip.md) | 2026-10-23 | Amended by [ADR 0193](0193-firefox-capture-is-the-chrome-extension-signed-as-an-unlisted-add-on.md) | Chrome preview ZIP and release downloads |
-| [0031](0031-website-analytics-and-public-relay-status.md) | 2026-10-24 | Accepted | Website analytics events and public relay status |
+| [0031](0031-website-analytics-and-public-relay-status.md) | 2026-10-24 | Amended by [ADR 0194](0194-website-and-relay-analytics-load-only-after-consent.md) | Website analytics events and public relay status |
 | [0032](0032-one-onnx-runtime-per-environment.md) | 2026-10-24 | Amended by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md), [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) | One ONNX Runtime per environment |
 | [0033](0033-stored-secret-settings.md) | 2026-10-24 | Accepted | Stored secret settings |
 | [0034](0034-learn-from-client-stores-by-conversation-ownership.md) | 2026-10-24 | Amended by [ADR 0037](0037-learn-every-integrated-client-store.md), [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md), [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md), [ADR 0100](0100-explicit-workspace-inbox-for-unassigned-conversations.md) | Learn from client stores by conversation ownership |
@@ -459,6 +460,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0191](0191-chrome-full-page-screenshots-are-stitched-in-the-popup.md) | 2026-11-19 | Accepted | Chrome full-page screenshots are stitched in the popup |
 | [0192](0192-the-capture-api-accepts-firefox-extension-origins.md) | 2026-11-20 | Accepted | The capture API accepts Firefox extension origins |
 | [0193](0193-firefox-capture-is-the-chrome-extension-signed-as-an-unlisted-add-on.md) | 2026-11-20 | Accepted | Firefox capture is the Chrome extension, signed as an unlisted add-on |
+| [0194](0194-website-and-relay-analytics-load-only-after-consent.md) | 2026-11-20 | Accepted | Website and relay analytics load only after consent |
 
 ## How to write and maintain ADRs
 

@@ -148,7 +148,7 @@ docker run -d \
   ghcr.io/alexandruleca/imprint-relay:latest
 ```
 
-The relay is stateless — no volume required. `/health` reports status, release, open rooms and the sessions relayed since start for health checks, deploys and the website's live status (any origin may read it); any other plain HTTP request gets the page that explains the relay. Add `--ga4-id G-XXXXXXXXXX` to the relay command to count visits to that page in Google Analytics. Without it the page loads no scripts. See [sync.md](./sync.md) for how
+The relay is stateless — no volume required. `/health` reports status, release, open rooms and the sessions relayed since start for health checks, deploys and the website's live status (any origin may read it); any other plain HTTP request gets the page that explains the relay. Add `--ga4-id G-XXXXXXXXXX` to the relay command to count visits to that page in Google Analytics, for visitors who accept its consent banner, and `--privacy-url https://…` to link your privacy policy from the banner. Without `--ga4-id` the page loads no scripts. See [sync.md](./sync.md) for how
 peers authenticate through it.
 
 Point clients at your host:

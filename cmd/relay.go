@@ -6,7 +6,9 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -54,6 +56,12 @@ var (
 //go:embed relay.html
 var relayPage []byte
 
+// The website's consent banner (site/public/scripts/consent.js), byte for
+// byte: Google Analytics loads only after the visitor accepts (ADR 0194).
+//
+//go:embed relay-consent.js
+var relayConsent []byte
+
 var ga4IDPattern = regexp.MustCompile(`^G-[A-Z0-9]+$`)
 
 const (
@@ -72,6 +80,7 @@ const (
 func Relay(args []string, version string) {
 	port := 8430
 	ga4ID := ""
+	privacyURL := ""
 	for i, arg := range args {
 		if arg == "--port" && i+1 < len(args) {
 			p, err := strconv.Atoi(args[i+1])
@@ -82,9 +91,15 @@ func Relay(args []string, version string) {
 		if arg == "--ga4-id" && i+1 < len(args) {
 			ga4ID = args[i+1]
 		}
+		if arg == "--privacy-url" && i+1 < len(args) {
+			privacyURL = args[i+1]
+		}
 	}
 	if ga4ID != "" && !ga4IDPattern.MatchString(ga4ID) {
 		output.Fail("--ga4-id takes a GA4 measurement ID such as G-XXXXXXXXXX")
+	}
+	if privacyURL != "" && !validPrivacyURL(privacyURL) {
+		output.Fail("--privacy-url takes an https:// address")
 	}
 
 	// Close rooms that never paired. Paired rooms live as long as their
@@ -113,7 +128,7 @@ func Relay(args []string, version string) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", relayHealth(version))
-	mux.HandleFunc("/", relayHandler(relayPageFor(ga4ID)))
+	mux.HandleFunc("/", relayHandler(relayPageFor(ga4ID, privacyURL)))
 
 	addr := fmt.Sprintf("0.0.0.0:%d", port)
 	fmt.Println()
@@ -121,7 +136,7 @@ func Relay(args []string, version string) {
 	fmt.Printf("  Listening on %s\n", addr)
 	fmt.Printf("  Unpaired rooms expire after 1 hour\n")
 	if ga4ID != "" {
-		fmt.Printf("  Browser page reports views to Google Analytics %s\n", ga4ID)
+		fmt.Printf("  Browser page reports views to Google Analytics %s once a visitor accepts\n", ga4ID)
 	}
 	fmt.Println()
 
@@ -131,21 +146,29 @@ func Relay(args []string, version string) {
 	}
 }
 
-// relayPageFor adds Google Analytics to the relay page when the operator
-// passes a GA4 measurement ID. Every view is reported as the root or as
-// /not-found, so an address carrying a share code never leaves the browser.
-func relayPageFor(ga4ID string) []byte {
+// relayPageFor adds the consent banner to the relay page when the operator
+// passes a GA4 measurement ID: Google Analytics loads only after a visitor
+// accepts, and the footer gains Cookie settings to change the choice. Every
+// view is reported as the root or as /not-found (data-page-location="root"),
+// so an address carrying a share code never leaves the browser. The banner
+// links privacyURL when one is given; a self-hosted relay has its own policy.
+func relayPageFor(ga4ID, privacyURL string) []byte {
 	if ga4ID == "" {
 		return relayPage
 	}
-	tag := fmt.Sprintf(`<script async src="https://www.googletagmanager.com/gtag/js?id=%[1]s"></script>
-<script>
-window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}
-gtag('js',new Date());
-gtag('config','%[1]s',{page_location:location.origin+(location.pathname==='/'?'/':'/not-found')});
-</script>
-</head>`, ga4ID)
-	return bytes.Replace(relayPage, []byte("</head>"), []byte(tag), 1)
+	script := fmt.Sprintf("<script data-ga4=\"%s\" data-page-location=\"root\" data-privacy=\"%s\">\n%s</script>\n</body>",
+		ga4ID, html.EscapeString(privacyURL), relayConsent)
+	page := bytes.Replace(relayPage, []byte("</body>"), []byte(script), 1)
+	return bytes.Replace(page, []byte(relayFooterNavEnd),
+		[]byte("\n      <a href=\"#\" data-consent-open data-track-ignore>Cookie settings</a>"+relayFooterNavEnd), 1)
+}
+
+// Where the footer's links end in relay.html.
+const relayFooterNavEnd = "\n    </nav>\n  </div>\n</footer>"
+
+func validPrivacyURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil
 }
 
 // serveRelayPage answers 404 off the root, so no other path, such as one

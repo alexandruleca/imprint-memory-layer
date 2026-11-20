@@ -1,10 +1,12 @@
 // GA4 events for what visitors do, from one listener on every page: release
 // downloads, copied commands, tabs, opened answers and menus, the docs theme,
 // and every other link and button. Loaded only when the build has a
-// measurement ID (Analytics.astro and the Starlight head in astro.config.mjs).
+// measurement ID (Analytics.astro and the Starlight head in astro.config.mjs);
+// it sends nothing until consent.js defines gtag, after the visitor accepts.
 //
 // An element can name its own event: data-track="copy_command" plus
 // data-track-* attributes for the parameters (data-track-command="unix").
+// data-track-ignore on an element or an ancestor sends nothing.
 
 const RELEASE_ASSET = /\/releases\/download\/([^/]+)\/([^/?#]+)$/;
 
@@ -31,6 +33,8 @@ function declared(el) {
 }
 
 function describe(el) {
+  // The consent banner and its openers (consent.js) are not visitor actions.
+  if (el.closest('[data-track-ignore]')) return null;
   if (el.dataset.track) return [el.dataset.track, declared(el)];
   if (el.localName === 'summary') {
     // Clicking an open summary closes it; only opening is an action.
