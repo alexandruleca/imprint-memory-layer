@@ -351,7 +351,6 @@ Every record in number order. *Date* is when the decision was made.
 | [0080](0080-conversations-are-relearned-when-their-reading-changes.md) | 2026-10-26 | Amended by [ADR 0081](0081-verifiable-redacted-source-snapshots.md) | Conversations are learned again when their reading changes |
 | [0081](0081-verifiable-redacted-source-snapshots.md) | 2026-10-26 | Amended by [ADR 0196](0196-a-file-gone-from-disk-keeps-its-snapshot.md) | Verifiable redacted source snapshots |
 | [0082](0082-retain-readable-conversation-evidence.md) | 2026-10-26 | Amended by [ADR 0088](0088-bytes-a-crash-never-wrote-are-counted-omissions.md), [ADR 0162](0162-long-tool-events-are-one-chunk-embedded-from-a-reduced-view.md) | Retain readable conversation evidence |
-
 | [0083](0083-apple-silicon-laptop-runner.md) | 2026-10-26 | Amended by [ADR 0106](0106-intel-mac-laptop-runner.md), [ADR 0111](0111-intel-macs-are-not-supported.md), [ADR 0112](0112-ci-runs-on-the-owners-machines.md), [ADR 0115](0115-apple-silicon-jobs-run-in-disposable-tart-vms.md) | Apple silicon laptop runner |
 | [0084](0084-setup-frees-the-runtime-before-replacing-its-files.md) | 2026-10-26 | Amended by [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) | Setup frees the runtime before replacing its files |
 | [0085](0085-main-only-fast-forwards-to-dev.md) | 2026-10-27 | Accepted | Main only fast-forwards to dev |

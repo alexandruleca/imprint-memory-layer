@@ -136,3 +136,11 @@
 .mermaid-viewer:fullscreen pre.mermaid svg,
 .mermaid-viewer.mv-expanded pre.mermaid svg { max-width: none; }
 @media (max-width: 40rem) { .mermaid-viewer .mv-hint { display: none; } }
+
+/* The ADR decision log (rows whose first cell links an ADR): keep the number
+   and the date on one line and "ADR 0109" links unbroken, so rows do not
+   wrap mid-date; the table scrolls sideways on narrow screens instead. */
+.sl-markdown-content tr:has(> td:first-child > a[href^="/adr/0"]) > td:nth-child(-n + 2),
+.sl-markdown-content tr:has(> td:first-child > a[href^="/adr/0"]) a {
+  white-space: nowrap;
+}

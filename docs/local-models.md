@@ -55,7 +55,7 @@ Chat calls tools through each model's native protocol ([ADR 0059](adr/0059-chat-
 | `auto` (default) | Detected from the loaded GGUF's template | |
 | `qwen-xml` | Qwen3.5, Qwen3-Coder | `<tool_call><function=NAME><parameter=P>value</parameter></function></tool_call>` |
 | `hermes` | Qwen2.5, Qwen3, Hermes | `<tool_call>{"name": …, "arguments": {…}}</tool_call>` |
-| `llama3` | Llama 3.1–3.3 | the whole reply is `{"name": …, "parameters": {…}}`, optionally after `<|python_tag|>` |
+| `llama3` | Llama 3.1–3.3 | the whole reply is `{"name": …, "parameters": {…}}`, optionally after `<\|python_tag\|>` |
 | `mistral` | Mistral, Mistral Nemo | `[TOOL_CALLS][{"name": …, "arguments": {…}}]` |
 | `none` | Any | the chat runs without tools |
 
