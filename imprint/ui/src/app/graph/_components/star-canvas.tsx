@@ -15,6 +15,10 @@ const STAR: Record<Exclude<GraphNodeKind, "project">, string> = { topic: "#b9a8f
 const DEPTH: Record<GraphNodeKind, number> = { project: 60, topic: 170, source: 260, chunk: 200 };
 /** Sprite size over the node's diameter: the rest is glow. */
 const GLOW: Record<GraphNodeKind, number> = { project: 4.2, topic: 2.8, source: 3, chunk: 3.4 };
+/** A topic map's hubs are suns: a project's glow, in their group's colour. */
+const glowOf = (s: SimNode) => (s.node.hub ? GLOW.project : GLOW[s.node.kind]);
+/** Suns (the scope's focus, a topic map's hubs) sit on the middle plane. */
+const isSun = (s: SimNode) => !!s.node.focus || !!s.node.hub;
 const IMPULSES = 160;
 const TRAIL = 8;
 const DUST = 1400;
@@ -311,21 +315,25 @@ class StarView {
     const n = this.model.nodes.length, l = this.model.links.length;
     const starGeometry = new THREE.BufferGeometry();
     const color = new Float32Array(n * 3), size = new Float32Array(n), phase = new Float32Array(n);
-    const c = new THREE.Color();
+    const c = new THREE.Color(), tint = new THREE.Color();
     this.model.nodes.forEach((s, i) => {
       const kind = s.node.kind;
-      c.set(kind === "project" ? nodeColor(s.node) : STAR[kind]);
-      if (kind === "project") c.offsetHSL(0, 0.05, 0.08);
+      // Projects and a topic map's hubs shine in their own colour; the
+      // hubs' members take on some of it.
+      c.set(kind === "project" || s.node.hub ? nodeColor(s.node) : STAR[kind]);
+      if (kind === "project" || s.node.hub) c.offsetHSL(0, 0.05, 0.08);
+      else if (kind === "topic" && s.node.group) c.lerp(tint.set(s.node.color), 0.5);
       color.set([c.r, c.g, c.b], i * 3);
-      // The scope's own node is the system's sun.
-      size[i] = s.r * 2 * GLOW[kind] * (s.node.focus ? 1.9 : 1);
+      // The scope's own node is the system's sun; on the topic map each
+      // group's hub is the sun of its members.
+      size[i] = s.r * 2 * glowOf(s) * (s.node.focus ? 1.9 : s.node.hub ? 1.4 : 1);
       phase[i] = hash01(s.id, 7);
     });
     starGeometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(n * 3), 3));
     starGeometry.setAttribute("aColor", new THREE.BufferAttribute(color, 3));
     starGeometry.setAttribute("aSize", new THREE.BufferAttribute(size, 1));
     starGeometry.setAttribute("aPhase", new THREE.BufferAttribute(phase, 1));
-    starGeometry.setAttribute("aCore", new THREE.BufferAttribute(new Float32Array(this.model.nodes.map((s) => 1 / GLOW[s.node.kind])), 1));
+    starGeometry.setAttribute("aCore", new THREE.BufferAttribute(new Float32Array(this.model.nodes.map((s) => 1 / glowOf(s))), 1));
     starGeometry.setAttribute("aAlpha", new THREE.BufferAttribute(new Float32Array(n).fill(1), 1));
     starGeometry.setAttribute("aMark", new THREE.BufferAttribute(new Float32Array(n), 1));
     this.stars = new THREE.Points(starGeometry, (this.stars?.material as import("three").ShaderMaterial) ?? this.material(STAR_VERTEX, STAR_FRAGMENT));
@@ -334,9 +342,13 @@ class StarView {
     const lineGeometry = new THREE.BufferGeometry();
     const lineColor = new Float32Array(l * 6);
     this.model.links.forEach((link, i) => {
-      const kindColor = EDGE_KINDS[link.edge.kind].color;
+      const { color: kindColor, grouped } = EDGE_KINDS[link.edge.kind];
+      const a = link.source.node.group, b = link.target.node.group;
       for (const [j, end] of [link.source, link.target].entries()) {
-        c.set(kindColor ?? (end.node.kind === "project" ? nodeColor(end.node) : "#7cc8ff"));
+        // Related topics: in their group's colour within a group, violet
+        // outside the topic map.
+        const related = grouped && (!a || !b ? grouped : a === b ? end.node.color : null);
+        c.set(kindColor ?? related ?? (end.node.kind === "project" ? nodeColor(end.node) : "#7cc8ff"));
         lineColor.set([c.r, c.g, c.b], i * 6 + j * 3);
       }
     });
@@ -451,8 +463,10 @@ class StarView {
     to.needsUpdate = true;
   }
 
+  /** Depth: suns on the middle plane, the rest spread by kind around it
+   * (a topic map's members about their hub, which sits at 0). */
   private zOf(s: SimNode): number {
-    return s.node.focus ? 0 : (hash01(s.id, 3) - 0.5) * DEPTH[s.node.kind];
+    return isSun(s) ? 0 : (hash01(s.id, 3) - 0.5) * DEPTH[s.node.kind];
   }
 
   private syncPositions() {
@@ -697,7 +711,7 @@ class StarView {
     const ctx = this.labelCtx;
     this.clearLabels();
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    const forced = (s: SimNode) => s.id === this.hover?.id || s.id === this.selectedId || !!s.node.focus || !!this.matches?.has(s.id);
+    const forced = (s: SimNode) => s.id === this.hover?.id || s.id === this.selectedId || isSun(s) || !!this.matches?.has(s.id);
     const order = this.model.nodes.map((s, i) => [s, i] as const)
       .filter(([s, i]) => forced(s) || s.node.kind === "project" || this.screen[i * 3 + 2] > 9)
       .sort((a, b) => Number(forced(b[0])) - Number(forced(a[0])) || b[0].priority - a[0].priority);
@@ -712,7 +726,7 @@ class StarView {
       if (count >= 80) break;
       const x = this.screen[i * 3], y = this.screen[i * 3 + 1] + this.screen[i * 3 + 2] * 0.9 + 2;
       if (x < -100 || x > this.w + 100 || y < -20 || y > this.h + 20) continue;
-      const strong = s.node.kind === "project" || !!s.node.focus;
+      const strong = s.node.kind === "project" || isSun(s);
       ctx.font = `${strong || s.id === this.selectedId ? 600 : 400} ${strong ? 12 : 10.5}px ${this.font}`;
       const text = shortLabel(s.node.label);
       const tw = ctx.measureText(text).width;
@@ -790,7 +804,7 @@ export function StarCanvas({
         if (view.hover === node) { if (node) tooltip.current?.move(x, y); return; }
         view.hover = node;
         canvas.style.cursor = node ? "pointer" : "";
-        tooltip.current?.show(node?.node ?? null, x, y);
+        tooltip.current?.show(node?.node ?? null, x, y, node ? view.model.groups.get(node.id) : undefined);
         view.syncStates();
       };
       const onDown = (e: PointerEvent) => {

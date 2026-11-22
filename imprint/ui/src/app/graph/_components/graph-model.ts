@@ -1,6 +1,6 @@
 import { forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY, type Simulation, type SimulationLinkDatum, type SimulationNodeDatum } from "d3-force";
 import type { GraphEdge, GraphNode, GraphNodeKind } from "@/lib/types";
-import { nodeSize } from "./graph-style";
+import { groupSizes, nodeSize } from "./graph-style";
 
 export interface GraphForces {
   repel: number;
@@ -65,6 +65,8 @@ export interface SimNode extends SimulationNodeDatum {
   depth: number;
   /** Label priority: who keeps a label when labels would overlap. */
   priority: number;
+  /** On the topic map, a member's hub: the group pulls its members in. */
+  hub: SimNode | null;
   x: number;
   y: number;
 }
@@ -77,7 +79,13 @@ export interface SimLink extends SimulationLinkDatum<SimNode> {
   strength: number;
 }
 
-const LINK_DISTANCE: Record<string, number> = { contains: 90, relates: 150, sequence: 36, similar: 90 };
+const LINK_DISTANCE: Record<string, number> = { contains: 90, relates: 150, sequence: 36, similar: 90, related: 150 };
+/** A related topic sits closer the stronger the two go together: from
+ * LINK_DISTANCE.related down to this much less. */
+const RELATED_PULL = 85;
+/** How hard a topic-map group draws its members towards its hub, like the
+ * gravity to the middle but per group. */
+const GROUP_PULL = 0.05;
 export const KIND_DEPTH: Record<GraphNodeKind, number> = { chunk: 1, source: 2, topic: 3, project: 4 };
 const ALPHA_MIN = 0.001;
 const ALPHA_DECAY = 0.035;
@@ -99,6 +107,10 @@ export class ForceModel {
   byId = new Map<string, SimNode>();
   /** Neighbour ids per node id. */
   adjacency = new Map<string, Set<string>>();
+  /** Topic-map groups: how many topics each hub's group has here. */
+  groups = new Map<string, number>();
+  /** Whether the nodes are a topic map's groups. */
+  private grouped = false;
   private sim: Simulation<SimNode, SimLink>;
   private forces: GraphForces;
 
@@ -131,13 +143,22 @@ export class ForceModel {
         id: n.id,
         node: n,
         r: size / 2,
-        depth: KIND_DEPTH[n.kind] + (n.focus ? 10 : 0),
-        priority: (n.focus ? 10 : 0) + KIND_DEPTH[n.kind] + size / 100,
+        // A topic map's hubs draw over their members and keep their labels.
+        depth: KIND_DEPTH[n.kind] + (n.focus ? 10 : n.hub ? 0.5 : 0),
+        priority: (n.focus ? 10 : n.hub ? 5 : 0) + KIND_DEPTH[n.kind] + size / 100,
+        hub: null,
         x: old?.x ?? radius * Math.cos(angle),
         y: old?.y ?? radius * Math.sin(angle),
       };
     });
     this.byId = new Map(this.nodes.map((n) => [n.id, n]));
+    this.groups = groupSizes(nodes);
+    for (const n of this.nodes) {
+      const hub = n.node.group && n.node.group !== n.id ? this.byId.get(n.node.group) : undefined;
+      n.hub = hub ?? null;
+    }
+    const wasGrouped = this.grouped;
+    this.grouped = this.groups.size > 0;
     const maxWeight: Record<string, number> = {};
     for (const e of edges) maxWeight[e.kind] = Math.max(maxWeight[e.kind] ?? 1, e.weight);
     this.links = [];
@@ -155,8 +176,10 @@ export class ForceModel {
     // A large graph settles in fewer, costlier ticks.
     this.sim.alphaDecay(this.nodes.length > 800 ? 0.05 : ALPHA_DECAY);
     this.applyForces();
-    // A graph that mostly kept its nodes only needs to settle the new ones.
-    this.sim.alpha(this.nodes.length && known / this.nodes.length > 0.8 ? 0.3 : 1);
+    // A graph that mostly kept its nodes only needs to settle the new ones,
+    // unless it turned into or out of the topic map: the same topics, linked
+    // in another way.
+    this.sim.alpha(this.nodes.length && known / this.nodes.length > 0.8 && wasGrouped === this.grouped ? 0.3 : 1);
   }
 
   setForces(forces: GraphForces): void {
@@ -224,12 +247,25 @@ export class ForceModel {
     }
   }
 
+  /** Each topic-map member drawn a little towards its group's hub, so the
+   * groups read as clusters. Runs once per tick: no allocation. */
+  private pullGroups = (alpha: number) => {
+    const k = GROUP_PULL * alpha;
+    for (const n of this.nodes) {
+      const hub = n.hub;
+      if (!hub) continue;
+      n.vx = (n.vx ?? 0) + (hub.x - n.x) * k;
+      n.vy = (n.vy ?? 0) + (hub.y - n.y) * k;
+    }
+  };
+
   private applyForces(): void {
     const { repel, collide, centerStrength } = this.forces;
     this.sim
       .force("link", forceLink<SimNode, SimLink>(this.links)
-        .distance((l) => LINK_DISTANCE[l.edge.kind] ?? 110)
+        .distance((l) => (LINK_DISTANCE[l.edge.kind] ?? 110) - (l.edge.kind === "related" ? RELATED_PULL * l.strength : 0))
         .strength(0.45))
+      .force("group", this.grouped ? this.pullGroups : null)
       // Larger nodes push harder, so hubs get room around them.
       .force("charge", forceManyBody<SimNode>().strength((n) => -repel * (0.35 + (n.r * 2) / 80)).theta(0.9))
       // Collision uses each node's drawn size plus the padding setting.

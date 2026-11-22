@@ -25,26 +25,49 @@ export const KINDS: Record<GraphNodeKind, KindStyle> = {
 
 export const KIND_ORDER: GraphNodeKind[] = ["project", "topic", "source", "chunk"];
 
-export const EDGE_KINDS: Record<GraphEdgeKind, { label: string; color?: string; dash?: number[]; arrow?: boolean }> = {
+export interface EdgeStyle {
+  label: string;
+  /** Fixed colour; without one an edge takes its project's or the ink. */
+  color?: string;
+  dash?: number[];
+  arrow?: boolean;
+  /** Drawn in its topics' group colour and heavier the stronger it is; the
+   * legend shows it in this colour with a dot at each end. */
+  grouped?: string;
+}
+
+export const EDGE_KINDS: Record<GraphEdgeKind, EdgeStyle> = {
   contains: { label: "Contains" },
   relates: { label: "Tagged with" },
+  related: { label: "Related topic", grouped: "#a78bfa" },
   sequence: { label: "Next chunk", color: "#f59e0b", arrow: true },
   similar: { label: "Similar meaning", color: "#0891b2", dash: [4, 4] },
 };
 
+/** A node's colour. Topics are ink, except on the topic map, where each
+ * takes its group's colour so the groups read as clusters. */
 export function nodeColor(node: GraphNode): string {
-  return KINDS[node.kind].color ?? node.color;
+  return node.kind === "topic" && node.group ? node.color : KINDS[node.kind].color ?? node.color;
 }
 
 /** Diameter: square-root scaled within the kind's range, so area tracks
  * the number of memories. The scope's focus node is drawn at its kind's
- * full size, and never smaller than a readable 24px. */
+ * full size, and never smaller than a readable 24px; a topic map's hub is
+ * a third larger than its count alone would make it. */
 export function nodeSize(node: GraphNode, maxCount: Record<GraphNodeKind, number>): number {
   const [min, max] = KINDS[node.kind].size;
   const top = maxCount[node.kind] || 1;
   // Context nodes (a scope's parent project, say) report no count.
   const size = min + Math.sqrt(Math.max(0, node.count) / top) * (max - min);
+  if (node.hub && !node.focus) return Math.min(max * 1.35, Math.max(30, size * 1.35));
   return node.focus ? Math.max(max, 24) : size;
+}
+
+/** How many topics each topic-map group has, by its hub's id. */
+export function groupSizes(nodes: GraphNode[]): Map<string, number> {
+  const sizes = new Map<string, number>();
+  for (const n of nodes) if (n.group) sizes.set(n.group, (sizes.get(n.group) ?? 0) + 1);
+  return sizes;
 }
 
 /** The canvas's colours, read from the page's theme tokens (re-read when

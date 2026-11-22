@@ -5,6 +5,11 @@ const project = (name: string, count: number, focus = false) => ({ id: `proj:${n
 const topic = (name: string, count: number) => ({ id: `topic:${name}`, kind: 'topic', label: name, count, color: '#a78bfa' });
 const source = (path: string, count: number) => ({ id: `src:${path}`, kind: 'source', label: path.split('/').pop(), fullPath: path, count, color: '#94a3b8' });
 const edge = (source: string, target: string, kind: string, weight = 1) => ({ id: `${kind}:${source}->${target}`, source, target, kind, weight });
+// The topic map (lens=topics): topics in groups round a hub, linked by related edges.
+const member = (name: string, count: number, group: string, color: string, extra: object = {}) =>
+  ({ ...topic(name, count), color, group: `topic:${group}`, ...(name === group ? { hub: true } : {}), ...extra });
+const related = (a: string, b: string, weight: number, count: number, strength: number) =>
+  ({ ...edge(`topic:${a}`, `topic:${b}`, 'related', weight), count, strength });
 
 const scopes: Record<string, object> = {
   root: {
@@ -17,12 +22,34 @@ const scopes: Record<string, object> = {
     nodes: [project('billing-api', 900, true), topic('auth', 80), source('billing-api/src/auth.ts', 12)],
     edges: [edge('proj:billing-api', 'topic:auth', 'contains', 80), edge('proj:billing-api', 'src:billing-api/src/auth.ts', 'contains', 12)],
   },
+  'root?lens=topics': {
+    scope: 'root', center: '', lens: 'topics', more: ['topic'],
+    nodes: [
+      member('auth', 120, 'auth', '#f472b6', { projects: [{ name: 'billing-api', count: 80 }, { name: 'web-dashboard', count: 40 }] }),
+      member('sessions', 60, 'auth', '#f472b6'),
+      member('tokens', 30, 'auth', '#f472b6'),
+      member('caching', 40, 'caching', '#38bdf8', { projects: [{ name: 'billing-api', count: 40 }] }),
+      member('redis', 25, 'caching', '#38bdf8'),
+    ],
+    edges: [related('auth', 'sessions', 10, 30, 0.9), related('auth', 'tokens', 6, 12, 0.5), related('caching', 'redis', 8, 20, 0.7), related('sessions', 'caching', 1, 3, 0.1)],
+  },
+  'topic:auth': {
+    scope: 'topic:auth', center: 'topic:auth',
+    nodes: [{ ...topic('auth', 120), focus: true }, project('billing-api', 80), source('billing-api/src/auth.ts', 12), topic('sessions', 60), topic('tokens', 30)],
+    edges: [
+      edge('proj:billing-api', 'topic:auth', 'relates', 80), edge('src:billing-api/src/auth.ts', 'topic:auth', 'relates', 12),
+      related('auth', 'sessions', 10, 30, 0.9), related('auth', 'tokens', 4, 9, 0.35),
+    ],
+  },
 };
 
+/** Serve scopes by name; a lens is asked for as `<scope>?lens=<lens>`, and
+ * so recorded. */
 async function mockGraph(page: Page, scopeData: (scope: string) => object | null = (s) => scopes[s] ?? null) {
   const requested: string[] = [];
   await page.route('**/api/graph?**', async (route) => {
-    const scope = new URL(route.request().url()).searchParams.get('scope') ?? 'root';
+    const params = new URL(route.request().url()).searchParams;
+    const scope = (params.get('scope') ?? 'root') + (params.get('lens') ? `?lens=${params.get('lens')}` : '');
     requested.push(scope);
     const data = scopeData(scope);
     await route.fulfill(data ? { json: data } : { status: 500, json: { detail: 'graph unavailable' } });
@@ -128,6 +155,94 @@ test('the canvas shows a tooltip on hover, selects on click and opens on double-
   await expect(page.getByRole('complementary', { name: 'Project details' }).getByRole('heading', { name: 'billing-api' })).toBeVisible();
   await page.mouse.dblclick(point.x, point.y);
   await expect(page).toHaveURL(/\?scope=project%3Abilling-api$/);
+});
+
+test('hiding projects turns the overview into a topic map of related topics round their hubs, and showing them returns', async ({ page }) => {
+  const requested = await mockGraph(page);
+  await page.goto('/graph/');
+  const legend = page.getByRole('list', { name: 'Node kinds' });
+  await expect(legend.getByRole('button', { name: /Projects\s*2/ })).toBeVisible();
+  const chip = page.getByText('Topic map', { exact: true });
+  await expect(chip).toHaveCount(0);
+
+  await legend.getByRole('button', { name: /Projects/ }).click();
+  await expect.poll(() => requested.at(-1)).toBe('root?lens=topics');
+  await expect(chip).toBeVisible();
+  // Projects stay in the legend, hidden, so they can be shown again.
+  await expect(legend.getByRole('button', { name: 'Projects' })).toHaveAttribute('aria-pressed', 'false');
+  await expect(legend.getByRole('button', { name: /Topics\s*5/ })).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Connections' }).getByRole('listitem')).toHaveText(['Related topic']);
+  await expect(page.getByText('5 nodes · 4 connections')).toBeVisible();
+  const view = page.locator('[data-graph-view="graph"][data-nodes="5"]');
+  await expect(view).toHaveAttribute('data-ready', 'true', { timeout: 15_000 });
+  // Hubs always keep their labels.
+  expect(await view.evaluate((el) => (el as HTMLElement & { graphDebug: { labels: number } }).graphDebug.labels)).toBeGreaterThanOrEqual(2);
+
+  const hub = await nodePoint(page, 'topic:auth');
+  await page.mouse.move(hub.x, hub.y);
+  const tooltip = page.getByRole('tooltip');
+  await expect(tooltip).toContainText('Main topic of a group of 3 topics');
+  await expect(tooltip).toContainText('Mostly in billing-api, web-dashboard');
+  await page.mouse.click(hub.x, hub.y);
+  const details = page.getByRole('complementary', { name: 'Topic details' });
+  await expect(details.getByRole('heading', { name: 'auth' })).toBeVisible();
+  await expect(details).toContainText('Main topic of a group of 3 topics');
+  await expect(details.getByRole('button', { name: 'Open project web-dashboard' })).toContainText('40');
+  await expect(details.getByText('Topics · 2')).toBeVisible();
+  await details.getByRole('button', { name: 'Close details' }).click();
+
+  // The topic map lists more topics on request, still through the lens.
+  await expect(page.getByText('Largest topics only.')).toBeVisible();
+  const more = page.waitForRequest((r) => r.url().includes('/api/graph?') && r.url().includes('depth=2') && r.url().includes('lens=topics'));
+  await page.getByRole('button', { name: 'Show more' }).click();
+  await more;
+
+  // Remembered with the legend: a reload opens the topic map again.
+  await page.reload();
+  await expect(chip).toBeVisible();
+  expect(requested.at(-1)).toBe('root?lens=topics');
+
+  await legend.getByRole('button', { name: 'Projects' }).click();
+  await expect.poll(() => requested.at(-1)).toBe('root');
+  await expect(legend.getByRole('button', { name: /Projects\s*2/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByText('4 nodes · 3 connections')).toBeVisible();
+  await expect(chip).toHaveCount(0);
+  await expect(page.getByRole('list', { name: 'Connections' }).getByRole('listitem')).toHaveText(['Tagged with']);
+});
+
+test('a topic scope shows its related topics, and hiding projects there asks for nothing new', async ({ page }) => {
+  const requested = await mockGraph(page);
+  await page.goto('/graph/?scope=topic%3Aauth');
+  const legend = page.getByRole('list', { name: 'Node kinds' });
+  await expect(legend.getByRole('button', { name: /Topics\s*3/ })).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Connections' }).getByRole('listitem')).toHaveText(['Tagged with', 'Related topic']);
+  await expect(page.getByText('5 nodes · 4 connections')).toBeVisible();
+
+  const point = await nodePoint(page, 'topic:sessions');
+  await page.mouse.click(point.x, point.y);
+  const details = page.getByRole('complementary', { name: 'Topic details' });
+  await expect(details.getByRole('heading', { name: 'sessions' })).toBeVisible();
+  await expect(details.getByRole('button', { name: 'auth' })).toBeVisible();
+  await details.getByRole('button', { name: 'Close details' }).click();
+
+  await legend.getByRole('button', { name: /Projects/ }).click();
+  await expect(page.getByText('4 nodes · 3 connections')).toBeVisible();
+  await expect(page.getByText('Topic map', { exact: true })).toHaveCount(0);
+  expect(requested).toEqual(['topic:auth']);
+});
+
+test('in the star view the topic map\'s hubs are suns that keep their labels', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('imprint:graph:v2', JSON.stringify({ settings: { mode: 'stars' }, hidden: ['project'] })));
+  const requested = await mockGraph(page);
+  await page.goto('/graph/');
+  const stars = page.locator('[data-graph-view="stars"]');
+  await expect(stars).toHaveAttribute('data-ready', 'true', { timeout: 15_000 });
+  expect(requested).toEqual(['root?lens=topics']);
+  await expect(page.getByText('Topic map', { exact: true })).toBeVisible();
+  expect(await stars.evaluate((el) => (el as HTMLElement & { graphDebug: { labels: number } }).graphDebug.labels)).toBeGreaterThanOrEqual(2);
+  const hub = await nodePoint(page, 'topic:caching');
+  await page.mouse.move(hub.x, hub.y);
+  await expect(page.getByRole('tooltip')).toContainText('Main topic of a group of 2 topics');
 });
 
 test('the star view is a toolbar toggle that is remembered, and old saved settings still load', async ({ page }) => {

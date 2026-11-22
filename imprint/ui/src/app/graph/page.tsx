@@ -4,17 +4,19 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExt
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import Link from "next/link";
-import { ChevronDown, ChevronUp, CornerDownLeft, Network, RotateCw, Search as SearchIcon, X } from "lucide-react";
+import { ChevronDown, ChevronUp, CornerDownLeft, Network, RotateCw, Search as SearchIcon, Tag, X } from "lucide-react";
 import { getGraphScope, getMemory, getTopicDetail, searchMemories } from "@/lib/api";
 import { ChunkDialog, type ChunkPreview } from "@/components/chunk-dialog";
 import { SourceReader, type ReaderTarget } from "@/components/source-reader";
 import { GraphSkeleton, Spinner } from "@/components/loaders";
+import { Hint } from "@/components/hint";
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput, InputGroupText } from "@/components/ui/input-group";
 import { Kbd } from "@/components/ui/kbd";
-import type { GraphEdge, GraphEdgeKind, GraphNode, GraphNodeKind, GraphScopeData, TopicSource } from "@/lib/types";
+import type { GraphEdge, GraphEdgeKind, GraphLens, GraphNode, GraphNodeKind, GraphScopeData, TopicSource } from "@/lib/types";
 import { GraphBreadcrumbs, scopeKind, type ScopeCrumb } from "./_components/breadcrumbs";
 import { GraphCanvas } from "./_components/graph-canvas";
 import type { GraphCanvasHandle, GraphForces } from "./_components/graph-model";
@@ -22,7 +24,7 @@ import { StarCanvas } from "./_components/star-canvas";
 import { GraphLegend } from "./_components/graph-legend";
 import { GraphToolbar, type GraphSettings } from "./_components/graph-toolbar";
 import { NodeDetails } from "./_components/node-details";
-import { KINDS } from "./_components/graph-style";
+import { groupSizes, KINDS } from "./_components/graph-style";
 import { filtersFrom, hitStrengths, isSearchScope, NO_FILTERS, searchHref, searchQuery, searchScopeData, SEARCH_PREFIX } from "./_components/graph-search";
 import { SearchResults } from "./_components/search-results";
 
@@ -30,7 +32,7 @@ const DEFAULT_FORCES: GraphForces = { repel: 900, collide: 14, centerStrength: 0
 const DEFAULT_SETTINGS: GraphSettings = { mode: "graph", showLabels: true, showEdges: true, depth: 1, forces: DEFAULT_FORCES };
 const STORAGE_KEY = "imprint:graph:v2";
 const ROOT: ScopeCrumb = { scope: "root", label: "Overview" };
-const EDGE_ORDER: GraphEdgeKind[] = ["contains", "relates", "sequence", "similar"];
+const EDGE_ORDER: GraphEdgeKind[] = ["contains", "relates", "related", "sequence", "similar"];
 /** Height of the details bottom sheet on narrow screens, as a fraction of the canvas. */
 const SHEET_HEIGHT = 0.55;
 /** Hits a search scope asks for at each "Items per group" setting. */
@@ -127,7 +129,10 @@ function GraphPageContent({ initial }: { initial: URLSearchParams }) {
   const scope = crumb.scope;
   const searching = isSearchScope(scope);
   const filters = crumb.filters ?? NO_FILTERS;
-  const graphKey = `${scope}:${settings.depth}:${reload}:${searching ? JSON.stringify(filters) : ""}`;
+  // With projects hidden, the overview is the topic map: topics linked to
+  // related topics, the main one of each group a hub.
+  const lens: GraphLens | undefined = scope === "root" && hidden.has("project") ? "topics" : undefined;
+  const graphKey = `${scope}:${settings.depth}:${reload}:${lens ?? ""}:${searching ? JSON.stringify(filters) : ""}`;
   const loading = graphResult.key !== graphKey;
   // While a scope loads, the previous graph stays on screen.
   const data = graphResult.data;
@@ -145,14 +150,14 @@ function GraphPageContent({ initial }: { initial: URLSearchParams }) {
         const result = searchScopeData(scope, hits.nodes, colors);
         return hits.nodes.length >= (SEARCH_LIMIT[settings.depth] ?? 30) ? { ...result, more: ["chunk" as const] } : result;
       })
-      : getGraphScope(scope, settings.depth);
+      : getGraphScope(scope, settings.depth, lens);
     load.then((result) => {
       if (!cancelled) setGraphResult({ key: graphKey, data: result });
     }).catch((error) => {
       if (!cancelled) setGraphResult((prev) => ({ key: graphKey, data: prev.data, error: error instanceof Error ? error.message : String(error) }));
     });
     return () => { cancelled = true; };
-    // graphKey covers the filters.
+    // graphKey covers the filters and the lens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope, settings.depth, graphKey]);
 
@@ -303,7 +308,10 @@ function GraphPageContent({ initial }: { initial: URLSearchParams }) {
   const kind = scopeKind(scope);
   const empty = !loading && !graphResult.error && data && data.nodes.length === 0;
   const allHidden = data && data.nodes.length > 0 && visible.nodes.length === 0;
-  const breadthApplies = searching || kind === "project" || kind === "topic" || kind === "source";
+  // The topic map lists 60, 80 or 100 topics.
+  const breadthApplies = searching || kind === "project" || kind === "topic" || kind === "source" || !!lens;
+  const topicMap = scope === "root" && data?.lens === "topics";
+  const groups = useMemo(() => groupSizes(visible.nodes), [visible.nodes]);
   const emphasis = useMemo(() => (searching && data ? hitStrengths(data.nodes) : null), [searching, data]);
   const hits = useMemo(() => (searching && data ? data.nodes.filter((n) => n.rank !== undefined).sort((a, b) => a.rank! - b.rank!) : []), [searching, data]);
   // On a phone the results are a sheet until a node is selected.
@@ -334,6 +342,13 @@ function GraphPageContent({ initial }: { initial: URLSearchParams }) {
       <header data-tour="page-header" className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-4 py-2.5">
         <h2 className="text-lg font-semibold">Graph</h2>
         <GraphBreadcrumbs crumbs={crumbs} onGo={(i) => goTo(trail.slice(0, i + 1))} />
+        {topicMap && (
+          <Hint label="Projects are hidden, so topics link to the topics they share memories with, gathered round a main topic. Show projects in the legend to go back.">
+            <Badge variant="secondary" className="gap-1 font-normal" tabIndex={0}>
+              <Tag aria-hidden /> Topic map
+            </Badge>
+          </Hint>
+        )}
         <InputGroup className="w-full sm:ml-auto sm:w-72">
           <InputGroupAddon>
             <SearchIcon className="size-3.5" aria-hidden />
@@ -381,7 +396,7 @@ function GraphPageContent({ initial }: { initial: URLSearchParams }) {
         {!data && !graphResult.error && <div className="absolute inset-0 grid"><GraphSkeleton /></div>}
         {((loading && data) || openingChunk) && (
           <div className="pointer-events-none absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-card/90 px-3 py-1.5 text-xs text-muted-foreground shadow-lg backdrop-blur" role="status">
-            <Spinner className="size-3.5" /> {openingChunk ? "Opening chunk…" : searching ? "Searching memories…" : `Loading ${kind ? KINDS[kind].label.toLowerCase() : "overview"}…`}
+            <Spinner className="size-3.5" /> {openingChunk ? "Opening chunk…" : searching ? "Searching memories…" : `Loading ${kind ? KINDS[kind].label.toLowerCase() : lens ? "topic map" : "overview"}…`}
           </div>
         )}
         {!loading && graphResult.error && (
@@ -441,6 +456,7 @@ function GraphPageContent({ initial }: { initial: URLSearchParams }) {
               shown={{ nodes: visible.nodes.length, edges: settings.showEdges ? visible.edges.length : 0 }}
               more={data.more ?? []}
               onMore={breadthApplies && settings.depth < 3 ? () => setSettings((s) => ({ ...s, depth: s.depth + 1 })) : undefined}
+              listed={lens ? ["project"] : undefined}
             />
           </div>
         )}
@@ -465,6 +481,7 @@ function GraphPageContent({ initial }: { initial: URLSearchParams }) {
               topicSources={topicSources}
               topicContext={currentProject}
               neighborhood={neighborhood}
+              members={groups.get(selected.id)}
               onClose={() => setSelectedId(null)}
               onOpen={open}
               onSelect={select}

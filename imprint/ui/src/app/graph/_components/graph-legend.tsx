@@ -21,6 +21,16 @@ function Swatch({ kind }: { kind: GraphNodeKind }) {
 
 function EdgeSample({ kind }: { kind: GraphEdgeKind }) {
   const style = EDGE_KINDS[kind];
+  if (style.grouped) {
+    // Topic to topic: a heavier line between two rings.
+    return (
+      <svg width="18" height="8" viewBox="0 0 18 8" aria-hidden className="shrink-0">
+        <line x1="5" y1="4" x2="13" y2="4" stroke={style.grouped} strokeWidth="2.5" />
+        <circle cx="3" cy="4" r="2.2" fill="none" stroke={style.grouped} strokeWidth="1.3" />
+        <circle cx="15" cy="4" r="2.2" fill="none" stroke={style.grouped} strokeWidth="1.3" />
+      </svg>
+    );
+  }
   return (
     <svg width="18" height="8" viewBox="0 0 18 8" aria-hidden className="shrink-0">
       <line x1="1" y1="4" x2={style.arrow ? 13 : 17} y2="4" stroke={style.color ?? "var(--muted-foreground)"} strokeWidth="1.5" strokeDasharray={style.dash?.join(" ")} />
@@ -37,6 +47,7 @@ export function GraphLegend({
   shown,
   more = [],
   onMore,
+  listed = [],
 }: {
   /** Nodes of each kind in this scope, before hiding. */
   counts: Record<GraphNodeKind, number>;
@@ -48,9 +59,12 @@ export function GraphLegend({
   more?: GraphNodeKind[];
   /** Raise "Items per group", when that would list more. */
   onMore?: () => void;
+  /** Kinds listed even without nodes here, so they can be shown again (the
+   * topic map leaves projects out while they are hidden). */
+  listed?: GraphNodeKind[];
 }) {
   const limited = KIND_ORDER.filter((k) => more.includes(k) && counts[k] > 0);
-  const kinds = KIND_ORDER.filter((k) => counts[k] > 0);
+  const kinds = KIND_ORDER.filter((k) => counts[k] > 0 || listed.includes(k));
   return (
     <div className="w-48 rounded-xl border border-border bg-card/90 p-2 text-xs shadow-lg backdrop-blur">
       <ul aria-label="Node kinds" className="space-y-0.5">
@@ -68,7 +82,7 @@ export function GraphLegend({
                 >
                   <span className={`grid size-3 place-items-center ${visible ? "" : "opacity-40"}`}><Swatch kind={kind} /></span>
                   <span className={`flex-1 ${visible ? "text-foreground" : "text-muted-foreground line-through"}`}>{KINDS[kind].plural}</span>
-                  <span className="tabular-nums text-muted-foreground">{counts[kind]}</span>
+                  {counts[kind] > 0 && <span className="tabular-nums text-muted-foreground">{counts[kind]}</span>}
                   <Toggle className="size-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" aria-hidden />
                 </Button>
               </Hint>

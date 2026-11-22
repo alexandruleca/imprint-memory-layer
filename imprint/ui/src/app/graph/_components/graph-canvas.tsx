@@ -389,16 +389,23 @@ class GraphView {
         if ((s.x < x0 - m && t.x < x0 - m) || (s.x > x1 + m && t.x > x1 + m) || (s.y < y0 - m && t.y < y0 - m) || (s.y > y1 + m && t.y > y1 + m)) continue;
         const kind = EDGE_KINDS[l.edge.kind];
         const fromProject = s.node.kind === "project";
-        let a = kind.color ? 0.7 : fromProject ? 0.45 : 0.3;
+        // Related topics: heavier and more opaque the stronger they go
+        // together, in quarter steps so a frame stays a few batches.
+        const step = kind.grouped ? Math.round(l.strength * 4) / 4 : 0;
+        let a = kind.color ? 0.7 : kind.grouped ? 0.2 + step * 0.5 : fromProject ? 0.45 : 0.3;
         if (matches && !(matches.has(s.id) && matches.has(t.id))) a = 0.03;
         else if (hoverId) a = s.id === hoverId || t.id === hoverId ? 0.85 : 0.12;
         if (selectedId && (s.id === selectedId || t.id === selectedId)) a = Math.max(a, 0.8);
-        const color = kind.color ?? (fromProject ? s.node.color : theme.edge);
+        // Within a topic-map group in its colour, between groups in ink.
+        const color = kind.color
+          ?? (kind.grouped ? (!s.node.group || !t.node.group ? kind.grouped : s.node.group === t.node.group ? s.node.color : theme.edge)
+            : fromProject ? s.node.color : theme.edge);
+        const width = kind.grouped ? 0.75 + step * 2.5 : Math.round((0.6 + l.strength * 1.6) * 4) / 4;
         const dx = t.x - s.x, dy = t.y - s.y, len = Math.hypot(dx, dy) || 1;
         // Lines meet the node outlines, so arrows and rings stay clean.
         const ux = dx / len, uy = dy / len;
         const ex = t.x - ux * (t.r + (kind.arrow ? 1 : 0)), ey = t.y - uy * (t.r + (kind.arrow ? 1 : 0));
-        const path = strokes.path(color, a * fade, Math.round((0.6 + l.strength * 1.6) * 4) / 4, kind.dash);
+        const path = strokes.path(color, a * fade, width, kind.dash);
         path.moveTo(s.x + ux * s.r, s.y + uy * s.r);
         path.lineTo(kind.arrow ? ex - ux * 5 : ex, kind.arrow ? ey - uy * 5 : ey);
         if (kind.arrow && len > s.r + t.r + 6) {
@@ -426,12 +433,15 @@ class GraphView {
       if (outside(n.x, n.y, n.r)) continue;
       if (n.depth !== layer) { flush(); layer = n.depth; }
       const node = n.node;
-      // Search hits are drawn in ink, their rank cut out of them.
-      const color = node.rank !== undefined ? theme.focusRing : theme.kind[node.kind] || nodeColor(node);
+      // Search hits are drawn in ink, their rank cut out of them; a topic
+      // map's topics in their group's colour.
+      const color = node.rank !== undefined ? theme.focusRing
+        : node.kind === "topic" && node.group ? node.color : theme.kind[node.kind] || nodeColor(node);
       const a = alphaOf(n.id);
-      const strong = node.kind === "project" || !!node.focus;
+      const strong = node.kind === "project" || !!node.focus || !!node.hub;
       const topic = node.kind === "topic";
-      const fill = topic ? 0.1 : node.kind === "project" ? 0.95 : 0.85;
+      // Topics are rings; a hub is a solid disc its members gather round.
+      const fill = node.hub ? 0.9 : topic ? 0.1 : node.kind === "project" ? 0.95 : 0.85;
       if (n.r < dotBelow && !matches?.has(n.id) && n.id !== selectedId && n.id !== hoverId) {
         fills.path(color, a * Math.max(fill, 0.6)).rect(n.x - n.r, n.y - n.r, n.r * 2, n.r * 2);
         continue;
@@ -475,7 +485,8 @@ class GraphView {
     const { ctx, dpr, cam, theme, w, h, model } = this;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const scale = Math.min(1.2, Math.max(0.85, cam.k));
-    const forced = (n: SimNode) => n.id === this.hover?.id || n.id === this.selectedId || !!n.node.focus || !!this.matches?.has(n.id);
+    // A topic map's hubs always keep their labels.
+    const forced = (n: SimNode) => n.id === this.hover?.id || n.id === this.selectedId || !!n.node.focus || !!n.node.hub || !!this.matches?.has(n.id);
     const candidates: SimNode[] = [];
     for (const n of model.nodes) {
       const sx = n.x * cam.k + cam.x, sy = n.y * cam.k + cam.y;
@@ -490,7 +501,7 @@ class GraphView {
     const placed: Array<{ n: SimNode; x: number; y: number; size: number; weight: number; text: string }> = [];
     for (const n of candidates) {
       if (placed.length >= LABEL_CAP) break;
-      const strong = n.node.kind === "project" || !!n.node.focus;
+      const strong = n.node.kind === "project" || !!n.node.focus || !!n.node.hub;
       const weight = strong || n.id === this.selectedId ? 600 : 400;
       const size = (strong ? 12 : 10.5) * scale;
       const text = shortLabel(n.node.label);
@@ -574,7 +585,7 @@ export function GraphCanvas({
       if (view.hover === node) { if (node) tooltip.current?.move(x, y); return; }
       view.hover = node;
       canvas.style.cursor = node ? "pointer" : "";
-      tooltip.current?.show(node?.node ?? null, x, y);
+      tooltip.current?.show(node?.node ?? null, x, y, node ? view.model.groups.get(node.id) : undefined);
       view.invalidate();
     };
     const onDown = (e: PointerEvent) => {
