@@ -161,8 +161,9 @@ a store already holds is not submitted again.
   homepage, support link, privacy policy (`amo-privacy-policy.md`) and 1280×800
   screenshots with captions. `scripts/update_amo_listing.py` applies them whenever
   they change on `main`, or from **Actions → addons.mozilla.org listing → Run
-  workflow**. Screenshots are uploaded only while the listing has none; tick
-  **replace_screenshots** to delete them and upload the folder's again. AMO takes each version number once across channels,
+  workflow**. Screenshots are matched in order: one AMO already has gets its
+  caption and position, and missing ones are uploaded. Tick **replace_screenshots**
+  to delete them all and upload the folder's again. Throttled requests wait and retry. AMO takes each version number once across channels,
   and a listed version must be higher than the earlier ones, so never hand-submit a
   prerelease build: `v0.60.0-dev.1` becomes 0.60.0.1, which is higher than 0.60.0.
 

@@ -21,6 +21,7 @@ import hmac
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import sys
 import time
@@ -43,6 +44,17 @@ def jwt(issuer, secret, now=None):
     return (header + b'.' + payload + b'.' + signature).decode()
 
 
+def throttled_for(status, retry_after, detail):
+    """Seconds to wait before retrying a throttled (HTTP 429) request, else None."""
+    if status != 429:
+        return None
+    try:
+        return max(0.0, float(retry_after)) + 1
+    except (TypeError, ValueError):
+        match = re.search(r'available in (\d+) second', detail)
+        return int(match.group(1)) + 1 if match else 60.0
+
+
 class Client:
     def __init__(self, issuer, secret, base='https://addons.mozilla.org', poll=10.0, timeout=1200.0):
         self.issuer, self.secret, self.base = issuer, secret, base.rstrip('/')
@@ -51,17 +63,24 @@ class Client:
     def request(self, method, path, body=None, content_type='application/json', raw=False):
         url = path if path.startswith('http') else self.base + path
         data = json.dumps(body).encode() if body is not None and content_type == 'application/json' else body
-        request = urllib.request.Request(url, data=data, method=method, headers={
-            'Authorization': 'JWT ' + jwt(self.issuer, self.secret), 'Accept': 'application/json',
-            **({'Content-Type': content_type} if data is not None else {})})
-        try:
-            with urllib.request.urlopen(request, timeout=120) as response:
-                payload = response.read()
-        except urllib.error.HTTPError as error:
-            with error:
-                detail = error.read().decode('utf-8', 'replace')[:2000]
-            raise RuntimeError(f'{method} {path}: HTTP {error.code}: {detail}') from None
-        return payload if raw else json.loads(payload or b'null')
+        deadline = time.monotonic() + self.timeout
+        while True:
+            # A fresh token each time: one lives a minute, and a throttled request may wait longer.
+            request = urllib.request.Request(url, data=data, method=method, headers={
+                'Authorization': 'JWT ' + jwt(self.issuer, self.secret), 'Accept': 'application/json',
+                **({'Content-Type': content_type} if data is not None else {})})
+            try:
+                with urllib.request.urlopen(request, timeout=120) as response:
+                    payload = response.read()
+                return payload if raw else json.loads(payload or b'null')
+            except urllib.error.HTTPError as error:
+                with error:
+                    detail = error.read().decode('utf-8', 'replace')[:2000]
+                    wait = throttled_for(error.code, error.headers.get('Retry-After'), detail)
+                if wait is None or time.monotonic() + wait > deadline:
+                    raise RuntimeError(f'{method} {path}: HTTP {error.code}: {detail}') from None
+                print(f'addons.mozilla.org throttled {method} {path}; retrying in {wait:.0f}s')
+                time.sleep(wait)
 
     def exists(self, path):
         try:

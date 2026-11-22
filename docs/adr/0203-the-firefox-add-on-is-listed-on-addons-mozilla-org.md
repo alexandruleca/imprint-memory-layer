@@ -24,7 +24,7 @@ description: After a stable release is published, CI submits its add-on as a lis
 
 - **When.** A new `firefox-listing` job runs after `publish`, for stable releases only, with the existing `AMO_JWT_ISSUER` and `AMO_JWT_SECRET` secrets. Without them it warns and submits nothing.
 - **The first listed version is uploaded once by hand.** The owner uploads it in the Developer Hub with **Upload New Version → On this site** and picks its license there, just as the Chrome Web Store item was made by hand.
-- **The listing's content lives in the repository.** `extensions/store/` holds the summary, description, categories, homepage, support link, privacy policy and screenshots (1280×800, AMO's recommended size) with their captions. The `amo-listing` workflow applies them with `scripts/update_amo_listing.py` whenever they change on `main`, and on demand. Categories are written in the shape AMO reads them back. Screenshots are uploaded only while the listing has none, unless a manual run asks to replace them, because AMO keeps its own copies and a rerun cannot tell whether they changed.
+- **The listing's content lives in the repository.** `extensions/store/` holds the summary, description, categories, homepage, support link, privacy policy and screenshots (1280×800, AMO's recommended size) with their captions. The `amo-listing` workflow applies them with `scripts/update_amo_listing.py` whenever they change on `main`, and on demand. Categories are written in the shape AMO reads them back. Screenshots are matched in order: one AMO already has gets its caption and position, and the missing ones are uploaded. AMO keeps its own copies, so a rerun cannot tell whether an image changed; a manual run can replace them all. Throttled requests (HTTP 429) wait as long as AMO says and retry; the first run against AMO was throttled after one screenshot.
 - **The submission.** `scripts/publish_firefox_extension.py` replaces `scripts/sign_firefox_extension.py`:
   1. If AMO already holds this version as listed, it reports the file's status and stops.
   2. If AMO holds this version in another channel, the job fails, because a version number is taken once.
@@ -61,6 +61,7 @@ description: After a stable release is published, CI submits its add-on as a lis
   - a version already listed;
   - no listing, with no channels or only `unlisted`;
   - a validation failure, a disabled file, and a number already signed as unlisted.
-- `tests/test_update_amo_listing.py` ran four tests, all passing, against a stand-in AMO. They covered the listing text and privacy policy, the screenshots with their positions and captions, categories in either shape, screenshots kept unless replacing is asked for, and the listing files' summary length, category count and screenshot size.
+- `tests/test_update_amo_listing.py` ran six tests, all passing, against a stand-in AMO. They covered the listing text and privacy policy, the screenshots with their positions and captions, categories in either shape, a partial upload completed without uploading again, a complete listing left alone, replacing every screenshot, throttled requests retried, and the listing files' summary length, category count and screenshot size.
+- The first `amo-listing` run on AMO (2026-11-22) set the listing text and categories. It was throttled while captioning the first screenshot, which led to the retry and the matching in order.
 - addons-linter 10.16.0 reported no warnings on the add-on built from commit 4daa3bf.
-- Not run: the real AMO listed submission and listing update. The first waits for the listing and the next stable release; the second for the workflow's first run on `main`.
+- Not run: the real AMO listed submission, which waits for the listing and the next stable release.
