@@ -25,6 +25,7 @@ from urllib.parse import urlparse, parse_qs
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from imprint import config, vectorstore as vs, imprint_graph as kg
+from imprint import topics as _topics
 from imprint import chat as chat_mod, chat_store
 from imprint.http_security import local_host, local_origin, loopback_address
 from qdrant_client import models as qm
@@ -196,7 +197,8 @@ def build_project_detail(project_name: str, filters: dict | None = None) -> dict
     type_facets = _facet("type", 20, proj_filter)
     domain_facets = _facet("tags.domain", 30, proj_filter)
     lang_facets = _facet("tags.lang", 20, proj_filter)
-    topic_facets = _facet("tags.topics", 40, proj_filter)
+    # Every spelling of a topic counts under one name (ADR 0198).
+    topic_facets = _topics.merge(_facet("tags.topics", 120, proj_filter))[:40]
 
     total_count = sum(c for _, c in type_facets)
 
@@ -395,8 +397,10 @@ def build_stats() -> dict:
         for key, target in [("project", None), ("type", "types"), ("tags.lang", "langs"),
                             ("tags.domain", "domains"), ("tags.layer", "layers"),
                             ("tags.topics", "topics")]:
-            facet_result = client.facet(coll, key, limit=20)
+            facet_result = client.facet(coll, key, limit=60 if key == "tags.topics" else 20)
             items = [(h.value, h.count) for h in facet_result.hits]
+            if key == "tags.topics":
+                items = _topics.merge(items)[:20]
             if target:
                 stats[target] = items
             else:
@@ -669,7 +673,8 @@ def build_topic_overview(filters: dict | None = None, q: str = "", sort: str = "
         raise ValueError(f"sort must be one of {', '.join(TOPIC_SORTS)}")
     offset, limit = max(0, int(offset)), max(1, int(limit))
 
-    every = [(name, count) for name, count in _facet("tags.topics", _TOPIC_FACET_LIMIT, filt) if name]
+    # Every spelling of a topic counts under one name (ADR 0198).
+    every = [(name, count) for name, count in _topics.merge(_facet("tags.topics", _TOPIC_FACET_LIMIT, filt)) if name]
     needle = q.strip().lower()
     matched = [(name, count) for name, count in every if needle in name.lower()] if needle else every
     if sort == "name":
@@ -691,7 +696,7 @@ def build_topic_overview(filters: dict | None = None, q: str = "", sort: str = "
     topics = []
     for name, count in matched[offset:offset + limit]:
         # Per-topic sub-facets, for this page only
-        topic_must = [qm.FieldCondition(key="tags.topics", match=qm.MatchValue(value=name))]
+        topic_must = [_topics.condition(name)]
         if filt and filt.must:
             topic_must.extend(filt.must)
         topic_filter = qm.Filter(must=topic_must)
@@ -732,7 +737,7 @@ def build_topic_detail(topic_name: str, project: str | None = None, offset: int 
     memory count (within ``project``)."""
     from imprint import source_snapshots
     client, coll = vs._ensure_collection()
-    must = [qm.FieldCondition(key="tags.topics", match=qm.MatchValue(value=topic_name))]
+    must = [_topics.condition(topic_name)]
     if project is not None:
         must.append(project_filter(project))
     filt = qm.Filter(must=must)
@@ -826,7 +831,7 @@ def build_source_read(source: str, project: str | None = None, topic: str = "",
         filt = qm.Filter(must=[
             qm.FieldCondition(key="source", match=qm.MatchValue(value=source)),
             qm.FieldCondition(key="project", match=qm.MatchValue(value=meta["project"])),
-            qm.FieldCondition(key="tags.topics", match=qm.MatchValue(value=topic)),
+            _topics.condition(topic, workspace),
         ])
         offset = None
         while True:
@@ -909,7 +914,8 @@ def _project_topic_counts(projects: list[str], topics: set[str], workspace: str 
     from imprint.project_associations import project_filter
 
     def one(name: str) -> tuple[str, list[tuple[str, int]]]:
-        return name, _facet("tags.topics", _PROJECT_TOPIC_LIMIT, project_filter(name), workspace=workspace)
+        return name, _topics.merge(_facet("tags.topics", _PROJECT_TOPIC_LIMIT, project_filter(name), workspace=workspace),
+                                   workspace)
 
     out: dict[str, dict[str, int]] = {}
     if not projects or not topics:
@@ -922,24 +928,33 @@ def _project_topic_counts(projects: list[str], topics: set[str], workspace: str 
     return out
 
 
-def get_graph_scope(scope: str = "root", depth: int = 1) -> dict:
+GRAPH_LENSES = ("", "topics")
+
+
+def get_graph_scope(scope: str = "root", depth: int = 1, lens: str = "") -> dict:
     """The active workspace's graph scope, cached against the data fingerprint."""
     scope = scope or "root"
-    return _cached(("graph", config.get_active_workspace(), scope, depth),
-                   lambda: build_graph_scope(scope, depth))
+    lens = lens if lens in GRAPH_LENSES else ""
+    return _cached(("graph", config.get_active_workspace(), scope, depth, lens),
+                   lambda: build_graph_scope(scope, depth, lens=lens) if lens else build_graph_scope(scope, depth))
 
 
 def build_graph_scope(
     scope: str = "root",
     depth: int = 1,
     workspace: str | None = None,
+    lens: str = "",
 ) -> dict:
     """Obsidian-style unified graph. Returns nodes + edges for a scope.
 
     scope ∈ {root, project:<name>, topic:<name>, source:<key>, chunk:<mid>}.
-    depth currently affects breadth only (top-K per facet).
+    depth currently affects breadth only (top-K per facet). ``lens="topics"``
+    draws the root as topics alone, linked to each other and grouped around
+    hub topics (ADR 0199); other scopes ignore it.
     """
     scope = scope or "root"
+    if lens not in GRAPH_LENSES:
+        raise ValueError(f"lens must be one of {GRAPH_LENSES}")
     ws = workspace
     kind, _, val = scope.partition(":")
     nodes: dict[str, dict] = {}
@@ -972,7 +987,34 @@ def build_graph_scope(
     from imprint import source_snapshots
     titles = source_snapshots.conversation_titles(ws)
 
-    if kind == "root":
+    if kind == "root" and lens == "topics":
+        # Topics alone, linked when memories carry them together more often
+        # than their sizes predict, coloured by their group's hub (ADR 0199).
+        cap = 60 + (depth - 1) * 20
+        topic_map = _topics.topic_map(cap, ws)
+        if topic_map["more"]:
+            more.add("topic")
+        hubs = topic_map["hubs"]
+        per_project = _project_topic_counts(
+            [name for name, _ in _facet("project", 50, workspace=ws) if name],
+            {name for name, _ in topic_map["topics"]}, ws)
+        for tname, tcount in topic_map["topics"]:
+            ranked = sorted(per_project.get(tname, {}).items(), key=lambda pc: (-pc[1], pc[0]))[:3]
+            add(f"topic:{tname}", {
+                "id": f"topic:{tname}",
+                "kind": "topic",
+                "label": tname,
+                "count": tcount,
+                "color": _topic_color(hubs[tname]),
+                "hub": hubs[tname] == tname,
+                "group": f"topic:{hubs[tname]}",
+                "projects": [{"name": p, "count": c} for p, c in ranked],
+            })
+        for (a, b), (strength, together) in sorted(topic_map["links"].items()):
+            edge(f"topic:{a}", f"topic:{b}", round(strength * 10), "related")
+            edges[-1].update(count=together, strength=round(strength, 3))
+
+    elif kind == "root":
         proj_facets = capped("project", _facet("project", 50, workspace=ws), 50)
         for name, count in proj_facets:
             if not name:
@@ -985,7 +1027,8 @@ def build_graph_scope(
                 "color": _project_color(name),
             })
 
-        topic_facets = [(t, c) for t, c in capped("topic", _facet("tags.topics", 60, workspace=ws), 60) if t]
+        # Every spelling of a topic counts under one name (ADR 0198).
+        topic_facets = capped("topic", _topics.merge(_facet("tags.topics", 300, workspace=ws), ws), 61)[:60]
         for tname, tcount in topic_facets:
             add(f"topic:{tname}", {
                 "id": f"topic:{tname}",
@@ -1017,7 +1060,8 @@ def build_graph_scope(
             "color": _project_color(val),
             "focus": True,
         })
-        for tname, tcount in capped("topic", _facet("tags.topics", topic_cap, pfilt, workspace=ws), topic_cap):
+        merged = _topics.merge(_facet("tags.topics", topic_cap * 3, pfilt, workspace=ws), ws)
+        for tname, tcount in capped("topic", merged, topic_cap + 1)[:topic_cap]:
             if not tname:
                 continue
             add(f"topic:{tname}", {
@@ -1035,10 +1079,10 @@ def build_graph_scope(
             edge(f"proj:{val}", f"src:{sname}", scount, "contains")
 
     elif kind == "topic" and val:
-        tfilt = qm.Filter(must=[qm.FieldCondition(
-            key="tags.topics", match=qm.MatchValue(value=val))])
         # Memberships overlap across projects; the topic still counts points.
         client, coll = vs._ensure_collection(ws)
+        # Every spelling of the topic (ADR 0198).
+        tfilt = qm.Filter(must=[_topics.condition(val, ws)])
         total = client.count(coll, count_filter=tfilt, exact=True).count
         add(f"topic:{val}", {
             "id": f"topic:{val}",
@@ -1064,6 +1108,18 @@ def build_graph_scope(
                 continue
             add(f"src:{sname}", _source_node(sname, scount, titles))
             edge(f"src:{sname}", f"topic:{val}", scount, "relates")
+        # The topics most often found with it, so the map can be walked
+        # topic to topic (ADR 0199).
+        try:
+            related = _topics.related(val, ws)
+        except Exception:
+            related = []
+        for row in related:
+            nid = f"topic:{row['name']}"
+            add(nid, {"id": nid, "kind": "topic", "label": row["name"], "count": row["count"],
+                      "color": _topic_color(row["name"])})
+            edge(f"topic:{val}", nid, round(row["strength"] * 10), "related")
+            edges[-1].update(count=row["together"], strength=round(row["strength"], 3))
 
     elif kind == "source" and val:
         lineage = build_source_lineage(val, workspace=ws)
@@ -1100,7 +1156,7 @@ def build_graph_scope(
             if prev_id is not None:
                 edge(prev_id, cid, 1, "sequence")
             prev_id = cid
-            for t in (c.get("tags") or {}).get("topics", []) or []:
+            for t in _topics.canonical((c.get("tags") or {}).get("topics", []) or [], ws):
                 if not t:
                     continue
                 topic_seen[t] = topic_seen.get(t, 0) + 1
@@ -1144,7 +1200,7 @@ def build_graph_scope(
                 })
                 if src:
                     edge(f"proj:{proj}", f"src:{src}", 1, "contains")
-            for t in ((mem.get("tags") or {}).get("topics") or []):
+            for t in _topics.canonical((mem.get("tags") or {}).get("topics") or [], ws):
                 if not t:
                     continue
                 add(f"topic:{t}", {

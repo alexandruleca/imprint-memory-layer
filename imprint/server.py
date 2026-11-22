@@ -1334,7 +1334,7 @@ def file_summary(
 
 
 @mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False})
-def graph_scope(scope: str = "root", depth: int = 1, workspace: str = "") -> str:
+def graph_scope(scope: str = "root", depth: int = 1, workspace: str = "", lens: str = "") -> str:
     """Navigate KB as graph by project/topic/source/chunk. Use when search
     is too narrow or for overview.
 
@@ -1342,14 +1342,18 @@ def graph_scope(scope: str = "root", depth: int = 1, workspace: str = "") -> str
         scope: root, project:<name>, topic:<name>, source:<path>, chunk:<id>
         depth: 1–3, higher = more nodes
         workspace: Target workspace (optional)
+        lens: "topics" draws root as topics alone, linked to related topics
+            and grouped around hub topics (optional)
     """
     ws, err = _validate_ws(workspace)
     if err:
         return err
-    from .cli_viz import build_graph_scope
+    from .cli_viz import GRAPH_LENSES, build_graph_scope
 
+    if lens not in GRAPH_LENSES:
+        return f"Error: lens must be one of {', '.join(repr(value) for value in GRAPH_LENSES)}"
     depth = max(1, min(int(depth or 1), 3))
-    data = build_graph_scope(scope or "root", depth=depth, workspace=ws)
+    data = build_graph_scope(scope or "root", depth=depth, workspace=ws, lens=lens)
     nodes = data.get("nodes", [])
     edges = data.get("edges", [])
 
@@ -1390,7 +1394,8 @@ def graph_scope(scope: str = "root", depth: int = 1, workspace: str = "") -> str
         for n in shown:
             link = _peers(n["id"])
             suffix = f"  → {link}" if link else ""
-            lines.append(f"  [{n['id']}] {n['label']}  ({n.get('count', 0)}){suffix}")
+            hub = "  [hub]" if n.get("hub") else ""
+            lines.append(f"  [{n['id']}] {n['label']}  ({n.get('count', 0)}){hub}{suffix}")
         if len(items) > len(shown):
             lines.append(f"  … +{len(items) - len(shown)} more (increase depth to see them)")
 
@@ -1398,11 +1403,13 @@ def graph_scope(scope: str = "root", depth: int = 1, workspace: str = "") -> str
     suggestions: list[str] = []
     if scope_str == "root" or scope_str.startswith("root"):
         sample_proj = by_kind.get("project", [])
-        sample_topic = by_kind.get("topic", [])
+        sample_topic = [n for n in by_kind.get("topic", []) if n.get("hub")] or by_kind.get("topic", [])
         if sample_proj:
             suggestions.append(f'graph_scope("project:{sample_proj[0]["label"]}")')
         if sample_topic:
             suggestions.append(f'graph_scope("topic:{sample_topic[0]["label"]}")')
+        if not lens:
+            suggestions.append('graph_scope("root", lens="topics")')
     elif scope_str.startswith("project:"):
         for t in by_kind.get("topic", [])[:2]:
             suggestions.append(f'graph_scope("topic:{t["label"]}")')

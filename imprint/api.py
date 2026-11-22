@@ -484,8 +484,10 @@ def api_topic(name: str, project: str | None = None, offset: int = Query(0, ge=0
 
 
 @app.get("/api/graph")
-def api_graph(scope: str = "root", depth: int = 1):
-    return get_graph_scope(unquote(scope), max(1, min(int(depth or 1), 3)))
+def api_graph(scope: str = "root", depth: int = 1, lens: str = Query("", pattern="^(|topics)$")):
+    # lens=topics: the root as topics alone, linked and grouped (ADR 0199).
+    data = get_graph_scope(unquote(scope), max(1, min(int(depth or 1), 3)), lens)
+    return {**data, "lens": lens} if lens else data
 
 
 # ── Workspaces ─────────────────────────────────────────────────

@@ -842,6 +842,10 @@ def _classification_result(raw_text: str, workspace: str | None) -> dict:
     result = _parse_llm_classification(raw_text)
     if result == _CLASSIFY_FALLBACK:
         raise ClassificationFailed("the model's reply held no classification")
+    # A topic the store already holds under another spelling takes that
+    # spelling (ADR 0198); the prompt is unchanged (ADRs 0163, 0164).
+    from .topics import canonical
+    result["topics"] = canonical(result["topics"], workspace)[:4]
 
     # Record new values in taxonomy registry
     try:

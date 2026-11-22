@@ -244,7 +244,9 @@ def build(workspace: str) -> dict:
         projects = facet("project", 10_000)
     langs = facet("tags.lang", 1_000)
     domains = facet("tags.domain", 10_000)
-    topics = facet("tags.topics", 100_000)
+    # Every spelling of a topic counts under one name (ADR 0198).
+    from . import topics as topic_names
+    topics = [[name, n] for name, n in topic_names.merge(facet("tags.topics", 100_000), workspace)]
     sources = facet("source", 1_000_000)
 
     timeline = []

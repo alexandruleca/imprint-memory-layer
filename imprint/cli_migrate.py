@@ -28,16 +28,16 @@ from .progress import Task
 _SCROLL_BATCH = 100
 
 
-def _build_filter(project: str, topic: str, source: str) -> qm.Filter:
+def _build_filter(project: str, topic: str, source: str, workspace: str | None = None) -> qm.Filter:
     must: list = []
     if project:
         must.append(qm.FieldCondition(
             key="project", match=qm.MatchValue(value=project),
         ))
     if topic:
-        must.append(qm.FieldCondition(
-            key="tags.topics", match=qm.MatchValue(value=topic),
-        ))
+        # Every spelling of the topic (ADR 0198).
+        from imprint.topics import condition
+        must.append(condition(topic, workspace))
     if source:
         must.append(qm.FieldCondition(
             key="source", match=qm.MatchValue(value=source),
@@ -161,7 +161,7 @@ def migrate(
         if _config.register_workspace(to_workspace):
             print(f"  Created workspace: {to_workspace}", file=sys.stderr)
         tgt_client, tgt_coll = vectorstore._ensure_collection(to_workspace)
-    flt = _build_filter(project, topic, source)
+    flt = _build_filter(project, topic, source, from_workspace)
     verb = "Copied" if copy else "Moved"
 
     moved = 0
@@ -302,7 +302,8 @@ def preview(from_workspace: str, to_workspace: str, mode: str, values: list[str]
         raise ValueError(f"source workspace {from_workspace!r} does not exist")
 
     client, coll = vectorstore._ensure_collection(from_workspace)
-    filters = [_build_filter(**{key: (value if key == mode else "") for key in PREVIEW_MODES}) for value in values]
+    filters = [_build_filter(**{key: (value if key == mode else "") for key in PREVIEW_MODES}, workspace=from_workspace)
+               for value in values]
     union = filters[0] if len(filters) == 1 else qm.Filter(should=filters)
     items = []
     for value, flt in zip(values, filters):
