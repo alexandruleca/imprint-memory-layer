@@ -3,7 +3,7 @@ export const extensionAssetName = 'imprint-chrome-extension.zip';
 export const chromeWebStoreUrl = 'https://chromewebstore.google.com/detail/imprint-capture/ammleledmkghliflljeapomaaccnhmme';
 // Only the Mozilla-signed add-on installs in release Firefox; the -unsigned
 // build stays on the releases page for Developer Edition and Nightly. Releases
-// after v0.59.0 go to addons.mozilla.org instead (ADR 0203), so this finds the
+// after v0.60.0 go to addons.mozilla.org instead (ADR 0203), so this finds the
 // last release that carried one.
 export const firefoxAssetName = 'imprint-firefox-extension.xpi';
 
