@@ -6,7 +6,9 @@ description: Publish a minimal manual-install extension ZIP with validated relea
 - Status: Amended
 - Date: 2026-10-23
 - Amends: [ADR 0029](0029-paired-browser-capture.md) — supersedes its initial availability of Gmail in the extension UI and its unpacked-only distribution; the pairing and storage architecture remains accepted
-- Amended by: [ADR 0193](0193-firefox-capture-is-the-chrome-extension-signed-as-an-unlisted-add-on.md) — releases also carry a Firefox add-on, and both packages take the release's version
+- Amended by:
+  - [ADR 0193](0193-firefox-capture-is-the-chrome-extension-signed-as-an-unlisted-add-on.md) — releases also carry a Firefox add-on, and both packages take the release's version
+  - [ADR 0202](0202-stable-releases-submit-the-extension-to-the-chrome-web-store.md) — the Chrome Web Store is the extension's install and update path; the release ZIP remains for loading by hand
 - Related: [ADR 0002](0002-build-and-validate-before-publication.md) and [ADR 0014](0014-main-only-release-packaging.md), which this record extends
 - Restructured: 2026-10-25
 
