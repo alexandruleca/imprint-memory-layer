@@ -1680,10 +1680,10 @@ def api_config_reset(key: str):
 
 
 def _tagging_settings_changed(key: str) -> None:
-    """Turning LLM tagging or background Organize on, or fixing the
+    """Turning LLM tagging, background Organize or upkeep on, or fixing the
     provider, lets the background job start or retry at once (ADR 0067,
-    0132)."""
-    if key.startswith(("tagger.", "organize.")):
+    0132, 0201)."""
+    if key.startswith(("tagger.", "organize.", "upkeep.", "ingest.data_file")):
         job_queue.backlog_changed()
 
 

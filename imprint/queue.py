@@ -772,6 +772,10 @@ def backlog_changed() -> None:
     """Something that decides whether background tagging runs changed: the
     tagging settings, or the person asked it to resume. Look again now."""
     _background.update(due=0.0, hold_count=None, hold_until=0.0)
+    _pending_cache.update(organize_at=0.0, upkeep_at=0.0)
+    with contextlib.suppress(Exception):
+        from . import upkeep
+        upkeep.reset()
     _notify_dispatcher()
 
 
@@ -800,16 +804,35 @@ def _organize_due() -> int:
         return 0
 
 
+def _upkeeping() -> bool:
+    """Whether upkeep runs in the background (ADR 0201)."""
+    try:
+        from . import upkeep
+        return upkeep.enabled()
+    except Exception:
+        return False
+
+
+def _upkeep_due() -> int:
+    """Upkeep steps with work left, across workspaces."""
+    try:
+        from . import upkeep
+        return upkeep.due_count()
+    except Exception:
+        return 0
+
+
 def _work_total() -> int | None:
     """What the background job has to do: memories waiting for LLM tagging
-    while it is on, and workspaces Organize has not seen as they are."""
+    while it is on, workspaces Organize has not seen as they are, and
+    upkeep steps with work left."""
     try:
         tagging = _pending_total() if tag_backlog.deferring() else 0
     except Exception:
         tagging = None
     if tagging is None:
         return None
-    return tagging + (_organize_due() if _organizing() else 0)
+    return tagging + (_organize_due() if _organizing() else 0) + (_upkeep_due() if _upkeeping() else 0)
 
 
 def _held(pending: int) -> bool:
@@ -823,7 +846,7 @@ def _startable_backlog() -> int | None:
     LLM tagging is on, no job runs or waits, no other process holds the lock,
     nothing holds it back, and memories wait."""
     try:
-        if not tag_backlog.deferring() and not _organizing():
+        if not tag_backlog.deferring() and not _organizing() and not _upkeeping():
             return None
     except Exception:
         return None
@@ -856,6 +879,11 @@ async def _run_background_if_due(after_job) -> bool:
     _prune_background()
     job = get_job(job_id)
     await _run_logged(job, after_job)
+    # Upkeep's ledger changed in the run's own process: read it again.
+    _pending_cache.update(upkeep_at=0.0)
+    with contextlib.suppress(Exception):
+        from . import upkeep
+        upkeep.reset()
     # Not again before the next poll: after a yield, the queued job it yielded
     # to runs next and makes it due when it ends, and a process that stopped
     # it to take the lock is still waiting for that lock; starting again at
@@ -894,26 +922,31 @@ def _prune_background(keep: int = _KEEP_BACKGROUND_RUNS) -> None:
             (_logs_dir() / f"{job_id}.log").unlink()
 
 
-_pending_cache: dict[str, Any] = {"at": 0.0, "value": None, "organize_at": 0.0, "due": 0}
+_pending_cache: dict[str, Any] = {"at": 0.0, "value": None, "organize_at": 0.0, "due": 0,
+                                  "upkeep_at": 0.0, "upkeep": 0}
 
 
 def background_state() -> dict:
-    """What the Queue page shows of the background job: whether LLM tagging
-    and background Organize are on, how many memories wait for tagging
-    across workspaces, how many workspaces have something new for Organize,
-    and its state."""
+    """What the Queue page shows of the background job: whether LLM tagging,
+    background Organize and upkeep are on, how many memories wait for
+    tagging across workspaces, how many workspaces have something new for
+    Organize, how many upkeep steps have work left, and its state."""
     tagging = bool(tag_backlog.deferring())
     organizing = _organizing()
-    enabled = tagging or organizing
+    upkeeping = _upkeeping()
+    enabled = tagging or organizing or upkeeping
     now = time.time()
     if now - _pending_cache["at"] > 2.0:
         _pending_cache.update(at=now, value=_pending_total(), peer=not tagging and _peer_tagging())
     # Organize's check reads several indexes per workspace; less often.
     if organizing and now - _pending_cache["organize_at"] > 10.0:
         _pending_cache.update(organize_at=now, due=_organize_due())
+    if upkeeping and now - _pending_cache["upkeep_at"] > 10.0:
+        _pending_cache.update(upkeep_at=now, upkeep=_upkeep_due())
     pending = _pending_cache["value"]
     due = _pending_cache["due"] if organizing else 0
-    work = ((pending or 0) if tagging else 0) + due
+    upkeep_due = _pending_cache["upkeep"] if upkeeping else 0
+    work = ((pending or 0) if tagging else 0) + due + upkeep_due
     job = background_job()
     resume_at = None
     if not enabled:
@@ -933,7 +966,8 @@ def background_state() -> dict:
     return {"enabled": enabled, "tagging": tagging, "pending": pending,
             # With tagging off here, a paired device tags what waits (ADR 0138).
             "peer": bool(_pending_cache.get("peer")) and not tagging,
-            "organize": {"enabled": organizing, "due": due}, "state": state, "job": job, "resume_at": resume_at}
+            "organize": {"enabled": organizing, "due": due}, "upkeep": {"enabled": upkeeping, "due": upkeep_due},
+            "state": state, "job": job, "resume_at": resume_at}
 
 
 def _peer_tagging() -> bool:
@@ -1215,6 +1249,9 @@ def build_command_args(command: str, body: dict) -> list[str]:
     elif command == "scrub":
         if body.get("apply"):
             args.append("--apply")
+    elif command == "upkeep":
+        if body.get("dry_run"):
+            args.append("--dry-run")
     elif command == "retag":
         if body.get("project"):
             args.extend(["--project", body["project"]])

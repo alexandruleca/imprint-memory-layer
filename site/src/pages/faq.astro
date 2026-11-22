@@ -64,6 +64,10 @@ const faqs = [
     a: 'Often, yes. Imprint keeps a redacted copy of every file it indexes, and a file that disappears from disk keeps its copy for a year (`ingest.keep_missing_days`). `imprint restore <folder>` previews what it can write back and `--apply` writes it; `imprint restore --project NAME --to <folder>` rebuilds a project, including files indexed on your other paired devices. Code, text, JSON and CSV come back exactly, apart from secrets, which stay redacted; PDFs and other documents come back as their extracted text. Only the latest indexed version of each file is kept.',
   },
   {
+    q: 'Do memories stored by an older version get the improvements too?',
+    a: 'Yes, by themselves. While nothing else runs, the dashboard brings what it stored earlier up to date, a piece at a time and at low priority, stepping aside for anything you start: memories synced from your other devices get back the date they were first stored, and large data files are kept whole without a refresh. Turn it off with `imprint config set upkeep.background false`, or run it now with `imprint upkeep`.',
+  },
+  {
     q: 'What does uninstalling look like?',
     a: '`imprint disable` tears down every MCP entry from every host config it previously wrote, stops the Qdrant daemon, and preserves `data/` and `.venv/` so `imprint enable` brings everything back instantly. Full removal is `imprint uninstall`, which also deletes the venv and data; add `--keep-data` to keep your memories.',
   },

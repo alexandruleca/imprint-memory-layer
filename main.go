@@ -74,6 +74,8 @@ func main() {
 		cmd.Scrub(os.Args[2:])
 	case "restore":
 		cmd.Restore(os.Args[2:])
+	case "upkeep":
+		cmd.Upkeep(os.Args[2:])
 	case "migrate":
 		cmd.Migrate(os.Args[2:])
 	case "server":
@@ -166,6 +168,7 @@ Usage:
   imprint restore <dir> [--to <out>] [--all] [--overwrite] [--apply]
   imprint restore --project NAME --to <out> [--apply]
                              Preview writing indexed files back from their snapshots (--apply writes)
+  imprint upkeep [--dry-run] Bring stored memories up to date now, as the idle queue does (ADR 0201)
   imprint migrate --from WS1 --to WS2 --project NAME | --topic TAG | --source KEY [--copy] [--dry-run]
                              Move (or --copy) memories between workspaces (preserves vectors)
   imprint server <cmd>       Manage the local Qdrant server

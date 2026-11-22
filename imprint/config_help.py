@@ -380,6 +380,10 @@ HELP: dict[str, dict[str, str]] = {
         "help": "Runs Organize by itself whenever the dashboard's queue is idle, after background tagging: it writes project profiles, finds a project for memories sitting in catch-alls such as Desktop or Code, and proposes core memories. Each pass looks only at what changed since the last one and steps aside whenever another job waits. Settings stay on each device, so turn it on where the local helper model runs best; its moves and proposals reach paired devices. Off by default.",
         "example": "true: on the computer with the strongest GPU, so new memories are sorted into projects as they arrive.",
     },
+    "upkeep.background": {
+        "help": "Brings what is already stored up to date by itself whenever the dashboard's queue is idle, after background tagging and Organize: memories synced from paired devices get back the date they were first stored, and large data files this computer indexed are kept whole, as ingest now stores them, without a refresh. It works a piece at a time at low priority, rests between pieces, steps aside whenever another job waits, and takes at most ten minutes of each idle run. A file in a WSL distribution waits until that distribution runs. imprint upkeep does the same in the foreground. On by default.",
+        "example": "false: on a laptop running on battery, to leave the work to the next imprint upkeep or refresh.",
+    },
     "organize.auto_move": {
         "help": "Lets Organize move a source by itself when the evidence is strong: the source names exactly one project's registered folder, or one distinctive project name (such as checkout-service) at least twice and no other. Those moves are listed on the Organize page with an undo. Weaker proposals, including every one that rests on the local model's reading, wait for your review. On by default; off sends every proposal to review.",
         "example": "false: to review every move yourself before anything changes project.",

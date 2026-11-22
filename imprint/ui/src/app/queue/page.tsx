@@ -27,7 +27,7 @@ import { useFollowOutput } from "@/lib/use-follow-output";
 import { cn } from "@/lib/utils";
 import type { BackgroundTagging, BackgroundTaggingState, QueueHistory, QueueJob, QueueJobStatus } from "@/lib/types";
 
-const DESCRIPTION = "Imprint runs one job at a time, in the order they were asked for. Background work (LLM tagging, then Organize) fills the time in between and steps aside for anything else.";
+const DESCRIPTION = "Imprint runs one job at a time, in the order they were asked for. Background work (LLM tagging, then Organize, then upkeep) fills the time in between and steps aside for anything else.";
 const PAGE_SIZE = 25;
 
 const STATUS: Record<QueueJobStatus, { label: string; icon: React.ElementType; className: string }> = {
@@ -77,13 +77,16 @@ function explain(bg: BackgroundTagging): string {
   const waiting = bg.pending != null ? memories(bg.pending) : "Memories";
   const tagging = bg.tagging ?? bg.enabled;
   const organizing = bg.organize?.enabled ?? false;
+  const upkeeping = bg.upkeep?.enabled ?? false;
   switch (bg.state) {
     case "off":
       if (bg.peer && bg.pending) return `${waiting} wait for LLM tagging on a paired device. Sync takes them there and brings their tags back.`;
       return bg.pending
         ? `${waiting} wait for LLM tagging. Turn on LLM tagging (tagger.llm) in Settings to tag them here.`
-        : "LLM tagging (tagger.llm) and background Organize (organize.background) are off. Memories keep their keyword and zero-shot tags.";
+        : "LLM tagging (tagger.llm), background Organize (organize.background) and upkeep (upkeep.background) are off. Memories keep their keyword and zero-shot tags.";
     case "running":
+      if (bg.job?.phase === "upkeep")
+        return "Bringing what is already stored up to date, a piece at a time at low priority: synced memories' dates, large data files kept whole. It steps aside whenever another job is waiting.";
       return bg.job?.phase === "organize"
         ? "Organizing what changed: project profiles, moves, core memories and guidelines drawn from them. It steps aside between sources whenever another job is waiting."
         : "Tagging the newest memories first. It steps aside between memories whenever another job is waiting.";
@@ -99,17 +102,21 @@ function explain(bg: BackgroundTagging): string {
       return `The last run failed; see its output under Last run.${bg.resume_at ? ` It retries at ${new Date(bg.resume_at * 1000).toLocaleTimeString()}.` : ""}`;
     case "idle":
       return [tagging && "Every memory stored with LLM tagging on has its LLM tags.",
-              organizing && "Organize has looked at every change."].filter(Boolean).join(" ");
+              organizing && "Organize has looked at every change.",
+              upkeeping && "Everything stored is up to date."].filter(Boolean).join(" ");
   }
 }
 
-/** Which parts of the background work are on (ADR 0067, 0132). */
+/** Which parts of the background work are on (ADR 0067, 0132, 0201). */
 function parts(bg: BackgroundTagging): string {
   const tagging = bg.tagging ?? bg.enabled;
   const due = bg.organize?.due ?? 0;
   const organize = !bg.organize?.enabled ? "Organize off"
     : due ? `Organize: ${due} ${due === 1 ? "workspace" : "workspaces"} changed` : "Organize on";
-  return `LLM tagging ${tagging ? "on" : bg.peer ? "by a paired device" : "off"} · ${organize}`;
+  const kept = bg.upkeep?.due ?? 0;
+  const upkeep = !bg.upkeep ? "" : !bg.upkeep.enabled ? " · Upkeep off"
+    : kept ? ` · Upkeep: ${kept} ${kept === 1 ? "step" : "steps"} to do` : " · Upkeep on";
+  return `LLM tagging ${tagging ? "on" : bg.peer ? "by a paired device" : "off"} · ${organize}${upkeep}`;
 }
 
 type Filter = "all" | "failed";
@@ -383,8 +390,9 @@ function Twin({ twin }: { twin: NonNullable<QueueJob["twin"]> }) {
 }
 
 /** Background work: LLM tagging (ADR 0067), which learn and ingest leave
- * LLM tags to, then Organize when it runs in the background (ADR 0132). It
- * gives way to every other job. A running pass shows under Running. */
+ * LLM tags to, then Organize when it runs in the background (ADR 0132),
+ * then upkeep (ADR 0201). It gives way to every other job. A running pass
+ * shows under Running. */
 function Background({ bg, onOpen }: { bg: BackgroundTagging; onOpen: (job: QueueJob) => void }) {
   const [resuming, setResuming] = useState(false);
 

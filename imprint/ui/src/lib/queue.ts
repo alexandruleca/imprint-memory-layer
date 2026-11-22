@@ -59,6 +59,7 @@ const PLAIN: Record<string, string> = {
   "ingest-url": "Reading a web page", "refresh-urls": "Checking web pages for changes", retag: "Labelling memories",
   scrub: "Removing passwords and keys", organize: "Sorting memories into projects", "associate-projects": "Linking memories to projects",
   "tag-backlog": "Tidying memory in the background", "apply-placements": "Sorting memories into projects",
+  upkeep: "Bringing old memories up to date",
   migrate: "Copying memories", "transcribe-recording": "Writing a recording's transcript", sync: "Saving a copy of memory",
 };
 

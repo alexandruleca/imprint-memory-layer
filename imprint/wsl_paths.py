@@ -120,3 +120,18 @@ def distributions():
     except (OSError, subprocess.SubprocessError):
         return []
     return parse_distributions(listed.stdout)
+
+
+def running_distributions():
+    """The WSL distributions running now, on a Windows runtime; None when
+    WSL cannot say. Reading a file in a stopped distribution's
+    \\\\wsl.localhost share starts it, so background work asks first (ADR 0201)."""
+    if sys.platform != 'win32':
+        return []
+    try:
+        listed = subprocess.run(['wsl.exe', '--list', '--running', '--quiet'], capture_output=True, timeout=5,
+                                creationflags=subprocess.CREATE_NO_WINDOW)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    # With none running, wsl.exe exits nonzero and says so.
+    return parse_distributions(listed.stdout) if listed.returncode == 0 else []

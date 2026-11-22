@@ -83,6 +83,12 @@ CATALOG: tuple[dict, ...] = (
          {'key': 'apply', 'label': 'Redact them', 'kind': 'switch',
           'hint': 'Rewrite the memories and facts found and embed changed memories again; otherwise only count them'},
      ]},
+    {'name': 'upkeep', 'label': 'Bring memories up to date', 'group': 'Maintain',
+     'description': ('Do now what upkeep does while the queue is idle: date memories synced from paired devices '
+                     'to when they were first stored, and keep large data files whole'),
+     'fields': [
+         {'key': 'dry_run', 'label': 'Dry run', 'kind': 'switch', 'hint': 'Say what it would change without changing it'},
+     ]},
     {'name': 'sync', 'label': 'Export snapshot', 'group': 'Maintain',
      'description': 'Write a sync bundle of the active workspace',
      'fields': [], 'fixed': {'action': 'export'}},

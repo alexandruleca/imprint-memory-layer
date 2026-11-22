@@ -303,6 +303,7 @@ class BackgroundTests(Fixture):
         from imprint import queue, tag_backlog
         with patch.object(organize, '_model_available', return_value=False), \
                 patch.object(tag_backlog, 'deferring', return_value=False), \
+                patch.object(queue, '_upkeeping', return_value=False), \
                 patch.object(queue, 'foreground_waiting', return_value=False):
             self.assertEqual(queue._work_total(), 1)
             self.assertEqual(tag_backlog._organize(), 0)

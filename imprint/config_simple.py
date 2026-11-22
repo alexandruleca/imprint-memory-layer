@@ -117,6 +117,9 @@ GROUPS: tuple[Group, ...] = (
         Item("tidy-move", "Move the obvious ones without asking",
              "When a conversation plainly belongs to one project, it is moved there and you can move it back. "
              "The rest wait for you.", key="organize.auto_move"),
+        Item("tidy-upkeep", "Keep old memories up to date",
+             "When Imprint learns to store something better, what it stored before is updated a little at a time "
+             "while nothing else is running.", key="upkeep.background"),
         Item("tidy-labels", "Smarter labels",
              "A model reads each new memory and labels what it is about, which makes it easier to find. "
              "It runs in the background and takes a while on a large memory.", key="tagger.llm"),

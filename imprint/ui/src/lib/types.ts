@@ -355,7 +355,7 @@ export interface QueueHistory {
 export type BackgroundTaggingState = "off" | "running" | "yielded" | "waiting" | "paused" | "failed" | "idle";
 
 export interface BackgroundTagging {
-  /** LLM tagging or background Organize is on. */
+  /** LLM tagging, background Organize or upkeep is on. */
   enabled: boolean;
   /** LLM tagging (tagger.llm) is on. */
   tagging?: boolean;
@@ -363,6 +363,8 @@ export interface BackgroundTagging {
   peer?: boolean;
   /** Background Organize (organize.background, ADR 0132): on, and how many workspaces changed since its last pass. */
   organize?: { enabled: boolean; due: number };
+  /** Upkeep (upkeep.background, ADR 0201): on, and how many of its steps have work left across workspaces. */
+  upkeep?: { enabled: boolean; due: number };
   /** Memories waiting for LLM tagging, across workspaces; null when unknown. */
   pending: number | null;
   state: BackgroundTaggingState;

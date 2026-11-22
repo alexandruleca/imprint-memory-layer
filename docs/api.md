@@ -271,12 +271,12 @@ already waiting: `job_id` is that job and nothing new is queued
 | POST | `/api/jobs/{id}/retry` | Queue a finished job again with the same command, arguments and workspace; an identical waiting job absorbs it (ADR 0068). |
 
 **Allowlisted commands:** the catalog's (`learn`, `ingest`, `refresh`,
-`ingest-url`, `refresh-urls`, `retag`, `scrub`, `sync`, `connect`, `disconnect`,
+`ingest-url`, `refresh-urls`, `retag`, `scrub`, `upkeep`, `sync`, `connect`, `disconnect`,
 `status`, `doctor`, `config`) plus the dashboard dialogs' `wipe`, `migrate`,
 `workspace` and `wsl` (Settings → WSL profiles: `action` `setup` or `remove`,
 `distribution`, `target`). `connect` and `disconnect` take `target` (a client name or
 `all`); `doctor` takes `probe_mcp`; `learn` takes `desktop`; `scrub` takes `apply`; `retag` takes
-`project`, `all`, `dry_run` and `pending` (only the memories waiting for background tagging). Commands that
+`project`, `all`, `dry_run` and `pending` (only the memories waiting for background tagging); `upkeep` takes `dry_run`. Commands that
 install into or stop the running dashboard (`setup`, `enable`, `profile`,
 `disable`, `ui`, `server`, `uninstall`) are refused with 404; see
 [queue](queue.md#allowed-commands).
