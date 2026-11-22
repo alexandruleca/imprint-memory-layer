@@ -1134,11 +1134,13 @@ def delete_memories(memory_ids: Iterable[str], workspace: str | None = None) -> 
 
 
 def delete_by_source(source: str, workspace: str | None = None, project: str | None = None,
-                     propagate: str | None = None) -> bool:
+                     propagate: str | None = None, *, keep_snapshot: bool = False) -> bool:
     """Delete a source's memories. ``propagate`` says which of them paired
     devices delete too (ADR 0176): ``'all'`` for the user's own deletion,
     ``'own'`` for the chunks this device recorded when a newer version of
-    the source replaces them, None (a file gone from disk) for none."""
+    the source replaces them, None (a file gone from disk) for none.
+    ``keep_snapshot`` keeps the source's snapshot, marked missing from disk,
+    for ``imprint restore`` (ADR 0196); otherwise it goes with the chunks."""
     client, coll = _ensure_collection(workspace)
     conditions = [qm.FieldCondition(key="source", match=qm.MatchValue(value=source))]
     if project is not None:
@@ -1157,7 +1159,10 @@ def delete_by_source(source: str, workspace: str | None = None, project: str | N
     with _cache_lock:
         _id_caches.pop(coll, None)
     from . import source_snapshots
-    source_snapshots.remove(source, project, workspace)
+    if keep_snapshot:
+        source_snapshots.mark_missing(source, project, workspace)
+    else:
+        source_snapshots.remove(source, project, workspace)
     return True
 
 

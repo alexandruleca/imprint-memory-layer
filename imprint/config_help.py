@@ -169,6 +169,10 @@ HELP: dict[str, dict[str, str]] = {
         "help": "The size, in KiB, above which any JSON, CSV, TSV or XLSX file is kept whole when ingest.data_files is \"whole\" (64 by default). Data files in fixture, snapshot, output, training, dataset or locale folders are kept whole from 16 KiB whatever this says. Smaller data files, such as most configuration, keep one chunk per record so each setting can be found on its own.",
         "example": "256: to keep mid-sized API specs and form definitions searchable record by record.",
     },
+    "ingest.keep_missing_days": {
+        "help": "How many days the full text of a file that is gone from disk is kept. When ingest or refresh finds an indexed file missing inside the folder it scans, search stops finding the file at once; its snapshot (the whole redacted text) stays, marked missing, so read_source can still read it and `imprint restore <dir>` can write it back. Snapshots missing longer than this are removed at a later ingest or refresh, unless the file came back. A file that reappears is indexed again as usual. 0 removes the snapshot together with the chunks, as before. Paired devices keep their copies either way.",
+        "example": "0: on a machine short of disk space where deleted files should leave no trace in Imprint; 3650 to keep deleted plans for ten years.",
+    },
     "ingest.ocr_enabled": {
         "help": "Local OCR (reading text out of images) for image files and for PDFs without a text layer, such as scans. Everything runs on this machine with models installed alongside Imprint. Off, image files are not picked up and scanned PDFs yield no text. Documents that yielded no text before are read again on the next index after a change.",
         "example": "false: on a slow machine where photos and screenshots in your folders make indexing crawl and you don't need their text.",

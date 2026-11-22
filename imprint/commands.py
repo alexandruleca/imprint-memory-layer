@@ -19,7 +19,8 @@ connects and disconnects clients with ``connect`` and ``disconnect`` instead.
 WSL profiles (Settings, ``wsl_profiles``), workspaces, purge, move, sync
 pairing and updates have their own dashboard flows, and so does
 ``bootstrap``, which the API starts outside the queue when Settings changes
-the embedding runtime (ADR 0062, 0084).
+the embedding runtime (ADR 0062, 0084). ``restore`` writes files into the
+user's folders and is CLI only (ADR 0197).
 """
 
 from __future__ import annotations

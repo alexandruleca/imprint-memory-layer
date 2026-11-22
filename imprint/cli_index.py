@@ -930,6 +930,10 @@ def _main(command: str = "ingest"):
         # bytes or the extraction profile (OCR settings and tools) changed.
         profile = extraction_profile()
         known_states = vs.get_source_states()
+        from . import source_snapshots
+        # Snapshots kept for files gone from disk (ADR 0196); a file back on disk is not missing.
+        keep_days = max(0, int(resolve("ingest.keep_missing_days")[0]))
+        marked = {source for _, source in source_snapshots.missing()}
         pre_skipped = 0
         known_no_text_count = 0
         no_text = []
@@ -938,6 +942,8 @@ def _main(command: str = "ingest"):
         for project, rel, fpath in all_files:
             source_key = f"{project}/{rel}"
             task.advance(detail=rel)
+            if source_key in marked:
+                source_snapshots.unmark_missing(source_key)
             current = fingerprint(fpath)
             stored = known_states.get(source_key)
             # A file held in the other data-file form changes over (ADR 0195).
@@ -957,6 +963,8 @@ def _main(command: str = "ingest"):
         # The total stays on the full file count; unchanged files count as done.
         task.update(processed, total=grand_total, phase="indexing", skipped=skipped, detail="")
         cancelled = False
+        pruned = 0
+        expired = []
         pending_batch = []
 
         def flush_batch():
@@ -1014,9 +1022,13 @@ def _main(command: str = "ingest"):
             for source in stale_sources:
                 project = known_states[source].get("project", "")
                 # A file gone from this disk stays on paired devices: its
-                # memories may still matter there (ADR 0176).
-                if vs.delete_by_source(source, project=project):
+                # memories may still matter there (ADR 0176). Search here
+                # stops finding it; its snapshot stays, marked missing, so
+                # `imprint restore` can write it back (ADR 0196).
+                if vs.delete_by_source(source, project=project, keep_snapshot=keep_days > 0):
                     cleaned += 1
+                    pruned += 1
+            expired = source_snapshots.expire_missing(keep_days)
 
         except KeyboardInterrupt:
             cancelled = True
@@ -1044,6 +1056,11 @@ def _main(command: str = "ingest"):
             print(f"  Failed:   {len(failures)} (prior chunks retained; fix errors and retry)")
         if cleaned:
             print(f"  Cleaned:  {cleaned} stale sources")
+        if pruned and keep_days:
+            print(f"  Missing:  {pruned} files gone from disk; their snapshots are kept {keep_days} days "
+                  f"(`imprint restore <dir>` writes them back)")
+        if expired:
+            print(f"  Expired:  {len(expired)} snapshots of files missing from disk over {keep_days} days")
         report(stored)
         if cancelled:
             print(f"  {C_DIM}Re-run to index remaining files (duplicates are skipped automatically){C_RESET}")

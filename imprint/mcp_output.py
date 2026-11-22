@@ -96,3 +96,23 @@ def compact_search(results, query, workspace, offset, limit, max_chars, threshol
         return header + 'No relevant matches. Read the relevant files directly if needed.'
     footer = f'More results may exist: offset={offset + advanced}; use filters or get_memory for selected evidence.' if more else ''
     return header + ''.join(blocks) + footer
+
+
+def _day(epoch: float) -> str:
+    from datetime import datetime
+    return datetime.fromtimestamp(epoch).strftime('%Y-%m-%d')
+
+
+def missing_note(since: float) -> dict:
+    """read_source's account of a source whose file is gone from this device's
+    disk: refresh removed its chunks from search and kept its snapshot (ADR 0196)."""
+    return {'since': _day(since),
+            'note': 'The file was gone from its folder at an ingest or refresh on this device, so search no '
+                    'longer finds it; this snapshot is kept (ingest.keep_missing_days). '
+                    '`imprint restore <dir>` writes it back.'}
+
+
+def missing_label(since: float) -> str:
+    """The same account in one line, for list_sources and file_summary."""
+    return (f'missing from disk since {_day(since)}: snapshot kept, read_source reads it, '
+            '`imprint restore` writes it back')

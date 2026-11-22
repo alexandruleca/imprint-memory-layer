@@ -5,6 +5,7 @@ import base64
 from contextlib import contextmanager
 import json
 import math
+import os
 import sqlite3
 import time
 import zlib
@@ -13,6 +14,10 @@ from . import config, source_memory as sm
 
 MAX_BYTES = 64 * 1024 * 1024
 PART_BYTES = 48 * 1024
+# When this device found the head's file gone from its disk (ADR 0196): epoch
+# seconds in the head's metadata, outside its version and update time. A
+# device-local mark, like ``source_path_local``: not exported, dropped on import.
+MISSING = 'missing_since'
 
 
 @contextmanager
@@ -21,7 +26,6 @@ def _db():
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / 'source-snapshots.sqlite3'
     conn = sqlite3.connect(path, timeout=30)
-    import os
     os.chmod(path, 0o600)
     conn.row_factory = sqlite3.Row
     try:
@@ -95,6 +99,8 @@ def publish(snapshot: dict, workspace=None, *, imported=False):
     meta, text = dict(snapshot['metadata']), snapshot['text']
     _validate(meta, text)
     if imported:
+        # Missing from the sender's disk says nothing about this device's.
+        meta.pop(MISSING, None)
         from .workspace_policy import is_excluded
         if is_excluded(source=meta['source'], path=meta.get('provenance', {}).get('source_path', ''), workspace=ws):
             return False
@@ -308,6 +314,29 @@ def list_heads(workspace=None) -> list[dict]:
     return heads
 
 
+def list_files(workspace=None) -> list[dict]:
+    """What ``imprint restore`` (ADR 0197) needs of every head, without
+    parsing its manifest: source, project, update time, kind, provenance,
+    the data-file format and media of its details, and the missing mark."""
+    if not (config.get_data_dir() / 'source-snapshots.sqlite3').exists():
+        return []
+    with _db() as conn:
+        rows = conn.execute(
+            "SELECT source, project, updated_at, json_extract(metadata, '$.kind') AS kind, "
+            "json_extract(metadata, '$.provenance') AS provenance, "
+            "json_extract(metadata, '$.details.data_file.format') AS data_format, "
+            "json_extract(metadata, '$.details.media') AS media, "
+            f"json_extract(metadata, '$.{MISSING}') AS missing FROM heads WHERE workspace=? ORDER BY project, source",
+            (_workspace(workspace),)).fetchall()
+    heads = []
+    for row in rows:
+        provenance = json.loads(row['provenance']) if row['provenance'] else {}
+        heads.append({'source': row['source'], 'project': row['project'], 'updated_at': row['updated_at'],
+                      'kind': row['kind'] or '', 'provenance': provenance if isinstance(provenance, dict) else {},
+                      'data_format': row['data_format'] or '', 'media': row['media'] or '', MISSING: row['missing']})
+    return heads
+
+
 def remove(source: str | None = None, project: str | None = None, workspace=None, *, preserve_associations=False):
     if not (config.get_data_dir() / 'source-snapshots.sqlite3').exists():
         return
@@ -322,6 +351,81 @@ def remove(source: str | None = None, project: str | None = None, workspace=None
     if not preserve_associations:
         from .project_associations import forget
         forget(metadata, workspace)
+
+
+# ── Heads of files gone from disk (ADR 0196) ──────────────────────────
+#
+# Refresh removes a vanished file's chunks from search but keeps its head,
+# marked with when the file was found missing. The mark changes neither the
+# version nor ``updated_at``, so sync sees no newer head, and it is only
+# metadata: older releases read and send such heads unchanged.
+
+def mark_missing(source: str, project: str | None = None, workspace=None, *, now: float | None = None) -> int:
+    """Mark the source's heads missing from disk, keeping an earlier mark."""
+    return _set_missing(source, project, workspace, now if now is not None else time.time())
+
+
+def unmark_missing(source: str, project: str | None = None, workspace=None) -> int:
+    """The file is on disk again: its heads are no longer missing."""
+    return _set_missing(source, project, workspace, None)
+
+
+def _set_missing(source, project, workspace, when) -> int:
+    if not (config.get_data_dir() / 'source-snapshots.sqlite3').exists():
+        return 0
+    clauses, args = ['workspace=?', 'source=?'], [_workspace(workspace), source]
+    if project is not None:
+        clauses.append('project=?'); args.append(project)
+    changed = 0
+    with _db() as conn:
+        for row in conn.execute('SELECT project, metadata FROM heads WHERE ' + ' AND '.join(clauses), args).fetchall():
+            meta = json.loads(row['metadata'])
+            if (when is None) == (MISSING not in meta):
+                continue  # Already as asked; an earlier mark keeps its time.
+            if when is None:
+                meta.pop(MISSING)
+            else:
+                meta[MISSING] = when
+            conn.execute('UPDATE heads SET metadata=? WHERE workspace=? AND project=? AND source=?',
+                         (json.dumps(meta, ensure_ascii=False), args[0], row['project'], source))
+            changed += 1
+    return changed
+
+
+def missing(workspace=None) -> dict[tuple[str, str], float]:
+    """{(project, source): missing_since} of the heads whose file is gone from this device's disk."""
+    if not (config.get_data_dir() / 'source-snapshots.sqlite3').exists():
+        return {}
+    with _db() as conn:
+        rows = conn.execute(f"SELECT project, source, json_extract(metadata, '$.{MISSING}') AS since FROM heads "
+                            f"WHERE workspace=? AND json_extract(metadata, '$.{MISSING}') IS NOT NULL",
+                            (_workspace(workspace),)).fetchall()
+    return {(row['project'], row['source']): row['since'] for row in rows
+            if isinstance(row['since'], (int, float)) and math.isfinite(row['since'])}
+
+
+def expire_missing(days: int, workspace=None, *, now: float | None = None) -> list[dict]:
+    """Remove the heads missing longer than ``days`` (all of them at 0) whose
+    file this device recorded and is still gone. Returns their metadata."""
+    from . import device
+    from .long_paths import os_path
+    cutoff = (now if now is not None else time.time()) - max(0, days) * 86400
+    expired = []
+    for (project, source), since in missing(workspace).items():
+        if since > cutoff:
+            continue
+        with _db() as conn:
+            row = conn.execute('SELECT metadata FROM heads WHERE workspace=? AND project=? AND source=?',
+                               (_workspace(workspace), project, source)).fetchone()
+        meta = json.loads(row['metadata']) if row else {}
+        provenance = meta.get('provenance') or {}
+        path = provenance.get('source_path')
+        # Another device's head, or a file that came back: not this rule's to remove.
+        if not path or not device.local_source(provenance) or os.path.lexists(os_path(path)):
+            continue
+        remove(source, project, workspace)
+        expired.append(meta)
+    return expired
 
 
 def integrity(snapshot: dict, workspace=None) -> dict:
@@ -376,6 +480,8 @@ def export_parts(workspace, metadata=None):
         snapshot = get(meta['source'], meta['project'], workspace)
         # Export redacts again, including snapshots created under an older policy.
         snapshot = sanitize(snapshot)
+        # Whether the file is on this device's disk is this device's business (ADR 0196).
+        snapshot = {**snapshot, 'metadata': {key: value for key, value in snapshot['metadata'].items() if key != MISSING}}
         blob = zlib.compress(json.dumps(snapshot, ensure_ascii=False, separators=(',', ':')).encode('utf-8'), 6)
         transfer = sm.digest(base64.b64encode(blob).decode('ascii'))
         parts = max(1, (len(blob) + PART_BYTES - 1) // PART_BYTES)
@@ -401,6 +507,8 @@ def sanitize(snapshot):
     result = prepare({'text': text, 'kind': meta['kind'], 'metadata': details}, chunks, meta['source'], meta['project'])
     result['metadata']['provenance'] = meta.get('provenance', {})
     result['metadata']['updated_at'] = meta['updated_at']
+    if MISSING in meta:
+        result['metadata'][MISSING] = meta[MISSING]  # Scrub keeps the mark (ADR 0196).
     return result
 
 
