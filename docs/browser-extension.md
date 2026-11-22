@@ -114,7 +114,7 @@ It behaves as described above; the differences are where the browser differs.
 - **Install.** Stable releases are submitted to the add-on's listing on
   addons.mozilla.org, and Firefox updates installed copies once Mozilla approves each
   version ([ADR 0203](adr/0203-the-firefox-add-on-is-listed-on-addons-mozilla-org.md)).
-  Releases up to v0.59.0 carry `imprint-firefox-extension.xpi`, signed as an unlisted
+  Releases up to v0.60.0 carry `imprint-firefox-extension.xpi`, signed as an unlisted
   add-on: open it in Firefox (drag it onto a window, or **File → Open File**) and
   confirm. That copy does not update itself.
 - **Unsigned builds.** Every release carries `imprint-firefox-extension-unsigned.xpi`.
@@ -165,7 +165,7 @@ a store already holds is not submitted again.
   caption and position, and missing ones are uploaded. Tick **replace_screenshots**
   to delete them all and upload the folder's again. Throttled requests wait and retry. AMO takes each version number once across channels,
   and a listed version must be higher than the earlier ones, so never hand-submit a
-  prerelease build: `v0.60.0-dev.1` becomes 0.60.0.1, which is higher than 0.60.0.
+  prerelease build of a coming release: `v0.61.0-dev.1` becomes 0.61.0.1, which is higher than 0.61.0.
 
 ## Install from this checkout
 

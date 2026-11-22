@@ -11,7 +11,7 @@ description: After a stable release is published, CI submits its add-on as a lis
 ## Context
 
 - **The request.** On 2026-11-22 the owner asked for automatic updates and store approval for Chrome "like we do for firefox". Releases did not do that for Firefox. Under ADR 0193 they signed the add-on as unlisted, which has no update channel. ADR 0193's own invalidation condition says: if users need automatic updates, list the add-on on AMO or host an update manifest, in a new record. Offered the choice, the owner chose to switch to a listed add-on.
-- **What AMO holds.** Releases v0.58.0 and v0.59.0 signed the add-on `capture@imprintmcp.alexandruleca.com` as unlisted versions 0.58.0 and 0.59.0.
+- **What AMO holds.** Releases v0.58.0, v0.59.0 and v0.60.0 signed the add-on `capture@imprintmcp.alexandruleca.com` as unlisted versions 0.58.0, 0.59.0 and 0.60.0. v0.60.0 was cut at 15:19 UTC from the merge before this change.
 - **The owner's submission.** The owner was submitting the add-on in the Developer Hub. AMO's validator showed two warnings, and commit 4daa3bf fixed both: Firefox for Android's own minimum version, and an `innerHTML` assignment.
 - **What the v5 API allows.** AMO's API documentation was read on 2026-11-22:
   - An upload names its channel.
@@ -43,9 +43,9 @@ description: After a stable release is published, CI submits its add-on as a lis
 ## Consequences
 
 - Copies installed from the listing update once Mozilla approves each version.
-- It was not checked whether Firefox moves copies installed from the v0.58.0 or v0.59.0 files to listed versions. Reinstalling from the listing is the sure path.
-- Releases after v0.59.0 carry no signed add-on. Until the listing exists, the website keeps offering v0.59.0's signed file: it picks the newest stable release that has one.
-- The first listed version must be higher than 0.59.0 and a number AMO has not signed. A prerelease build must never be submitted by hand, because `v0.60.0-dev.1` is 0.60.0.1, which ranks above 0.60.0.
+- It was not checked whether Firefox moves copies installed from the v0.58.0 to v0.60.0 files to listed versions. Reinstalling from the listing is the sure path.
+- Releases after v0.60.0 carry no signed add-on. Until the listing exists, the website keeps offering v0.60.0's signed file: it picks the newest stable release that has one.
+- The first listed version must be a number AMO has not signed, and the safe choice is higher than 0.60.0 and lower than the next stable release. A prerelease build of a coming release must never be submitted by hand, because `v0.61.0-dev.1` is 0.61.0.1, which ranks above 0.61.0.
 - Mozilla may reject a version. The job reports a disabled file as a failure, and the next release submits a new version.
 
 ## Invalidation conditions
