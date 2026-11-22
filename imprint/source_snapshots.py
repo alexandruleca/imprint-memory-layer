@@ -318,16 +318,44 @@ def list_files(workspace=None) -> list[dict]:
     """What ``imprint restore`` (ADR 0197) needs of every head, without
     parsing its manifest: source, project, update time, kind, provenance,
     the data-file format and media of its details, and the missing mark."""
+    return _files(workspace)
+
+
+def _suffixes(suffixes) -> tuple[str, list[str]]:
+    return ' OR '.join(['source LIKE ?'] * len(suffixes)), ['%' + suffix for suffix in suffixes]
+
+
+def files_ending(suffixes, workspace=None) -> list[dict]:
+    """``list_files`` of the sources ending in one of ``suffixes`` (any
+    case), without parsing every other head's metadata (upkeep, ADR 0201)."""
+    return _files(workspace, suffixes)
+
+
+def signature(suffixes, workspace=None) -> list:
+    """[count, latest update] of the heads ending in ``suffixes``: it changes
+    whenever one of them is stored, replaced or removed."""
+    if not suffixes or not (config.get_data_dir() / 'source-snapshots.sqlite3').exists():
+        return [0, 0.0]
+    clause, args = _suffixes(suffixes)
+    with _db() as conn:
+        row = conn.execute(f'SELECT count(*), max(updated_at) FROM heads WHERE workspace=? AND ({clause})',
+                           (_workspace(workspace), *args)).fetchone()
+    return [int(row[0] or 0), float(row[1] or 0.0)]
+
+
+def _files(workspace=None, suffixes=None) -> list[dict]:
     if not (config.get_data_dir() / 'source-snapshots.sqlite3').exists():
         return []
+    clause, args = _suffixes(suffixes) if suffixes else ('', [])
     with _db() as conn:
         rows = conn.execute(
             "SELECT source, project, updated_at, json_extract(metadata, '$.kind') AS kind, "
             "json_extract(metadata, '$.provenance') AS provenance, "
             "json_extract(metadata, '$.details.data_file.format') AS data_format, "
             "json_extract(metadata, '$.details.media') AS media, "
-            f"json_extract(metadata, '$.{MISSING}') AS missing FROM heads WHERE workspace=? ORDER BY project, source",
-            (_workspace(workspace),)).fetchall()
+            f"json_extract(metadata, '$.{MISSING}') AS missing FROM heads WHERE workspace=? "
+            + (f'AND ({clause}) ' if clause else '') + "ORDER BY project, source",
+            (_workspace(workspace), *args)).fetchall()
     heads = []
     for row in rows:
         provenance = json.loads(row['provenance']) if row['provenance'] else {}

@@ -393,6 +393,12 @@ SETTINGS: list[Setting] = [
     Setting("organize.auto_move",  "IMPRINT_ORGANIZE_AUTO_MOVE",  True,  bool,
             "Move sources with strong evidence without review; weaker proposals still wait"),
 
+    # ── Upkeep (ADR 0201) ─────────────────────────────────────
+    # The idle slot's last step: what is stored, brought up to the current
+    # form piece by piece (synced memories' dates, data files kept whole).
+    Setting("upkeep.background", "IMPRINT_UPKEEP_BACKGROUND", True, bool,
+            "Bring stored memories up to date in the background when the queue is idle"),
+
     # ── Workspace selection (ADR 0072) ────────────────────────
     # A project's .imprint/workspace.json, approved on this device, or its
     # roots choose a session's workspace. This covers the rest: desktop app

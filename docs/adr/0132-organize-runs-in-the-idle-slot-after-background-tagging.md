@@ -3,11 +3,12 @@ title: ADR 0132 — Organize runs in the idle slot after background tagging
 description: With organize.background on, the background job that tags memories when the queue is idle then organizes what changed since its last pass, as the same preemptible holder, and steps aside for every other job.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-05
 - Amends:
   - [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md) — the background job also organizes, after tagging, when `organize.background` is on
   - [ADR 0130](0130-reorganization-is-proposed-by-a-background-job-and-reviewed.md) — Organize also runs by itself, incrementally, not only as a queued job
+- Amended by: [ADR 0201](0201-upkeep-brings-what-is-stored-up-to-date-in-the-idle-slot.md) — a third step, upkeep, follows Organize in the same job
 - Related: [ADR 0064](0064-single-slot-command-queue-and-shared-lock.md), [ADR 0133](0133-strong-placements-apply-by-themselves.md), [ADR 0134](0134-placement-rules-and-organize-proposals-sync.md), [queue](../queue.md)
 
 ## Context

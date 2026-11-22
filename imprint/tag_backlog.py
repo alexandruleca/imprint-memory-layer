@@ -32,6 +32,9 @@ COMMAND = "tag-backlog"
 # EX_TEMPFAIL: stopped for a queued job, to be started again later.
 YIELDED = 75
 _PAGE = 16
+# Set when this process is the dispatcher's background job, not a caller of
+# run(): only then does upkeep lower the process's priority (ADR 0201).
+_JOB_PROCESS = False
 _WAL_EVERY = 25
 
 
@@ -283,8 +286,9 @@ def report(stored: int) -> None:
 def run(job_id: str = "") -> int:
     """The background job: hold the lock as a preemptible holder, tag every
     workspace's backlog, then, with ``organize.background`` on, organize
-    what changed (ADR 0132); yield when a job is queued. Returns the exit
-    code."""
+    what changed (ADR 0132), then, with ``upkeep.background`` on, bring what
+    is stored up to date for a share of the run (ADR 0201); yield when a job
+    is queued. Returns the exit code."""
     from . import queue_lock
     from .progress import clear_progress
     descriptor = queue_lock.acquire(COMMAND, job_id, preemptible=True)
@@ -296,7 +300,10 @@ def run(job_id: str = "") -> int:
         if code == YIELDED:
             return code
         organized = _organize()
-        return organized if organized == YIELDED else max(code, organized)
+        if organized == YIELDED:
+            return organized
+        kept = _upkeep()
+        return kept if kept == YIELDED else max(code, organized, kept)
     finally:
         clear_progress()
         queue_lock.release(descriptor)
@@ -318,6 +325,21 @@ def _organize() -> int:
     if code == YIELDED:
         print("Organize yielded to a queued job; it resumes when the queue is idle.", flush=True)
     return code
+
+
+def _upkeep() -> int:
+    from . import queue, upkeep
+    if not upkeep.enabled():
+        return 0
+
+    def stop() -> bool:
+        return queue.foreground_waiting() or not upkeep.enabled()
+
+    try:
+        return upkeep.run(stop, budget=upkeep.BUDGET_SECONDS, background=True, lower_priority=_JOB_PROCESS)
+    except Exception as error:  # noqa: BLE001 - the run's log says why
+        print(f"Upkeep failed: {error}", flush=True)
+        return 1
 
 
 def _tag_all() -> int:
@@ -373,7 +395,9 @@ def _tag_all() -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    global _JOB_PROCESS
     args = sys.argv[1:] if argv is None else argv
+    _JOB_PROCESS = True
     return run(args[0] if args else "")
 
 

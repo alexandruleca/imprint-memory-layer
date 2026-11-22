@@ -779,17 +779,31 @@ def filtered_for_peer(records: list[dict]) -> list[dict]:
             for r, before, after in zip(records, texts, redacted)]
 
 
+def first_stored(record: dict, now: float) -> float:
+    """When a received memory was first stored (ADR 0200): the time its
+    origin device recorded it, else the sender's ``timestamp``, else ``now``.
+    Never later than ``now``: a peer's clock may run ahead."""
+    import math
+    for key in ("recorded_at", "timestamp"):
+        value = record.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value > 0:
+            return min(float(value), now)
+    return now
+
+
 def store_batch_precomputed(records: list[dict], workspace: str | None = None) -> tuple[int, int, int]:
     """Store records that carry their vectors; only redacted ones are embedded.
 
     Each record: {content, vector, project?, type?, tags?, source?,
-                  chunk_index?, source_mtime?, llm_tagged?, tagged_at?}.
+                  chunk_index?, source_mtime?, timestamp?, llm_tagged?, tagged_at?}.
     A record this workspace already has updates only its classification, and
     only when its ``tagged_at`` is newer (ADR 0051).
     Content is redacted here as in every write, whatever the sender did: a
     record it changes takes the ID of its redacted content, and its vector,
     computed from the secret, is replaced by an embedding of the redacted
     text (ADR 0060).
+    A new record keeps the time it was first stored (``first_stored``), not
+    the time it arrived here (ADR 0200).
     Returns (inserted, retagged, skipped).
     """
     from . import device
@@ -876,7 +890,7 @@ def store_batch_precomputed(records: list[dict], workspace: str | None = None) -
             "source_hash": r.get("source_hash", ""),
             "source_size": r.get("source_size", 0),
             "source_path": r.get("source_path", ""),
-            "timestamp": now,
+            "timestamp": first_stored(r, now),
             "llm_tagged": bool(r.get("llm_tagged", False)),
             **({"tagged_at": float(r["tagged_at"])} if r.get("tagged_at") else {}),
             # A peer's memory that waits for LLM tagging waits here too (ADR 0138).

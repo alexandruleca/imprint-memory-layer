@@ -1,7 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
 
-// The Queue page shows background work (LLM tagging, then Organize) apart from
-// the jobs (ADR 0067, 0132); a running pass shows under Running like any other job.
+// The Queue page shows background work (LLM tagging, then Organize, then
+// upkeep) apart from the jobs (ADR 0067, 0132, 0201); a running pass shows
+// under Running like any other job.
 
 const now = Date.now() / 1000;
 const job = (over: Record<string, unknown>) => ({
@@ -114,6 +115,31 @@ test('an idle slot with Organize on says it has seen every change', async ({ pag
   await expect(card(page)).toContainText('Up to date');
   await expect(card(page)).toContainText('Organize has looked at every change.');
   await expect(card(page)).toContainText('LLM tagging on · Organize on');
+});
+
+test('upkeep runs last in the idle slot and says what is left (ADR 0201)', async ({ page }) => {
+  await mockApi(page);
+  await mockQueue(page, {
+    background: {
+      enabled: true, tagging: false, organize: { enabled: false, due: 0 }, upkeep: { enabled: true, due: 2 },
+      pending: 0, state: 'running', resume_at: null,
+      job: tagging({ phase: 'upkeep', processed: 120, total: 443, unit: 'files' }),
+    },
+  });
+  await page.goto('/queue/');
+  await expect(card(page)).toContainText('Bringing what is already stored up to date');
+  await expect(card(page)).toContainText('LLM tagging off · Organize off · Upkeep: 2 steps to do');
+});
+
+test('an idle slot with upkeep done says everything stored is up to date', async ({ page }) => {
+  await mockApi(page);
+  await mockQueue(page, {
+    background: { enabled: true, tagging: false, organize: { enabled: false, due: 0 }, upkeep: { enabled: true, due: 0 },
+                  pending: 0, state: 'idle', resume_at: null, job: null },
+  });
+  await page.goto('/queue/');
+  await expect(card(page)).toContainText('Everything stored is up to date.');
+  await expect(card(page)).toContainText('Organize off · Upkeep on');
 });
 
 test('with tagging off here, memories that wait are left to the paired device that tags them', async ({ page }) => {

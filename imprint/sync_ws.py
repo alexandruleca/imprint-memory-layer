@@ -711,6 +711,8 @@ def process_import_buffer(
                 "source": r.get("source", ""),
                 "chunk_index": r.get("chunk_index", 0),
                 "source_mtime": r.get("source_mtime", 0),
+                # When it was first stored, for an origin without recorded_at (ADR 0200).
+                "timestamp": r.get("timestamp", 0),
                 "vector": r["vector"],
                 "id": r.get("id"),
                 "embedding_identity": r.get("embedding_identity"),

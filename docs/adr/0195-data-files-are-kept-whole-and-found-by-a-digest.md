@@ -3,8 +3,9 @@ title: ADR 0195 — Data files are kept whole and found by a digest
 description: A large JSON, CSV, TSV or XLSX file, or one in a folder of fixtures, generated output, training data or translations, is stored as a few chunks holding its exact text, each starting with a digest of the file; search finds it by the digest, exact identifiers and phrases, and read_source restores the whole file.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-22
+- Amended by: [ADR 0201](0201-upkeep-brings-what-is-stored-up-to-date-in-the-idle-slot.md) — stored data files are kept whole in the idle slot, without waiting for the next ingest or refresh
 - Related: [ADR 0081](0081-verifiable-redacted-source-snapshots.md) (snapshots and covering spans, unchanged), [ADR 0162](0162-long-tool-events-are-one-chunk-embedded-from-a-reduced-view.md) (the same long-chunk and reduced-view mechanism, for tool events), [ADR 0172](0172-exact-matches-survive-a-large-corpus.md) (lexical candidates and verbatim matches), [ADR 0156](0156-a-file-whose-bytes-are-not-its-format-is-an-outcome.md) (JSON that does not parse), [ADR 0176](0176-deletions-reach-paired-devices-that-hold-the-memory.md) (whose deletions reach peers), [configuration](../configuration.md)
 
 ## Context

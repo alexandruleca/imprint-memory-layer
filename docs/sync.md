@@ -4,7 +4,7 @@ description: Sync one Imprint workspace between two machines through a WebSocket
 ---
 ## Device provenance
 
-Memory and graph origins survive sync; imported paths are references until mapped on the receiver. Device identity does not partition shared knowledge or change vectors. Local identity/root mappings are not transferred. See [devices and portable project paths](devices.md).
+Memory and graph origins survive sync; imported paths are references until mapped on the receiver. A received memory keeps the time it was first stored: its `timestamp` is the origin's `recorded_at` (else the sender's `timestamp`), never later than its arrival, so statistics and recent lists show when it was made; memories received before this are dated back once by upkeep ([ADR 0200](adr/0200-synced-memories-keep-the-time-they-were-first-stored.md)). Device identity does not partition shared knowledge or change vectors. Local identity/root mappings are not transferred. See [devices and portable project paths](devices.md).
 
 ## Peer Sync
 

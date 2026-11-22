@@ -212,3 +212,27 @@ def records(path: str, rel: str, project: str, source_key: str, *, why: str, siz
             for index, (a, b) in enumerate(spans)]
     rows[0]['_source_document'] = document
     return document, rows
+
+
+def reindex(path: str, rel: str, project: str, source_key: str, workspace: str | None = None) -> int:
+    """Index one stored data file again, kept whole, as ingest and refresh
+    now would, into ``workspace``: upkeep's conversion (ADR 0201). Returns
+    the chunks stored. Raises, keeping the stored chunks, when the file
+    cannot be read, has no text or is no longer one to keep whole."""
+    from .config_schema import resolve
+    from .long_paths import os_path
+    from .source_state import fingerprint, stamp_records
+    from .tag_backlog import marking
+    from . import vectorstore as vs
+    before = fingerprint(path)
+    # Judged by the path within its project, as a directory refresh judges it.
+    why = reason(rel, before['source_size'])
+    if not why:
+        raise ValueError('no longer a data file to keep whole')
+    _, rows = records(path, rel, project, source_key, why=why, size=before['source_size'],
+                      mtime=os.path.getmtime(os_path(path)), pending=marking(workspace),
+                      zero_shot=resolve('tagger.zero_shot')[0])
+    if not rows:
+        raise ValueError('the file has no text now')
+    inserted, _ = vs.replace_source(stamp_records(rows, path, before), source_key, project, workspace)
+    return inserted

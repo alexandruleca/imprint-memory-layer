@@ -31,7 +31,9 @@ class QueueCase(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name).resolve()
         self.data = self.root / 'data'
-        env = patch.dict(os.environ, {'IMPRINT_DATA_DIR': str(self.data), 'IMPRINT_WORKSPACE': ''})
+        # Upkeep (ADR 0201) has its own tests; these count tagging alone.
+        env = patch.dict(os.environ, {'IMPRINT_DATA_DIR': str(self.data), 'IMPRINT_WORKSPACE': '',
+                                      'IMPRINT_UPKEEP_BACKGROUND': 'false'})
         env.start()
         self.addCleanup(env.stop)
         config.register_workspace('alpha')
