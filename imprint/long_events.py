@@ -125,9 +125,14 @@ def reduce(body: str, budget: int) -> str:
 def embedding_text(text: str) -> str:
     """What a chunk's vector is computed from: the reduced view for a long
     tool event chunk, the text itself otherwise. Ordinary chunks never
-    exceed ``chunker.hard_max``, so only these chunks change."""
+    exceed ``chunker.hard_max``, so only these chunks change. A piece of a
+    data file kept whole is embedded from its digest (ADR 0195)."""
     if len(text) <= _threshold():
         return text
+    from .data_files import embedding_view
+    view = embedding_view(text)
+    if view is not None:
+        return view
     match = _HEADER.match(text)
     if not match:
         return text

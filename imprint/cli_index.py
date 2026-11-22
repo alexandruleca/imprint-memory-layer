@@ -20,7 +20,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from imprint import tagger, vectorstore as vs
-from imprint import extractors
+from imprint import data_files, extractors
 from imprint.progress import Task
 from imprint.long_paths import os_path
 from imprint.source_state import (allowed_source, secret_name, fingerprint, stamp_records, unchanged, missing_sources,
@@ -230,36 +230,6 @@ def summarize_file(content: str, rel_path: str, max_len: int = 1500) -> str:
 
     parts.append(summary)
     return "\n".join(parts)
-
-
-def _is_low_value(content: str, rel_path: str) -> bool:
-    """Detect files that look like data/config/generated — not worth indexing."""
-    name = os.path.basename(rel_path).lower()
-    ext = os.path.splitext(name)[1]
-
-    # JSON files: only index if they have comments or are short (likely config)
-    # Large JSON = data fixture, skip
-    if ext == '.json' and len(content) > 5000:
-        return True
-
-    # i18n / translation files
-    if any(p in rel_path.lower() for p in ['i18n', 'locale', 'translation', 'messages']):
-        return True
-
-    # Test fixture data
-    if any(p in rel_path.lower() for p in ['fixture', 'mock', '__snapshots__', 'testdata']):
-        return True
-
-    # Generated / migration files that are mostly SQL dumps or schemas
-    if 'migration' in rel_path.lower() and ext == '.sql' and len(content) > 10000:
-        return True
-
-    # Files that are mostly one-liners (re-exports, barrel files)
-    lines = content.strip().split('\n')
-    if len(lines) < 3 and all(l.strip().startswith(('export ', 'module.exports', 'from ', 'import ')) for l in lines if l.strip()):
-        return True
-
-    return False
 
 
 def _in_git_repository(dir_path: str) -> bool:
@@ -563,8 +533,22 @@ def _ingest_single_file(task, file_path, rel, project, is_doc, batch_size, force
     source_key = f"{project}/{rel}"
     profile = extraction_profile(file_path)
     reason = None
+    # A large data file or fixture is kept whole, found by its digest (ADR 0195).
+    why = data_files.reason(file_path, snapshot["source_size"])
 
-    if is_doc:
+    if why:
+        source_document, records = data_files.records(
+            file_path, rel, project, source_key, why=why, size=snapshot["source_size"], mtime=mtime,
+            pending=pending, zero_shot=enable_zero_shot)
+        if not records:
+            stamp_records([], file_path, snapshot)
+            held = vs.get_source_summary(source_key)
+            if held:
+                vs.delete_by_source(source_key, project=held["project"], propagate="own")
+            _empty_snapshot(source_document, source_key, project, snapshot)
+            task.finish("Empty file: source snapshot saved; prior chunks cleared")
+            return
+    elif is_doc:
         # A document already found to have no text under this profile is not read again.
         reason = None if force else known_no_text(snapshot["source_hash"], profile)
         doc_list = []
@@ -857,7 +841,17 @@ def _main(command: str = "ingest"):
                 snapshot = fingerprint(fpath)
                 ext = os.path.splitext(rel)[1].lower()
                 is_doc = extractors.is_doc_extension(ext)
+                # A large data file or fixture is kept whole, found by its digest (ADR 0195).
+                why = data_files.reason(rel, snapshot["source_size"])
 
+                if why:
+                    source_key = f"{project}/{rel}"
+                    document, records = data_files.records(
+                        fpath, rel, project, source_key, why=why, size=snapshot["source_size"],
+                        mtime=os.path.getmtime(os_path(fpath)), pending=pending, zero_shot=enable_zero_shot)
+                    if not records:
+                        prepared_documents[source_key] = (document, snapshot)
+                    return stamp_records(records, fpath, snapshot), ""
                 if is_doc:
                     unreadable = ""
                     try:
@@ -936,6 +930,10 @@ def _main(command: str = "ingest"):
         # bytes or the extraction profile (OCR settings and tools) changed.
         profile = extraction_profile()
         known_states = vs.get_source_states()
+        from . import source_snapshots
+        # Snapshots kept for files gone from disk (ADR 0196); a file back on disk is not missing.
+        keep_days = max(0, int(resolve("ingest.keep_missing_days")[0]))
+        marked = {source for _, source in source_snapshots.missing()}
         pre_skipped = 0
         known_no_text_count = 0
         no_text = []
@@ -944,8 +942,12 @@ def _main(command: str = "ingest"):
         for project, rel, fpath in all_files:
             source_key = f"{project}/{rel}"
             task.advance(detail=rel)
+            if source_key in marked:
+                source_snapshots.unmark_missing(source_key)
             current = fingerprint(fpath)
-            if not force and unchanged(current, known_states.get(source_key)):
+            stored = known_states.get(source_key)
+            # A file held in the other data-file form changes over (ADR 0195).
+            if not force and unchanged(current, stored) and not data_files.converts(rel, current["source_size"], stored):
                 pre_skipped += 1
             elif (not force and extractors.is_doc_extension(os.path.splitext(rel)[1])
                   and known_no_text(current["source_hash"], extraction_profile(fpath))):
@@ -961,6 +963,8 @@ def _main(command: str = "ingest"):
         # The total stays on the full file count; unchanged files count as done.
         task.update(processed, total=grand_total, phase="indexing", skipped=skipped, detail="")
         cancelled = False
+        pruned = 0
+        expired = []
         pending_batch = []
 
         def flush_batch():
@@ -1018,9 +1022,13 @@ def _main(command: str = "ingest"):
             for source in stale_sources:
                 project = known_states[source].get("project", "")
                 # A file gone from this disk stays on paired devices: its
-                # memories may still matter there (ADR 0176).
-                if vs.delete_by_source(source, project=project):
+                # memories may still matter there (ADR 0176). Search here
+                # stops finding it; its snapshot stays, marked missing, so
+                # `imprint restore` can write it back (ADR 0196).
+                if vs.delete_by_source(source, project=project, keep_snapshot=keep_days > 0):
                     cleaned += 1
+                    pruned += 1
+            expired = source_snapshots.expire_missing(keep_days)
 
         except KeyboardInterrupt:
             cancelled = True
@@ -1048,6 +1056,11 @@ def _main(command: str = "ingest"):
             print(f"  Failed:   {len(failures)} (prior chunks retained; fix errors and retry)")
         if cleaned:
             print(f"  Cleaned:  {cleaned} stale sources")
+        if pruned and keep_days:
+            print(f"  Missing:  {pruned} files gone from disk; their snapshots are kept {keep_days} days "
+                  f"(`imprint restore <dir>` writes them back)")
+        if expired:
+            print(f"  Expired:  {len(expired)} snapshots of files missing from disk over {keep_days} days")
         report(stored)
         if cancelled:
             print(f"  {C_DIM}Re-run to index remaining files (duplicates are skipped automatically){C_RESET}")

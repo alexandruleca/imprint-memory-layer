@@ -11,7 +11,7 @@ const sources = [
   {
     icon: 'code',
     title: 'Your codebases',
-    body: 'Files are cut into overlapping spans at paragraph and line breaks, and each whole file is kept, redacted, for agents to read in full. Refresh re-indexes only the files that changed.',
+    body: 'Files are cut into overlapping spans at paragraph and line breaks, and each whole file is kept, redacted, for agents to read in full. Large data files and test fixtures stay whole behind a short digest instead of flooding search. Refresh re-indexes only the files that changed, and a file deleted from disk can be written back with imprint restore.',
     cmd: 'imprint ingest .',
   },
   {

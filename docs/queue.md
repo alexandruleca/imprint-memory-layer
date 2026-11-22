@@ -125,6 +125,7 @@ The same catalog names queued jobs: `commands.describe` gives each job in `/api/
 - `disable`, `ui`, `server` and `uninstall` stop or remove the dashboard itself. Not offered.
 - `wsl setup` and `remove` run from Settings → WSL profiles, where a distribution is chosen. They register the installed Windows runtime in a WSL profile and install nothing.
 - Workspaces, purge, move, sync pairing and updates have their own dashboard flows.
+- `restore` writes files into the user's folders and takes no queue lock: CLI only ([ADR 0197](adr/0197-restore-writes-indexed-files-back-from-their-snapshots.md)).
 
 **Scheduled jobs.** A reminder entry of kind `job` ([ADR 0158](adr/0158-reminders-timers-and-scheduled-jobs-fire-from-the-api-process.md)) submits `ingest`, `refresh`, `learn`, `organize`, `refresh-urls` or `retag` through `submit` when it is due, in the workspace it was set in, so it merges with an identical waiting job and is refused outside the workspace's approved roots like any other.
 

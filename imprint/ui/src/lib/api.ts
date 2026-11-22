@@ -99,6 +99,7 @@ import type {
   QueueJob,
   QueueResponse,
   QueueHistory,
+  GraphLens,
   GraphScopeData,
 } from "./types";
 
@@ -588,8 +589,9 @@ export async function readSource(params: { source: string; project?: string | nu
   return fetchAPI<import("./types").SourceRead>(`/api/sources/read?${q}`, { signal });
 }
 
-export async function getGraphScope(scope: string = "root", depth = 1): Promise<GraphScopeData> {
+export async function getGraphScope(scope: string = "root", depth = 1, lens?: GraphLens): Promise<GraphScopeData> {
   const qs = new URLSearchParams({ scope, depth: String(depth) });
+  if (lens) qs.set("lens", lens);
   return fetchAPI(`/api/graph?${qs}`);
 }
 

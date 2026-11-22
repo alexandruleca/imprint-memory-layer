@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import type { ReaderTarget } from "@/components/source-reader";
 import type { GraphNode, TopicSource } from "@/lib/types";
 import { KIND_ORDER, KINDS, nodeColor } from "./graph-style";
+import { hubLine } from "./graph-tooltip";
 
 const SHOWN_PER_KIND = 6;
 const SOURCES_SHOWN = 8;
@@ -19,6 +20,7 @@ export function NodeDetails({
   topicSources,
   topicContext,
   neighborhood,
+  members,
   onClose,
   onOpen,
   onSelect,
@@ -27,6 +29,8 @@ export function NodeDetails({
 }: {
   node: GraphNode;
   neighbors: GraphNode[];
+  /** For a topic map's hub: how many topics its group has. */
+  members?: number;
   /** For a topic: the conversations and files it comes from (null while loading). */
   topicSources: TopicSource[] | null;
   /** Project the topic's memories are limited to, if any. */
@@ -57,6 +61,7 @@ export function NodeDetails({
             {node.kind === "chunk" && node.chunk_index !== undefined && ` #${node.chunk_index}`}
             {node.kind === "chunk" && node.project && ` · ${node.project}`}
           </p>
+          {node.hub && <p className="mt-0.5 text-xs text-muted-foreground">{hubLine(members)}</p>}
         </div>
         <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close details" className="-m-1 text-muted-foreground">
           <X aria-hidden />
@@ -76,6 +81,8 @@ export function NodeDetails({
             <BookOpenText aria-hidden /> Read in full
           </Button>
         )}
+
+        {node.kind === "topic" && !!node.projects?.length && <TopProjects projects={node.projects} onOpen={onOpen} />}
 
         {node.kind === "topic" && (
           <TopicSources topic={node.label} sources={topicSources} context={topicContext} onRead={onRead} />
@@ -102,6 +109,32 @@ export function NodeDetails({
         </Button>
       </div>
     </aside>
+  );
+}
+
+/** On the topic map: the projects holding most of a topic, each opened as its scope. */
+function TopProjects({ projects, onOpen }: { projects: NonNullable<GraphNode["projects"]>; onOpen: (node: GraphNode) => void }) {
+  const Icon = KINDS.project.icon;
+  return (
+    <section>
+      <h4 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Mostly in</h4>
+      <ul className="divide-y divide-border/60 rounded-lg border border-border">
+        {projects.map((p) => (
+          <li key={p.name}>
+            <button
+              type="button"
+              onClick={() => onOpen({ id: `proj:${p.name}`, kind: "project", label: p.name, count: p.count, color: "" })}
+              aria-label={`Open project ${p.name}`}
+              className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-xs outline-none hover:bg-muted/60 focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+              <span className="min-w-0 flex-1 truncate">{p.name}</span>
+              <span className="shrink-0 text-muted-foreground tabular-nums">{p.count.toLocaleString()}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

@@ -19,7 +19,7 @@ Rendering already works for any template that takes the standard `tools` variabl
 |---|---|---|
 | Qwen XML | Qwen3.5-4B (Qwen's and Unsloth's GGUF), Qwen3-Coder | `<tool_call>\n<function=NAME>\n<parameter=P>\nvalue\n</parameter>\n</function>\n</tool_call>` |
 | Hermes JSON | Qwen2.5, Qwen3 (HF and GGUF) | `<tool_call>\n{"name": NAME, "arguments": {...}}\n</tool_call>` |
-| Llama 3 | Llama 3.1, 3.2 | the whole reply is `{"name": NAME, "parameters": {...}}`, optionally after `<|python_tag|>` |
+| Llama 3 | Llama 3.1, 3.2 | the whole reply is `{"name": NAME, "parameters": {...}}`, optionally after `<\|python_tag\|>` |
 | Mistral | Mistral 7B v0.3, Mistral Nemo | `[TOOL_CALLS][{"name": NAME, "arguments": {...}}]`, with an optional `"id"` |
 
 Two facts about the runtime decide part of the design:

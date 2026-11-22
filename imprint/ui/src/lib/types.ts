@@ -381,7 +381,7 @@ export interface QueueResponse {
 // ── Graph (Obsidian-style) ─────────────────────────────────────
 
 export type GraphNodeKind = "project" | "topic" | "source" | "chunk";
-export type GraphEdgeKind = "contains" | "relates" | "sequence" | "similar";
+export type GraphEdgeKind = "contains" | "relates" | "related" | "sequence" | "similar";
 
 export interface GraphNode {
   id: string;
@@ -396,6 +396,12 @@ export interface GraphNode {
   chunk_index?: number;
   /** A search hit's place in the results, from 1 (graph search scopes only). */
   rank?: number;
+  /** The topic map: the main topic of its group of related topics. */
+  hub?: boolean;
+  /** The topic map: the node id of its group's hub (the hub's own id for a hub). */
+  group?: string;
+  /** The topic map: the projects holding most of the topic, largest first (at most 3). */
+  projects?: { name: string; count: number }[];
 }
 
 export interface GraphEdge {
@@ -404,6 +410,10 @@ export interface GraphEdge {
   target: string;
   weight: number;
   kind: GraphEdgeKind;
+  /** A related-topic edge: memories tagged with both topics. */
+  count?: number;
+  /** A related-topic edge: how strongly the two topics go together, 0..1. */
+  strength?: number;
 }
 
 export interface GraphScopeData {
@@ -413,7 +423,12 @@ export interface GraphScopeData {
   edges: GraphEdge[];
   /** Kinds this scope shows only the largest of: more exist than are listed. */
   more?: GraphNodeKind[];
+  /** The overview seen through a lens: "topics" is the topic map (topics
+   * linked to related topics, without projects). */
+  lens?: GraphLens;
 }
+
+export type GraphLens = "topics";
 
 // ── Sync types ─────────────────────────────────────────────────
 

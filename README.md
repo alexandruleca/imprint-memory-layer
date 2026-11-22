@@ -159,6 +159,10 @@ imprint retag [--project] [--all]
 imprint retag --pending    # tag now what learn/ingest left for background LLM tagging
 imprint scrub [--workspace <name>] [--apply]
                            # count secrets stored before redaction existed; --apply redacts and re-embeds them
+imprint restore <dir> [--to <out>] [--all] [--overwrite] [--apply]
+imprint restore --project <name> --to <out> [--apply]
+                           # preview writing indexed files back from their snapshots, e.g. after a lost
+                           # folder; --apply writes only what is missing (--all/--overwrite for the rest)
 # Heavy jobs (ingest/refresh/retag/scrub/ingest-url/refresh-urls) serialize via a
 # shared queue lock. If another job is already running, the CLI hands its job to
 # the dashboard's queue (an identical waiting job absorbs it) or waits; with

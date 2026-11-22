@@ -100,6 +100,10 @@ def document_megabytes(raw):
     return _bounded_integer(raw, 1, 4096)
 
 
+def missing_days(raw):
+    return _bounded_integer(raw, 0, 36500)
+
+
 def _gpus():
     """The GPUs llama.cpp can offload to; none when the binding cannot load."""
     try:
@@ -296,6 +300,11 @@ SETTINGS: list[Setting] = [
     # ── Ingest (docs + urls) ──────────────────────────────────
     Setting("ingest.max_file_bytes",    "IMPRINT_INGEST_MAX_FILE_BYTES",    2_000_000,    int,  "Per-file byte cap for source text indexing"),
     Setting("ingest.doc_formats",       "IMPRINT_INGEST_DOC_FORMATS",       "pdf,docx,pptx,xlsx,csv,epub,rtf,html,eml,json", str,  "Comma-separated doc formats enabled for file walker"),
+    Setting("ingest.data_files",        "IMPRINT_INGEST_DATA_FILES",        "whole",     str,  "Large data files and fixtures: whole (a few chunks found by a digest, restorable) or records (a chunk per record)",
+            choices=(Choice("whole", "Kept whole", "A few chunks found by a digest; the file restores exactly"),
+                     Choice("records", "Record by record", "A chunk per record, as before ADR 0195"))),
+    Setting("ingest.data_file_min_kb",  "IMPRINT_INGEST_DATA_FILE_MIN_KB",  64,          int,  "A JSON/CSV/TSV/XLSX file larger than this (KiB) is kept whole; in fixture, output, training or locale folders above 16 KiB"),
+    Setting("ingest.keep_missing_days", "IMPRINT_INGEST_KEEP_MISSING_DAYS", 365,         missing_days, "Days (0–36500) the snapshot of a file gone from disk is kept for imprint restore after refresh drops its chunks; 0 drops it with them"),
     Setting("ingest.ocr_enabled",       "IMPRINT_INGEST_OCR",               True,       bool, "Local OCR for scanned PDFs + images (installed with runtime)"),
     Setting("ingest.ocr_lang",          "IMPRINT_INGEST_OCR_LANG",          "eng",       str,  "OCR language: eng/auto uses bundled models; other codes need Tesseract"),
     Setting("ingest.max_doc_size_mb",   "IMPRINT_INGEST_MAX_DOC_MB",        25,          document_megabytes, "Largest document (MiB, 1–4096) read for extraction, local or downloaded; larger ones fail and keep prior chunks"),

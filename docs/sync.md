@@ -212,7 +212,7 @@ holds, so one that was away cannot bring it back. Deletions are kept 180 days.
 | --- | --- |
 | You: the `delete` tool, deleting a recording, `imprint purge` | Yes, any memory; a deleted recording's folder too, where recordings sync |
 | A newer version of a file, URL or inline source; an emptied file; a rewritten project profile | The chunks this device recorded; another device's chunks of its own version stay |
-| A file gone from disk (refresh) | No: its memories may still matter on the other device |
+| A file gone from disk (refresh) | No: its memories may still matter on the other device. This device keeps the file's snapshot for a while, marked missing; the mark does not travel ([ADR 0196](adr/0196-a-file-gone-from-disk-keeps-its-snapshot.md)) |
 | `imprint scrub` | No deletion record: the redacted version supersedes it as before, and no hash of the removed secret is kept |
 | Moves, wipes, removing a workspace | No: placement rules carry moves |
 

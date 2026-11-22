@@ -3,9 +3,10 @@ title: ADR 0081 — Verifiable redacted source snapshots
 description: Store one complete redacted readable source with a versioned character-span manifest beside searchable chunks and expose bounded verified source reads.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-26
 - Amends: [ADR 0080](0080-conversations-are-relearned-when-their-reading-changes.md) — completion checks include the source profile and published manifest
+- Amended by: [ADR 0196](0196-a-file-gone-from-disk-keeps-its-snapshot.md) — pruning a file gone from disk keeps its snapshot, marked missing, for a set time
 - Related: [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md), [ADR 0015](0015-workspace-roots-and-source-purge.md), [ADR 0020](0020-explicit-pairing-and-automatic-workspace-sync.md), [ADR 0060](0060-redact-secrets-before-memories-are-stored.md), [ADR 0082](0082-retain-readable-conversation-evidence.md), [source memory](../source-memory.md)
 
 ## Context

@@ -12,7 +12,7 @@ from mcp.types import TextContent
 from . import config
 from . import imprint_graph as kg
 from . import vectorstore as vs
-from .mcp_output import fact_line
+from .mcp_output import fact_line, missing_label, missing_note
 
 # MCP handshake ``instructions`` — injected into the system prompt by every
 # client that honors it (Claude Desktop, Claude Code, Cursor, etc.). This is
@@ -620,6 +620,14 @@ def source_rows(project: str = "", lang: str = "", layer: str = "", limit: int =
                            workspace=workspace)
 
 
+def gone_sources(project: str = "", *, workspace: str) -> dict[str, tuple[str, float]]:
+    """{source: (project, missing_since)} of the files gone from this device's
+    disk whose snapshots are kept (ADR 0196)."""
+    from . import source_snapshots
+    return {source: (owner, since) for (owner, source), since in source_snapshots.missing(workspace).items()
+            if not project or owner == project}
+
+
 def fact_rows(subject: str = "", predicate: str = "", limit: int = 20, *, workspace: str) -> list[dict]:
     return kg.query(subject=subject, predicate=predicate, limit=max(1, min(limit, 100)), workspace=workspace)
 
@@ -966,13 +974,19 @@ def read_source(source: Annotated[str, Field(min_length=1, max_length=4096)], pr
         if 'parts' in details:
             overview['extracted_parts'] = len(details['parts'])
         next_start = min(len(text), start + max_chars)
-        return json.dumps({'source': source, 'project': meta['project'], 'kind': meta['kind'],
-                           'snapshot_available': True, 'version': meta['version'],
-                           'content_hash': meta['content_hash'], 'total_chars': len(text),
-                           'start': start, 'content': text[start:next_start],
-                           'next_start': next_start if next_start < len(text) else None,
-                           'truncated': next_start < len(text), 'details': overview,
-                           'index': source_snapshots.integrity(snapshot, ws) if verify else {'checked': False}}, ensure_ascii=False)
+        result = {'source': source, 'project': meta['project'], 'kind': meta['kind'],
+                  'snapshot_available': True, 'version': meta['version'],
+                  'content_hash': meta['content_hash'], 'total_chars': len(text),
+                  'start': start, 'content': text[start:next_start],
+                  'next_start': next_start if next_start < len(text) else None,
+                  'truncated': next_start < len(text), 'details': overview,
+                  'index': source_snapshots.integrity(snapshot, ws) if verify else {'checked': False}}
+        if source_snapshots.MISSING in meta:
+            # Not a broken index: refresh dropped the chunks of a file gone from disk (ADR 0196).
+            result['missing_from_disk'] = missing_note(meta[source_snapshots.MISSING])
+            if verify:
+                result['index']['expected'] = 'chunks removed from search because the file is missing from disk'
+        return json.dumps(result, ensure_ascii=False)
     except (ValueError, UnicodeError) as error:
         return json.dumps({'error': str(error), 'source': source})
 
@@ -1228,7 +1242,8 @@ def list_sources(
     limit: int = 50,
     workspace: str = "",
 ) -> str:
-    """List indexed source files with chunk counts.
+    """List indexed source files with chunk counts. A file gone from disk
+    is listed with 0 chunks and when it went missing; read_source reads it.
 
     Args:
         project: Filter by project (optional)
@@ -1242,6 +1257,11 @@ def list_sources(
         return err
 
     sources = source_rows(project, lang, layer, limit, workspace=ws)
+    # Files gone from disk keep their snapshot, without chunks or tags (ADR 0196).
+    gone = {} if (lang or layer) else gone_sources(project, workspace=ws)
+    listed = {path for path, _ in sources}
+    room = max(0, max(1, min(limit, 200)) - len(sources))
+    sources = [*sources, *[(path, 0) for path in sorted(gone) if path not in listed][:room]]
 
     if not sources:
         return "No indexed sources found. Use 'imprint ingest <dir>' to index a project."
@@ -1249,7 +1269,7 @@ def list_sources(
     lines = [f"Indexed sources ({len(sources)} shown):"]
     lines.append("")
     for path, count in sources:
-        lines.append(f"  {count:>4} chunks  {path}")
+        lines.append(f"  {count:>4} chunks  {path}" + (f"  [{missing_label(gone[path][1])}]" if path in gone else ""))
 
     return "\n".join(lines)
 
@@ -1272,6 +1292,10 @@ def file_summary(
         return err
 
     summary = summary_row(source, project, workspace=ws)
+    gone = gone_sources(project, workspace=ws).get(source)
+    if summary is None and gone is not None:
+        return (f"Source: {source}\nProject: {gone[0]}  |  Chunks: 0\n"
+                f"Status: {missing_label(gone[1])}")
     if summary is None:
         return f"Source not found in KB: {source}\nUse list_sources to discover indexed files."
 
@@ -1284,6 +1308,9 @@ def file_summary(
         f"Source: {summary['source']}",
         f"Project: {summary.get('project', '?')}  |  Chunks: {summary['chunk_count']}  |  Modified: {mtime_str}",
     ]
+    if gone is not None:
+        # Chunks a paired device sent back after refresh dropped them here.
+        lines.append(f"Status: {missing_label(gone[1])}")
 
     tag_parts = []
     if tags.get("lang"):
@@ -1307,7 +1334,7 @@ def file_summary(
 
 
 @mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False})
-def graph_scope(scope: str = "root", depth: int = 1, workspace: str = "") -> str:
+def graph_scope(scope: str = "root", depth: int = 1, workspace: str = "", lens: str = "") -> str:
     """Navigate KB as graph by project/topic/source/chunk. Use when search
     is too narrow or for overview.
 
@@ -1315,14 +1342,18 @@ def graph_scope(scope: str = "root", depth: int = 1, workspace: str = "") -> str
         scope: root, project:<name>, topic:<name>, source:<path>, chunk:<id>
         depth: 1–3, higher = more nodes
         workspace: Target workspace (optional)
+        lens: "topics" draws root as topics alone, linked to related topics
+            and grouped around hub topics (optional)
     """
     ws, err = _validate_ws(workspace)
     if err:
         return err
-    from .cli_viz import build_graph_scope
+    from .cli_viz import GRAPH_LENSES, build_graph_scope
 
+    if lens not in GRAPH_LENSES:
+        return f"Error: lens must be one of {', '.join(repr(value) for value in GRAPH_LENSES)}"
     depth = max(1, min(int(depth or 1), 3))
-    data = build_graph_scope(scope or "root", depth=depth, workspace=ws)
+    data = build_graph_scope(scope or "root", depth=depth, workspace=ws, lens=lens)
     nodes = data.get("nodes", [])
     edges = data.get("edges", [])
 
@@ -1363,7 +1394,8 @@ def graph_scope(scope: str = "root", depth: int = 1, workspace: str = "") -> str
         for n in shown:
             link = _peers(n["id"])
             suffix = f"  → {link}" if link else ""
-            lines.append(f"  [{n['id']}] {n['label']}  ({n.get('count', 0)}){suffix}")
+            hub = "  [hub]" if n.get("hub") else ""
+            lines.append(f"  [{n['id']}] {n['label']}  ({n.get('count', 0)}){hub}{suffix}")
         if len(items) > len(shown):
             lines.append(f"  … +{len(items) - len(shown)} more (increase depth to see them)")
 
@@ -1371,11 +1403,13 @@ def graph_scope(scope: str = "root", depth: int = 1, workspace: str = "") -> str
     suggestions: list[str] = []
     if scope_str == "root" or scope_str.startswith("root"):
         sample_proj = by_kind.get("project", [])
-        sample_topic = by_kind.get("topic", [])
+        sample_topic = [n for n in by_kind.get("topic", []) if n.get("hub")] or by_kind.get("topic", [])
         if sample_proj:
             suggestions.append(f'graph_scope("project:{sample_proj[0]["label"]}")')
         if sample_topic:
             suggestions.append(f'graph_scope("topic:{sample_topic[0]["label"]}")')
+        if not lens:
+            suggestions.append('graph_scope("root", lens="topics")')
     elif scope_str.startswith("project:"):
         for t in by_kind.get("topic", [])[:2]:
             suggestions.append(f'graph_scope("topic:{t["label"]}")')
