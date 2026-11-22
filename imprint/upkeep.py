@@ -44,11 +44,13 @@ from . import config
 LEDGER = 'upkeep.json'
 BUDGET_SECONDS = 600.0   # one background run's share; the next idle run goes on
 REST = 1.0               # after each piece, rest this share of the time it took
-REST_MAX = 5.0
+REST_MAX = 30.0          # so a store slowed by upkeep's own writes gets time back (ADR 0205)
+TIMEOUTS_BEFORE_FAILING = 3  # runs in a row the store may time out before a step counts as failed
 RETRY_DAYS = 7           # a file a step could not handle is tried again after this
 TOLERANCE = 60.0         # seconds an arrival may follow its origin's record time unrepaired
 TIMESTAMPS_VERSION = 1
 _PAGE = 1000
+_WRITE = 200             # points per payload write: each rewrites a point Qdrant may have to copy
 _DUE_TTL = 30.0
 _RUNNING_TTL = 60.0
 
@@ -208,6 +210,22 @@ def _timestamps_due(workspace: str, entry: dict) -> bool:
     return int(entry.get('version') or 0) < TIMESTAMPS_VERSION and _received(workspace)
 
 
+def _writes(changes: dict[float, list], size: int):
+    """The timestamp writes of one page, in requests of at most ``size`` points."""
+    from qdrant_client import models as qm
+    batch, count = [], 0
+    for first, ids in changes.items():
+        for start in range(0, len(ids), size):
+            part = ids[start:start + size]
+            if batch and count + len(part) > size:
+                yield batch, count
+                batch, count = [], 0
+            batch.append(qm.SetPayloadOperation(set_payload=qm.SetPayload(payload={'timestamp': first}, points=part)))
+            count += len(part)
+    if batch:
+        yield batch, count
+
+
 def _timestamps_run(workspace: str, entry: dict, run: Pass) -> bool:
     from qdrant_client import models as qm
     from . import device, vectorstore as vs
@@ -241,11 +259,18 @@ def _timestamps_run(workspace: str, entry: dict, run: Pass) -> bool:
             if stamp is not None and stamp - first <= TOLERANCE:
                 continue
             changes.setdefault(first, []).append(point.id)
-        if changes and not run.dry_run:
-            client.batch_update_points(coll, [
-                qm.SetPayloadOperation(set_payload=qm.SetPayload(payload={'timestamp': first}, points=ids))
-                for first, ids in changes.items()], wait=True)
-        fixed += sum(len(ids) for ids in changes.values())
+        if run.dry_run:
+            fixed += sum(len(ids) for ids in changes.values())
+        for number, (operations, count) in enumerate(_writes(changes, _WRITE) if not run.dry_run else ()):
+            # Between writes it may step aside; the page is read again from its
+            # start, and the points already dated are passed over.
+            if number and run.halt():
+                entry.update(fixed=fixed)
+                run.save()
+                return False
+            client.batch_update_points(coll, operations, wait=True)
+            fixed += count
+            entry.update(fixed=fixed)
         seen += len(points)
         run.progress(seen, total, 'memories', workspace)
         offset = following
@@ -495,6 +520,19 @@ def run(stop: Callable[[], bool] | None = None, *, budget: float | None = None, 
             clear_progress()
 
 
+def _timed_out(error: BaseException) -> bool:
+    """Whether ``error`` is the store not answering in time: the client's
+    read timeout, however qdrant-client wraps it."""
+    seen = set()
+    while error is not None and id(error) not in seen:
+        seen.add(id(error))
+        if isinstance(error, TimeoutError) or type(error).__name__ in ('ReadTimeout', 'WriteTimeout', 'TimeoutException',
+                                                                      'PoolTimeout', 'ConnectTimeout'):
+            return True
+        error = getattr(error, 'source', None) or error.__cause__ or error.__context__
+    return False
+
+
 def _run(stop, *, budget, dry_run, background, lower_priority) -> int:
     from .tag_backlog import YIELDED
     pending = due(fresh=True)
@@ -519,9 +557,20 @@ def _run(stop, *, budget, dry_run, background, lower_priority) -> int:
         try:
             finished = step.run(workspace, entry, work)
         except Exception as error:  # noqa: BLE001 - the run's log says why
+            if _timed_out(error) and not dry_run:
+                # Qdrant finishes the write it was slow to answer; what was
+                # done is in the ledger, and the next idle run goes on.
+                entry['timeouts'] = int(entry.get('timeouts') or 0) + 1
+                work.save()
+                if entry['timeouts'] < TIMEOUTS_BEFORE_FAILING:
+                    reset()
+                    print(f'  the store was too busy to answer in time ({error}); the next idle run goes on', flush=True)
+                    return code
             print(f'  failed: {error}', flush=True)
             code = 1
             continue
+        if entry.pop('timeouts', None) is not None:
+            work.save()
         if not finished:
             reset()
             if work.stopped:
