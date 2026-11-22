@@ -68,6 +68,45 @@ def _log_file() -> Path:
     return config.get_data_dir() / "qdrant.log"
 
 
+# qdrant.log stays bounded (ADR 0204): past LOG_LIMIT its last LOG_KEEP bytes
+# become qdrant.log.1 and it starts again empty.
+LOG_LIMIT = 10 * 1024 * 1024
+LOG_KEEP = 1024 * 1024
+
+
+def _trim_log(running: bool) -> bool:
+    """Trim qdrant.log when it has outgrown LOG_LIMIT; True when it did.
+
+    The daemon writes through a descriptor opened for appending, so on POSIX
+    emptying the file under a running daemon is safe: its next line lands at
+    the new end. On Windows the handle it inherited keeps its own position,
+    and emptying the file would leave a gap of zeros, so a running daemon's
+    log waits for the next start."""
+    path = _log_file()
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return False
+    if size <= LOG_LIMIT or (running and sys.platform == "win32"):
+        return False
+    try:
+        with open(path, "rb") as source:
+            source.seek(max(0, size - LOG_KEEP))
+            tail = source.read(LOG_KEEP)
+        newline = tail.find(b"\n")
+        if 0 <= newline < len(tail) - 1:
+            tail = tail[newline + 1:]  # from the first whole line
+        previous = path.with_name(path.name + ".1")
+        staged = path.with_name(path.name + ".1.part")
+        staged.write_bytes(tail)
+        os.replace(staged, previous)
+        os.truncate(path, 0)
+    except OSError as error:
+        log.warning("Could not trim %s: %s", path, error)
+        return False
+    return True
+
+
 def _storage_dir() -> Path:
     return config.get_data_dir() / "qdrant_storage"
 
@@ -206,8 +245,12 @@ def _spawn(binary: Path) -> int:
     # Qdrant settings must not open a cluster listener or enable wildcard CORS.
     env["QDRANT__CLUSTER__ENABLED"] = "false"
     env["QDRANT__SERVICE__ENABLE_CORS"] = "false"
-    env["RUST_LOG"] = env.get("RUST_LOG", "warn,qdrant=info")
+    # Qdrant takes its log filter from QDRANT__LOG_LEVEL, not RUST_LOG. At
+    # info, actix logs every HTTP request: 1.26 GB in three days on a device
+    # with background tagging. Qdrant's own events stay at info (ADR 0204).
+    env.setdefault("QDRANT__LOG_LEVEL", "info,actix_web=warn")
 
+    _trim_log(running=False)
     log_path = _log_file()
     log_fp = open(log_path, "ab", buffering=0)
 
@@ -241,6 +284,8 @@ def ensure_running() -> tuple[str, int]:
     if not DISABLE_SPAWN:
         _validate_managed_host()
     if is_running():
+        if not DISABLE_SPAWN:
+            _trim_log(running=True)
         return QDRANT_HOST, QDRANT_PORT
     with _exclusive("qdrant-start.lock", "start Qdrant"):
         return _ensure_running_locked()

@@ -3,12 +3,13 @@ title: ADR 0201 — Upkeep brings what is stored up to date in the idle slot
 description: The background job's last step works through a list of finite, resumable steps that bring memories stored by earlier releases to the current form, a piece at a time, at low priority, resting between pieces and stepping aside for any job. Its first steps date synced memories back and keep this device's large data files whole without a refresh.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-22
 - Amends:
   - [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md) — the background job ends with upkeep, and the dispatcher starts it for upkeep alone too
   - [ADR 0132](0132-organize-runs-in-the-idle-slot-after-background-tagging.md) — a third step, upkeep, follows tagging and Organize in the same job
   - [ADR 0195](0195-data-files-are-kept-whole-and-found-by-a-digest.md) — stored data files are kept whole in the idle slot, not only at the next ingest or refresh
+- Amended by: [ADR 0205](0205-upkeep-backs-off-when-the-store-is-slow.md) — the rest after a piece is at most 30 seconds, not 5; writes go in requests of at most 200 points; a timeout ends the run without failing it
 - Related: [ADR 0200](0200-synced-memories-keep-the-time-they-were-first-stored.md) (the dates upkeep repairs), [ADR 0196](0196-a-file-gone-from-disk-keeps-its-snapshot.md) (missing files stay refresh's to mark), [ADR 0176](0176-deletions-reach-paired-devices-that-hold-the-memory.md) (replaced chunks leave paired devices too), [ADR 0064](0064-single-slot-command-queue-and-shared-lock.md), [queue](../queue.md), [configuration](../configuration.md)
 
 ## Context

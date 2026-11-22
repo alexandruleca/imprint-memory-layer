@@ -180,6 +180,74 @@ class TimestampStepTests(Store):
         self.assertEqual(self.ledger('timestamps')['fixed'], 4)
         self.assertEqual(self.stamps()['late-3'], OCTOBER + 120)
 
+    def test_writes_go_in_small_requests(self):
+        writes = []
+        real = self.client.batch_update_points
+
+        def counted(collection, operations, **options):
+            writes.append(sum(len(op.set_payload.points) for op in operations))
+            return real(collection, operations, **options)
+
+        with patch.object(upkeep, '_WRITE', 2), patch.object(self.client, 'batch_update_points', side_effect=counted):
+            code, out = self.run_upkeep()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(writes, [2, 2])  # four memories to date, two per request
+        self.assertEqual(self.ledger('timestamps')['fixed'], 4)
+
+    def test_it_steps_aside_between_writes_and_passes_over_what_it_dated(self):
+        asked = []
+        with patch.object(upkeep, '_WRITE', 2):
+            # Asked at the page's start, then before its second write.
+            code, _ = self.run_upkeep(lambda: asked.append(1) or len(asked) == 2)
+            self.assertEqual(code, tag_backlog.YIELDED)
+            self.assertEqual(self.ledger('timestamps')['fixed'], 2)
+            self.assertIsNone(self.ledger('timestamps').get('cursor'))  # the page is read again
+            code, _ = self.run_upkeep()
+        self.assertEqual(code, 0)
+        self.assertEqual(self.ledger('timestamps')['fixed'], 4)
+        stamps = self.stamps()
+        self.assertEqual((stamps['late-1'], stamps['late-3']), (OCTOBER, OCTOBER + 120))
+
+    def test_a_store_too_busy_to_answer_ends_the_run_and_only_repeated_timeouts_fail(self):
+        import httpx
+        from qdrant_client.http.exceptions import ResponseHandlingException
+
+        def busy(workspace, entry, run):
+            entry['cursor'] = 'half-way'
+            run.save()
+            raise ResponseHandlingException(httpx.ReadTimeout('timed out'))
+
+        step = upkeep.Step('timestamps', 'a step the store is too busy for', upkeep._timestamps_due, busy)
+        with patch.dict(upkeep._BY_NAME, {'timestamps': step}):
+            for attempt in range(1, upkeep.TIMEOUTS_BEFORE_FAILING):
+                code, out = self.run_upkeep()
+                self.assertEqual(code, 0, out)
+                self.assertIn('too busy to answer in time (timed out); the next idle run goes on', out)
+                self.assertNotIn('failed', out)
+                self.assertNotIn('data files', out)  # the run ends there
+                self.assertEqual(self.ledger('timestamps')['timeouts'], attempt)
+                self.assertEqual(self.ledger('timestamps')['cursor'], 'half-way')
+            code, out = self.run_upkeep()
+            self.assertEqual(code, 1)
+            self.assertIn('failed: timed out', out)
+        # A run that gets through starts the count again.
+        through = upkeep.Step('timestamps', 'a step that gets through', upkeep._timestamps_due, lambda *_: True)
+        with patch.dict(upkeep._BY_NAME, {'timestamps': through}):
+            code, out = self.run_upkeep()
+        self.assertEqual(code, 0, out)
+        self.assertNotIn('timeouts', self.ledger('timestamps'))
+
+    def test_other_errors_still_fail_at_once(self):
+        def broken(workspace, entry, run):
+            raise ValueError('no such field')
+
+        step = upkeep.Step('timestamps', 'a broken step', upkeep._timestamps_due, broken)
+        with patch.dict(upkeep._BY_NAME, {'timestamps': step}):
+            code, out = self.run_upkeep()
+        self.assertEqual(code, 1)
+        self.assertIn('failed: no such field', out)
+        self.assertNotIn('timeouts', self.ledger('timestamps'))
+
     def test_a_dry_run_changes_nothing(self):
         before = self.stamps()
         code, out = self.run_upkeep(dry_run=True)
