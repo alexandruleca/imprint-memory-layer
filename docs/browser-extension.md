@@ -152,10 +152,17 @@ a store already holds is not submitted again.
   `scripts/publish_firefox_extension.py` submits `imprint-firefox-extension-unsigned.xpi`
   as a new listed version with the API key in `AMO_JWT_ISSUER` and `AMO_JWT_SECRET`
   (**Developer Hub → Manage API Keys**). Mozilla signs and reviews it; the license and
-  listing carry over from the previous listed version. The listing itself is made
-  once by hand: upload a version in the Developer Hub under the add-on with
-  **Upload New Version → On this site** and complete the listing. Until then the job
-  submits nothing and says so. AMO takes each version number once across channels,
+  listing carry over from the previous listed version. The first listed version is
+  uploaded once by hand: in the Developer Hub, open the add-on, choose
+  **Upload New Version → On this site** and pick its license. Until then the job
+  submits nothing and says so.
+- **The AMO listing's content** (`amo-listing` workflow). `extensions/store/` holds the
+  summary, description (`amo-description.md`, AMO's limited Markdown), categories,
+  homepage, support link, privacy policy (`amo-privacy-policy.md`) and 1280×800
+  screenshots with captions. `scripts/update_amo_listing.py` applies them whenever
+  they change on `main`, or from **Actions → addons.mozilla.org listing → Run
+  workflow**. Screenshots are uploaded only while the listing has none; tick
+  **replace_screenshots** to delete them and upload the folder's again. AMO takes each version number once across channels,
   and a listed version must be higher than the earlier ones, so never hand-submit a
   prerelease build: `v0.60.0-dev.1` becomes 0.60.0.1, which is higher than 0.60.0.
 

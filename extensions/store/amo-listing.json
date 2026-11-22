@@ -1,0 +1,15 @@
+{
+  "summary": "Save web pages, selections, files and the text in screenshots to Imprint, the local memory your AI assistants search. Everything goes to Imprint on your own computer.",
+  "description_file": "amo-description.md",
+  "privacy_policy_file": "amo-privacy-policy.md",
+  "categories": ["bookmarks", "web-development"],
+  "homepage": "https://imprintmcp.alexandruleca.com/chrome-extension/",
+  "support_url": "https://github.com/alexandruleca/imprint-memory-layer/issues",
+  "screenshots": [
+    {"file": "screenshots/1-save-from-any-tab.png", "caption": "Save what you read in one click: pages, highlights, files and screenshots go straight to Imprint on your computer."},
+    {"file": "screenshots/2-review-before-saving.png", "caption": "See exactly what gets saved. Edit it, pick a workspace and project, then save."},
+    {"file": "screenshots/3-save-a-selection.png", "caption": "Keep just the part that matters: highlight a passage and save only that, with the page it came from."},
+    {"file": "screenshots/4-full-page-screenshots.png", "caption": "Read any page with local OCR: capture the visible area or the whole page, and Imprint reads the text on your computer."},
+    {"file": "screenshots/5-find-it-again.png", "caption": "Find it again, or let your AI assistant find it: Claude Code, Codex, Cursor and other MCP clients search the same memory."}
+  ]
+}

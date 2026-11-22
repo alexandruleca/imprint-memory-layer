@@ -23,7 +23,8 @@ description: After a stable release is published, CI submits its add-on as a lis
 ## Decision
 
 - **When.** A new `firefox-listing` job runs after `publish`, for stable releases only, with the existing `AMO_JWT_ISSUER` and `AMO_JWT_SECRET` secrets. Without them it warns and submits nothing.
-- **The listing is made once by hand.** The owner uploads one version in the Developer Hub with **Upload New Version → On this site** and completes the listing there (summary, categories, license, screenshots), just as the Chrome Web Store item was made by hand.
+- **The first listed version is uploaded once by hand.** The owner uploads it in the Developer Hub with **Upload New Version → On this site** and picks its license there, just as the Chrome Web Store item was made by hand.
+- **The listing's content lives in the repository.** `extensions/store/` holds the summary, description, categories, homepage, support link, privacy policy and screenshots (1280×800, AMO's recommended size) with their captions. The `amo-listing` workflow applies them with `scripts/update_amo_listing.py` whenever they change on `main`, and on demand. Categories are written in the shape AMO reads them back. Screenshots are uploaded only while the listing has none, unless a manual run asks to replace them, because AMO keeps its own copies and a rerun cannot tell whether they changed.
 - **The submission.** `scripts/publish_firefox_extension.py` replaces `scripts/sign_firefox_extension.py`:
   1. If AMO already holds this version as listed, it reports the file's status and stops.
   2. If AMO holds this version in another channel, the job fails, because a version number is taken once.
@@ -35,7 +36,8 @@ description: After a stable release is published, CI submits its add-on as a lis
 
 - **Keeping unlisted signing (ADR 0193).** It has no automatic updates, and the owner chose a listing.
 - **Unlisted signing with a hosted update manifest (`update_url`).** ADR 0193 named this as the other route to updates. It was not put to the owner, who asked for store approval as on Chrome. It would also mean publishing an `updates.json` with every release.
-- **Creating the listing from the script** (an add-on edit for the metadata, then a version with a license). The documentation does not give the request format for categories and translated fields. The listing's description and screenshots belong in the Developer Hub. Doing it by hand is a single step, like the Chrome item.
+- **Submitting the first listed version from the script, with a license.** The owner was already making it in the Developer Hub, and it is a single step, like the Chrome item.
+- **Keeping the listing's content in the Developer Hub only.** The owner asked for the description and screenshots to be set as they were prepared for Chrome. Kept in the repository, they are reviewed like code and can be applied again.
 - **Waiting for the listed version's signature and attaching it to the release.** Review time has no bound, and AMO already serves the signed file.
 
 ## Consequences
@@ -59,5 +61,6 @@ description: After a stable release is published, CI submits its add-on as a lis
   - a version already listed;
   - no listing, with no channels or only `unlisted`;
   - a validation failure, a disabled file, and a number already signed as unlisted.
+- `tests/test_update_amo_listing.py` ran four tests, all passing, against a stand-in AMO. They covered the listing text and privacy policy, the screenshots with their positions and captions, categories in either shape, screenshots kept unless replacing is asked for, and the listing files' summary length, category count and screenshot size.
 - addons-linter 10.16.0 reported no warnings on the add-on built from commit 4daa3bf.
-- Not run: the real AMO listed submission. The listing does not exist yet, and the job waits for the next stable release.
+- Not run: the real AMO listed submission and listing update. The first waits for the listing and the next stable release; the second for the workflow's first run on `main`.
