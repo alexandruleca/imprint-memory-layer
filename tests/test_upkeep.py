@@ -340,10 +340,16 @@ class BackgroundTests(Store):
 
     def test_its_share_of_a_run_ends_it_and_the_next_goes_on(self):
         vs._ensure_collection()
-        step = upkeep.Step('timestamps', 'a step that never finishes', upkeep._timestamps_due,
-                           lambda workspace, entry, run: not run.halt())
+        def out_of_time(workspace, entry, run):
+            # The share runs out while this step works. (Python 3.12's
+            # monotonic clock on Windows ticks every ~16 ms, so a tiny
+            # budget alone may not have passed yet.)
+            run.deadline = time.monotonic() - 1
+            return not run.halt()
+
+        step = upkeep.Step('timestamps', 'a step that never finishes', upkeep._timestamps_due, out_of_time)
         with patch.dict(upkeep._BY_NAME, {'timestamps': step}), patch.object(upkeep.time, 'sleep'):
-            code, out = self.run_upkeep(budget=0.000001, background=True)
+            code, out = self.run_upkeep(budget=600, background=True)
         self.assertEqual(code, 0)
         self.assertIn('next idle run goes on', out)
         self.assertNotIn('data files', out)  # the rest waits for the next run
