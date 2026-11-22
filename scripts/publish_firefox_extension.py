@@ -77,8 +77,11 @@ class Client:
                 with error:
                     detail = error.read().decode('utf-8', 'replace')[:2000]
                     wait = throttled_for(error.code, error.headers.get('Retry-After'), detail)
-                if wait is None or time.monotonic() + wait > deadline:
+                if wait is None:
                     raise RuntimeError(f'{method} {path}: HTTP {error.code}: {detail}') from None
+                if time.monotonic() + wait > deadline:
+                    raise RuntimeError(f'addons.mozilla.org throttled {method} {path} for {wait / 60:.0f} more minutes; '
+                                       'run this again after that') from None
                 print(f'addons.mozilla.org throttled {method} {path}; retrying in {wait:.0f}s')
                 time.sleep(wait)
 

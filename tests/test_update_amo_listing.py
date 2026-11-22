@@ -18,8 +18,10 @@ ADDON = f'/api/v5/addons/addon/{listing.GECKO_ID}'
 
 
 class FakeAMO:
-    def __init__(self, categories=(), previews=(), throttle=0):
+    def __init__(self, categories=(), previews=(), throttle=0, held=None, policy=None, throttle_seconds=0):
         self.categories, self.previews, self.throttle = categories, list(previews), throttle
+        self.throttle_seconds = throttle_seconds
+        self.held, self.policy = dict(held or {}), policy
         self.patches, self.deleted, self.images, self.captions = {}, [], [], {}
 
     def handle(self, method, path, body, headers):
@@ -27,7 +29,9 @@ class FakeAMO:
         if (method, path) == ('GET', ADDON + '/'):
             previews = [p if isinstance(p, dict) else {'id': p, 'position': 0, 'caption': None} for p in self.previews]
             return 200, {'guid': listing.GECKO_ID, 'default_locale': 'en-US', 'categories': self.categories,
-                         'previews': previews}
+                         'previews': previews, **self.held}
+        if (method, path) == ('GET', ADDON + '/eula_policy/'):
+            return 200, {'eula': None, 'privacy_policy': self.policy}
         if method == 'PATCH' and path in (ADDON + '/', ADDON + '/eula_policy/'):
             self.patches[path] = json.loads(body)
             return 200, {}
@@ -43,7 +47,7 @@ class FakeAMO:
         if method == 'PATCH' and path.startswith(ADDON + '/previews/'):
             if self.throttle:
                 self.throttle -= 1
-                return 429, {'detail': 'Request was throttled. Expected available in 0 seconds.'}
+                return 429, {'detail': f'Request was throttled. Expected available in {self.throttle_seconds} seconds.'}
             self.captions[int(path.rstrip('/').rsplit('/', 1)[1])] = json.loads(body)
             return 200, {}
         return 404, {'detail': f'unexpected {method} {path}'}
@@ -123,6 +127,30 @@ class ListingTests(unittest.TestCase):
         output = self.update(amo)
         self.assertEqual(output.count('throttled PATCH'), 2)
         self.assertEqual(len(amo.captions), 5)
+
+    def test_a_long_throttle_stops_the_run_saying_when_to_run_it_again(self):
+        amo = FakeAMO(throttle=1, throttle_seconds=2403)
+        with self.assertRaisesRegex(RuntimeError, 'throttled PATCH .* for 40 more minutes; run this again after that'):
+            self.update(amo)
+
+    def test_text_amo_already_holds_is_not_written_again(self):
+        data = json.loads((STORE / 'amo-listing.json').read_text(encoding='utf-8'))
+        description = (STORE / 'amo-description.md').read_text(encoding='utf-8')
+        # As AMO might return it: rendered, links rewritten through its redirector.
+        rendered = '<p>' + description.replace('**', '').replace('[Imprint app](https://imprintmcp.alexandruleca.com/)',
+                   '<a href="https://outgoing.prod.mozaws.net/v1/abc/https%3A//imprintmcp">Imprint app</a>') + '</p>'
+        policy = (STORE / 'amo-privacy-policy.md').read_text(encoding='utf-8').replace('→', '&rarr;')
+        held = {'summary': {'en-US': data['summary']}, 'description': {'en-US': rendered},
+                'homepage': {'url': {'en-US': data['homepage']}, 'outgoing': {'en-US': 'https://outgoing.prod.mozaws.net/x'}},
+                'support_url': {'url': {'en-US': data['support_url']}, 'outgoing': {'en-US': 'https://outgoing.prod.mozaws.net/y'}}}
+        amo = FakeAMO(categories=data['categories'], held=held, policy={'en-US': policy}, previews=[1, 2, 3, 4, 5])
+        self.assertIn('already current', self.update(amo))
+        self.assertEqual(amo.patches, {})
+        # A changed summary is the only field written.
+        held['summary'] = {'en-US': 'An older summary'}
+        amo = FakeAMO(categories=data['categories'], held=held, policy={'en-US': policy}, previews=[1, 2, 3, 4, 5])
+        self.assertIn('summary updated', self.update(amo))
+        self.assertEqual(amo.patches, {ADDON + '/': {'summary': {'en-US': data['summary']}}})
 
     def test_the_listing_files_fit_amo(self):
         data = json.loads((STORE / 'amo-listing.json').read_text(encoding='utf-8'))

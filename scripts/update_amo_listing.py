@@ -8,12 +8,18 @@ policy from extensions/store/amo-listing.json and the files it names, then the
 screenshots in order: one AMO already has gets its caption and position, and
 the rest are uploaded. AMO keeps its own copies of the images, so a rerun
 cannot tell whether one changed; --replace-screenshots deletes them all and
-uploads the listing's again. Throttled requests wait and retry.
+uploads the listing's again.
+
+AMO throttles writes, briefly per minute and for longer per hour, so only
+fields that differ from what AMO holds are written. A short throttle is waited
+out; a long one stops the run, and running it again resumes where it stopped.
 """
 import argparse
+import html
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import uuid
 
@@ -33,6 +39,21 @@ def multipart(fields, name, filename, data, content_type):
     return b''.join(parts), f'multipart/form-data; boundary={boundary}'
 
 
+def words(value):
+    """Text without markup, links or punctuation. AMO rewrites the links in the
+    Markdown fields it returns, and may return them rendered, so only the words
+    can be compared."""
+    value = html.unescape(re.sub(r'<[^>]+>', ' ', value or ''))
+    return re.sub(r'[^0-9a-z]+', '', re.sub(r'https?://\S+', '', value.lower()))
+
+
+def translated(value, locale):
+    """One locale of a translated field; links read back as {url, outgoing}."""
+    if isinstance(value, dict) and 'url' in value:
+        value = value['url']
+    return value.get(locale) if isinstance(value, dict) else value
+
+
 def update(client, listing_path=LISTING, replace_screenshots=False, guid=GECKO_ID):
     listing_path = Path(listing_path)
     listing = json.loads(listing_path.read_text(encoding='utf-8'))
@@ -43,18 +64,27 @@ def update(client, listing_path=LISTING, replace_screenshots=False, guid=GECKO_I
     text = lambda value: {locale: value}
     # The API documents categories keyed by application but reads them back flat;
     # write them in the shape this add-on reads back.
+    current = details.get('categories') or []
     categories = listing['categories']
-    if isinstance(details.get('categories'), dict):
-        categories = {'firefox': categories}
-    client.request('PATCH', f'{addon}/', {
-        'summary': text(listing['summary']),
-        'description': text(read('description_file')),
-        'categories': categories,
-        'homepage': text(listing['homepage']),
-        'support_url': text(listing['support_url']),
-    })
-    client.request('PATCH', f'{addon}/eula_policy/', {'privacy_policy': text(read('privacy_policy_file'))})
-    print(f'Updated the listing text of {guid}')
+    if isinstance(current, dict):
+        current, categories = current.get('firefox') or [], {'firefox': categories}
+    changes = {}
+    for field in ('summary', 'homepage', 'support_url'):
+        if translated(details.get(field), locale) != listing[field]:
+            changes[field] = text(listing[field])
+    description = read('description_file')
+    if words(translated(details.get('description'), locale)) != words(description):
+        changes['description'] = text(description)
+    if sorted(current) != sorted(listing['categories']):
+        changes['categories'] = categories
+    if changes:
+        client.request('PATCH', f'{addon}/', changes)
+    policy = read('privacy_policy_file')
+    held = client.request('GET', f'{addon}/eula_policy/') or {}
+    if words(translated(held.get('privacy_policy'), locale)) != words(policy):
+        client.request('PATCH', f'{addon}/eula_policy/', {'privacy_policy': text(policy)})
+        changes['privacy_policy'] = True
+    print(f'Listing text of {guid}: ' + (', '.join(changes) + ' updated' if changes else 'already current'))
     # The listing's screenshots in order; AMO's copies cannot be compared with
     # the files, so a screenshot already there keeps its image unless replacing.
     previews = sorted(details.get('previews') or [], key=lambda preview: (preview.get('position') or 0, preview['id']))
