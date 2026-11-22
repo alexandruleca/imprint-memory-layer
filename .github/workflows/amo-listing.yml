@@ -1,0 +1,49 @@
+name: addons.mozilla.org listing
+
+# The Firefox add-on's listing text, privacy policy and screenshots live in
+# extensions/store/ and are applied when they change on main, or on demand
+# (ADR 0203). Screenshots are uploaded only while the listing has none, unless
+# a manual run asks to replace them.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'extensions/store/**'
+      - 'scripts/update_amo_listing.py'
+  workflow_dispatch:
+    inputs:
+      replace_screenshots:
+        description: Delete the listing's screenshots and upload extensions/store's again
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: amo-listing
+  cancel-in-progress: false
+
+jobs:
+  listing:
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s tests -p 'test_update_amo_listing.py' -v
+      - name: Update the listing when the API key is set
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+          REPLACE: ${{ inputs.replace_screenshots }}
+        run: |
+          if [ -z "$AMO_JWT_ISSUER" ] || [ -z "$AMO_JWT_SECRET" ]; then
+            echo '::warning::AMO_JWT_ISSUER and AMO_JWT_SECRET are not set, so the listing was not updated.'
+            exit 0
+          fi
+          FLAGS=()
+          if [ "$REPLACE" = true ]; then FLAGS+=(--replace-screenshots); fi
+          python scripts/update_amo_listing.py "${FLAGS[@]}"
