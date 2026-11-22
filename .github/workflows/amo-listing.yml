@@ -2,8 +2,8 @@ name: addons.mozilla.org listing
 
 # The Firefox add-on's listing text, privacy policy and screenshots live in
 # extensions/store/ and are applied when they change on main, or on demand
-# (ADR 0203). Screenshots are uploaded only while the listing has none, unless
-# a manual run asks to replace them.
+# (ADR 0203). Screenshots AMO already has keep their images and get their
+# captions; missing ones are uploaded; a manual run can replace them all.
 on:
   push:
     branches: [main]
@@ -27,7 +27,7 @@ concurrency:
 jobs:
   listing:
     runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

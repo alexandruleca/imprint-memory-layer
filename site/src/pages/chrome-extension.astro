@@ -4,7 +4,7 @@ import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
 import Icon from '../components/Icon.astro';
 import releases from '../data/releases.json';
-import {latestChromeExtension, latestFirefoxExtension} from '../lib/chrome-extension.mjs';
+import {chromeWebStoreUrl, latestChromeExtension, latestFirefoxExtension} from '../lib/chrome-extension.mjs';
 
 const extension = latestChromeExtension(releases);
 const firefox = latestFirefoxExtension(releases);
@@ -27,18 +27,14 @@ const comingSoon = [
           <h1 class="mt-5 text-5xl sm:text-6xl font-extrabold tracking-tight leading-[1.04] text-balance">Keep what<br />you find.</h1>
           <p class="lede max-w-lg">A useful page. A passage, a PDF, a Google Doc. Save it to your local Imprint memory, right from your browser.</p>
           <div class="mt-8 flex flex-wrap gap-3">
-            {extension ? (
-              <a href={extension.asset.url} class="btn btn-primary" data-extension-download><Icon name="download" size={17} /> Download Chrome ZIP</a>
-            ) : (
-              <a href={`https://github.com/${releases.repo}/releases`} class="btn btn-primary">View extension releases <Icon name="arrowRight" size={17} /></a>
-            )}
+            <a href={chromeWebStoreUrl} class="btn btn-primary"><Icon name="globe" size={17} /> Add to Chrome</a>
             {firefox && <a href={firefox.asset.url} class="btn btn-ghost"><Icon name="download" size={17} /> Firefox add-on</a>}
             <a href="#install" class="btn btn-ghost">How to install <Icon name="arrowRight" size={16} /></a>
           </div>
-          <p class="mt-4 text-xs text-[color:var(--color-text-dim)]">Manual installation · {extension ? `${extension.asset.sizeLabel} · ${extension.release.tag}` : 'ZIP appears here when published'} · Pages, files, screenshots &amp; meetings</p>
+          <p class="mt-4 text-xs text-[color:var(--color-text-dim)]">Chrome Web Store · updates itself · Pages, files, screenshots &amp; meetings{extension && <> · or the <a href={extension.asset.url} class="underline underline-offset-2" data-extension-download>{extension.release.tag} ZIP</a> to load by hand</>}</p>
           <div class="mt-7 rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] p-4 max-w-lg text-sm">
             <strong class="font-semibold">Keep local Imprint running.</strong>
-            <p class="mt-1 text-[color:var(--color-text-muted)]">Run the Imprint backend from the same release as your extension ZIP. <a href="/browser-extension/#install-from-this-checkout" class="underline underline-offset-2">Backend setup →</a></p>
+            <p class="mt-1 text-[color:var(--color-text-muted)]">The extension saves to the Imprint app on your computer. Keep the app up to date as the extension updates. <a href="/download/" class="underline underline-offset-2">Download Imprint →</a></p>
           </div>
         </div>
 
@@ -71,11 +67,11 @@ const comingSoon = [
 
     <section id="install" class="section border-y border-[color:var(--color-border)] bg-[color:var(--color-surface)]">
       <div class="wrap grid gap-12 lg:grid-cols-[.8fr_1.2fr]">
-        <div><div class="eyebrow">Manual installation</div><h2 class="mt-3 text-3xl sm:text-4xl font-bold tracking-tight">A ZIP. A folder.<br />Your Chrome toolbar.</h2><p class="mt-5 text-[color:var(--color-text-muted)]">Chrome loads the extracted extension folder. Keep that folder somewhere permanent so it stays installed.</p><a href="/browser-extension/" class="inline-flex items-center gap-2 mt-6 text-sm font-semibold underline underline-offset-4">Full setup &amp; troubleshooting <Icon name="arrowRight" size={15} /></a></div>
+        <div><div class="eyebrow">Installation</div><h2 class="mt-3 text-3xl sm:text-4xl font-bold tracking-tight">One click.<br />Your Chrome toolbar.</h2><p class="mt-5 text-[color:var(--color-text-muted)]">Install Imprint Capture from the Chrome Web Store and Chrome keeps it up to date. Each release also carries a ZIP to load by hand.</p><a href="/browser-extension/" class="inline-flex items-center gap-2 mt-6 text-sm font-semibold underline underline-offset-4">Full setup &amp; troubleshooting <Icon name="arrowRight" size={15} /></a></div>
         <ol class="install-steps">
-          <li><span class="step-number">01</span><div><h3>Download and extract</h3><p>Download the latest ZIP above and extract it. Inside is an <code class="cmd">imprint-chrome-extension</code> folder with <code class="cmd">manifest.json</code> and an install guide.</p></div></li>
-          <li><span class="step-number">02</span><div><h3>Load it in Chrome</h3><p>Open <code class="cmd">chrome://extensions</code>, turn on <strong>Developer mode</strong>, then click <strong>Load unpacked</strong>. Select the extracted folder containing the manifest.</p><button class="copy-address" data-copy="chrome://extensions" data-track="copy_command" data-track-command="chrome-extensions" type="button"><Icon name="copy" size={14} /> Copy chrome://extensions</button></div></li>
-          <li><span class="step-number">03</span><div><h3>Connect your local memory</h3><p>Start local Imprint. Open the extension and choose a workspace. If Imprint uses a custom port, update the address in <strong>Settings</strong>. Older extension ZIPs use the setup instructions bundled with that version.</p></div></li>
+          <li><span class="step-number">01</span><div><h3>Add it to Chrome</h3><p>Open <a href={chromeWebStoreUrl} class="underline underline-offset-2">Imprint Capture in the Chrome Web Store</a> and click <strong>Add to Chrome</strong>. New versions arrive by themselves.</p></div></li>
+          <li><span class="step-number">02</span><div><h3>Or load the ZIP by hand</h3><p>Extract the release ZIP somewhere permanent, open <code class="cmd">chrome://extensions</code>, turn on <strong>Developer mode</strong>, click <strong>Load unpacked</strong> and select the folder containing <code class="cmd">manifest.json</code>. This copy does not update itself.</p><button class="copy-address" data-copy="chrome://extensions" data-track="copy_command" data-track-command="chrome-extensions" type="button"><Icon name="copy" size={14} /> Copy chrome://extensions</button></div></li>
+          <li><span class="step-number">03</span><div><h3>Connect your local memory</h3><p>Start local Imprint. Open the extension and choose a workspace. If Imprint uses a custom port, update the address in <strong>Settings</strong>.</p></div></li>
           <li><span class="step-number">04</span><div><h3>Pin it. Preview it. Save it.</h3><p>Pin Imprint Capture from Chrome’s Extensions menu. On a page, choose a capture action, then review and save. Use <strong>Search</strong> or <strong>Record meeting</strong> to continue in the dashboard.</p></div></li>
         </ol>
       </div>
@@ -87,7 +83,7 @@ const comingSoon = [
       </div>
     </section>
 
-    <section class="section border-t border-[color:var(--color-border)]"><div class="wrap grid gap-9 md:grid-cols-2"><div><h2 class="text-lg font-semibold">What leaves my browser?</h2><p class="mt-3 text-sm text-[color:var(--color-text-muted)]">Only the text, link, file or screenshot you choose to save, and only to Imprint on your computer. The extension reads a page only when you open it there, does not read cookies, passwords or history, and has no analytics. Captures then follow your workspace’s sync and model settings, including any remote providers you have chosen. <a href="/privacy/#extension" class="underline underline-offset-2">Privacy policy</a></p></div><div><h2 class="text-lg font-semibold">How do I update it?</h2><p class="mt-3 text-sm text-[color:var(--color-text-muted)]">Download the latest ZIP and replace the files in the same extracted folder. Open <code class="cmd">chrome://extensions</code> and click <strong>Reload</strong> for Imprint Capture. Keeping the same folder helps preserve the extension ID and settings.</p></div><div><h2 class="text-lg font-semibold">Is there a Firefox version?</h2><p class="mt-3 text-sm text-[color:var(--color-text-muted)]">Releases also carry the same extension for Firefox 140 or later. A Mozilla-signed <code class="cmd">imprint-firefox-extension.xpi</code> installs when you open it in Firefox; an <code class="cmd">-unsigned.xpi</code> build is for Developer Edition, Nightly or a temporary load. Install each release's file to update.</p></div></div></section>
+    <section class="section border-t border-[color:var(--color-border)]"><div class="wrap grid gap-9 md:grid-cols-2"><div><h2 class="text-lg font-semibold">What leaves my browser?</h2><p class="mt-3 text-sm text-[color:var(--color-text-muted)]">Only the text, link, file or screenshot you choose to save, and only to Imprint on your computer. The extension reads a page only when you open it there, does not read cookies, passwords or history, and has no analytics. Captures then follow your workspace’s sync and model settings, including any remote providers you have chosen. <a href="/privacy/#extension" class="underline underline-offset-2">Privacy policy</a></p></div><div><h2 class="text-lg font-semibold">How do I update it?</h2><p class="mt-3 text-sm text-[color:var(--color-text-muted)]">From the Chrome Web Store, Chrome updates it for you. A copy loaded from the ZIP does not: download the latest ZIP, replace the files in the same folder, then click <strong>Reload</strong> for Imprint Capture in <code class="cmd">chrome://extensions</code>. Keeping the same folder keeps the extension ID and settings.</p></div><div><h2 class="text-lg font-semibold">Is there a Firefox version?</h2><p class="mt-3 text-sm text-[color:var(--color-text-muted)]">The same extension runs in Firefox 140 or later. The <strong>Firefox add-on</strong> button installs the latest Mozilla-signed build when you open it in Firefox; it does not update itself, so install newer builds the same way. Each release's <code class="cmd">-unsigned.xpi</code> is for Developer Edition, Nightly or a temporary load.</p></div></div></section>
   </main>
   <Footer />
 </Landing>

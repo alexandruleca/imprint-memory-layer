@@ -6,10 +6,10 @@ description: Connect to local Imprint, choose a workspace, and capture pages and
 ## Status and scope
 
 The Manifest V3 extension lives in [`extensions/chrome`](../extensions/chrome/)
-and is distributed as `imprint-chrome-extension.zip` in GitHub releases. The same
-source is built as a Firefox add-on, `imprint-firefox-extension.xpi`
-([Firefox](#firefox) below). This is a preview, installed manually rather than
-through the Chrome Web Store or a listing on addons.mozilla.org. No cloud capture service or Gmail OAuth client
+and is published as [Imprint Capture in the Chrome Web Store](https://chromewebstore.google.com/detail/imprint-capture/ammleledmkghliflljeapomaaccnhmme),
+which every stable release updates ([ADR 0202](adr/0202-stable-releases-submit-the-extension-to-the-chrome-web-store.md)).
+GitHub releases also carry it as `imprint-chrome-extension.zip` to load by hand. The same
+source is built as a Firefox add-on ([Firefox](#firefox) below). No cloud capture service or Gmail OAuth client
 is required. The popup connects automatically to the local Imprint HTTP API and lists existing
 workspaces. Choose a destination and preview what you want to save.
 
@@ -76,17 +76,20 @@ The [Chrome extension page](https://imprintmcp.alexandruleca.com/chrome-extensio
 links to the newest published stable release containing the extension ZIP. A
 newer desktop release without that asset does not break the previous download.
 
-1. Install and start Imprint from the same release as the ZIP. Older backends
-   without `/api/browser/local/status` need an update; development setup is below.
-2. Download and extract `imprint-chrome-extension.zip` to a permanent folder.
-3. Open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**,
-   and select the extracted `imprint-chrome-extension` folder containing
-   `manifest.json`. Pin the extension from Chrome's Extensions menu.
+1. Install and start Imprint, and keep it up to date. Older backends without
+   `/api/browser/local/status` need an update; development setup is below.
+2. Open [Imprint Capture in the Chrome Web Store](https://chromewebstore.google.com/detail/imprint-capture/ammleledmkghliflljeapomaaccnhmme)
+   and choose **Add to Chrome**. Chrome installs each new version by itself.
+   Pin the extension from Chrome's Extensions menu.
+3. Or, to load a release by hand: extract `imprint-chrome-extension.zip` to a
+   permanent folder, open `chrome://extensions`, enable **Developer mode**, choose
+   **Load unpacked**, and select the extracted `imprint-chrome-extension` folder
+   containing `manifest.json`. This copy does not update itself.
 4. Open the popup and choose a workspace. Use **Settings** only if Imprint runs
    on a port other than 8420. Settings also links to Chrome's shortcuts page,
    where you can give Capture a keyboard shortcut.
 
-The ZIP includes `INSTALL.txt` with standalone instructions and the project's
+The release ZIP includes `INSTALL.txt` with standalone instructions and the project's
 `LICENSE`. Chrome loads the
 extracted folder; it does not install this ZIP directly. For updates, replace
 the files in that same folder and click **Reload** in `chrome://extensions`.
@@ -99,6 +102,8 @@ uses an explicit runtime-file allowlist and fixed ZIP timestamps; tests,
 package manifests, development dependencies, caches and local credentials are
 excluded. Release CI loads the extracted ZIP in disposable Chromium before
 including it in the complete release and `SHA256SUMS`. See [ADR 0030](adr/0030-chrome-extension-release-zip.md).
+`--browser chrome-web-store` builds the same files at the archive's root, without
+`INSTALL.txt`, as `dist/imprint-chrome-web-store.zip`: the store's upload.
 
 ## Firefox
 
@@ -106,12 +111,14 @@ The Firefox add-on is the same extension with a Firefox manifest, for Firefox 14
 or later ([ADR 0193](adr/0193-firefox-capture-is-the-chrome-extension-signed-as-an-unlisted-add-on.md)).
 It behaves as described above; the differences are where the browser differs.
 
-- **Install.** Download `imprint-firefox-extension.xpi` from the release and open it
-  in Firefox (drag it onto a window, or **File → Open File**), then confirm. Mozilla
-  signs it as an unlisted add-on: it installs in any Firefox but is not listed on
-  addons.mozilla.org and does not update itself, so install each release's file again.
-- **Unsigned builds.** Prereleases, and releases made before signing was set up,
-  carry `imprint-firefox-extension-unsigned.xpi`. Release Firefox refuses it. Load it
+- **Install.** Stable releases are submitted to the add-on's listing on
+  addons.mozilla.org, and Firefox updates installed copies once Mozilla approves each
+  version ([ADR 0203](adr/0203-the-firefox-add-on-is-listed-on-addons-mozilla-org.md)).
+  Releases up to v0.59.0 carry `imprint-firefox-extension.xpi`, signed as an unlisted
+  add-on: open it in Firefox (drag it onto a window, or **File → Open File**) and
+  confirm. That copy does not update itself.
+- **Unsigned builds.** Every release carries `imprint-firefox-extension-unsigned.xpi`.
+  Release Firefox refuses it. Load it
   for the session from `about:debugging#/runtime/this-firefox` with **Load Temporary
   Add-on**, or install it in Developer Edition or Nightly with
   `xpinstall.signatures.required` set to `false` in `about:config`.
@@ -121,11 +128,44 @@ It behaves as described above; the differences are where the browser differs.
   checks requests against it ([ADR 0192](adr/0192-the-capture-api-accepts-firefox-extension-origins.md)).
   Reinstalling starts a new ID, so the popup forgets the previous installation's last capture.
 
-Maintainers: signing needs an addons.mozilla.org API key (**Developer Hub → Manage
-API Keys**) stored as the repository secrets `AMO_JWT_ISSUER` (the JWT issuer) and
-`AMO_JWT_SECRET`. With both set, each stable release signs the add-on through
-`scripts/sign_firefox_extension.py` and attaches the signed file in place of the
-unsigned one; a signing failure fails the release.
+## Store publishing
+
+After a stable release is published, two jobs in `build-release.yml` submit the
+packages that passed the smoke tests. Prereleases go to neither store. Each job
+skips with a warning when its secrets are missing, and is safe to rerun: a version
+a store already holds is not submitted again.
+
+- **Chrome Web Store** (`chrome-web-store`, [ADR 0202](adr/0202-stable-releases-submit-the-extension-to-the-chrome-web-store.md)).
+  `scripts/publish_chrome_extension.py` uploads `imprint-chrome-web-store.zip` to
+  item `ammleledmkghliflljeapomaaccnhmme` through the Chrome Web Store API v2 and
+  submits it for review with `DEFAULT_PUBLISH`: it goes live once approved, and Chrome
+  updates every copy. While an earlier version is still in review it submits nothing
+  and says so; rerun the job after that review, or the next release submits. Setup:
+  1. In a Google Cloud project, enable the **Chrome Web Store API** and create a
+     service account. It needs no IAM roles. Create a JSON key for it.
+  2. In the Chrome Web Store Developer Dashboard, add the service account's email
+     under **Account** (one service account per publisher), and copy the publisher
+     ID from **Publisher → Settings**.
+  3. Store the key file's whole JSON as the repository secret `CWS_SERVICE_ACCOUNT_JSON`
+     and the publisher ID as `CWS_PUBLISHER_ID`.
+- **addons.mozilla.org** (`firefox-listing`, [ADR 0203](adr/0203-the-firefox-add-on-is-listed-on-addons-mozilla-org.md)).
+  `scripts/publish_firefox_extension.py` submits `imprint-firefox-extension-unsigned.xpi`
+  as a new listed version with the API key in `AMO_JWT_ISSUER` and `AMO_JWT_SECRET`
+  (**Developer Hub → Manage API Keys**). Mozilla signs and reviews it; the license and
+  listing carry over from the previous listed version. The first listed version is
+  uploaded once by hand: in the Developer Hub, open the add-on, choose
+  **Upload New Version → On this site** and pick its license. Until then the job
+  submits nothing and says so.
+- **The AMO listing's content** (`amo-listing` workflow). `extensions/store/` holds the
+  summary, description (`amo-description.md`, AMO's limited Markdown), categories,
+  homepage, support link, privacy policy (`amo-privacy-policy.md`) and 1280×800
+  screenshots with captions. `scripts/update_amo_listing.py` applies them whenever
+  they change on `main`, or from **Actions → addons.mozilla.org listing → Run
+  workflow**. Screenshots are matched in order: one AMO already has gets its
+  caption and position, and missing ones are uploaded. Tick **replace_screenshots**
+  to delete them all and upload the folder's again. Throttled requests wait and retry. AMO takes each version number once across channels,
+  and a listed version must be higher than the earlier ones, so never hand-submit a
+  prerelease build: `v0.60.0-dev.1` becomes 0.60.0.1, which is higher than 0.60.0.
 
 ## Install from this checkout
 
@@ -202,8 +242,7 @@ The [privacy policy](https://imprintmcp.alexandruleca.com/privacy/#extension) st
 ## Coming soon and validation
 
 Gmail message capture, iframe/shadow-DOM text capture, background capture,
-mailbox synchronization, offline retries and Chrome Web Store publication
-remain outside this preview.
+mailbox synchronization and offline retries remain outside this preview.
 
 Run from the repository root:
 
@@ -222,7 +261,8 @@ npx --prefix imprint/ui playwright install-deps firefox   # system libraries, De
 export $(scripts/fetch-firefox.sh /tmp/imprint-firefox)
 python3 scripts/package_chrome_extension.py --browser firefox
 node extensions/chrome/tests/firefox-smoke.mjs dist/imprint-firefox-extension-unsigned.xpi
-python -m unittest discover -s tests -p 'test_sign_firefox_extension.py' -v
+python -m unittest discover -s tests -p 'test_publish_firefox_extension.py' -v
+python -m unittest discover -s tests -p 'test_publish_chrome_extension.py' -v
 ```
 
 The browser smoke extracts the actual ZIP and uses a disposable Chromium profile

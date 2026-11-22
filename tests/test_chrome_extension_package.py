@@ -45,7 +45,7 @@ class ChromePackageTests(unittest.TestCase):
             root = Path(directory)
             output = package.package(ROOT / 'extensions/chrome', root / 'addon.xpi', browser='firefox', version='v0.57.1')
             with zipfile.ZipFile(output) as archive:
-                self.assertEqual(set(archive.namelist()), set(package.FIREFOX_FILES))
+                self.assertEqual(set(archive.namelist()), set(package.STORE_FILES))
                 self.assertNotIn('INSTALL.txt', archive.namelist())
                 manifest = json.loads(archive.read('manifest.json'))
             source = json.loads((ROOT / 'extensions/chrome/manifest.json').read_text())
@@ -54,6 +54,7 @@ class ChromePackageTests(unittest.TestCase):
             gecko = manifest['browser_specific_settings']['gecko']
             self.assertEqual((gecko['id'], gecko['strict_min_version']), (package.GECKO_ID, '140.0'))
             self.assertEqual(gecko['data_collection_permissions'], {'required': ['none']})
+            self.assertEqual(manifest['browser_specific_settings']['gecko_android'], {'strict_min_version': '142.0'})
             for key in ('minimum_chrome_version', 'options_page', 'version_name'):
                 self.assertNotIn(key, manifest)
             self.assertEqual(manifest['version'], '0.57.1')
@@ -62,6 +63,18 @@ class ChromePackageTests(unittest.TestCase):
                 self.assertEqual(manifest[key], source[key])
             self.assertEqual(output.with_name('addon.xpi.sha256').read_text().split()[0],
                              hashlib.sha256(output.read_bytes()).hexdigest())
+
+    def test_the_web_store_upload_is_the_release_zip_at_the_root_without_the_install_guide(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            release = package.package(ROOT / 'extensions/chrome', root / 'release.zip', version='v0.57.1')
+            store = package.package(ROOT / 'extensions/chrome', root / 'store.zip', browser='chrome-web-store', version='v0.57.1')
+            with zipfile.ZipFile(release) as zipped:
+                expected = {name.removeprefix('imprint-chrome-extension/'): zipped.read(name) for name in zipped.namelist()}
+            expected.pop('INSTALL.txt')
+            with zipfile.ZipFile(store) as zipped:
+                self.assertEqual({name: zipped.read(name) for name in zipped.namelist()}, expected)
+            self.assertEqual(json.loads(expected['manifest.json'])['version'], '0.57.1')
 
     def test_a_release_tag_becomes_the_version_both_browsers_show(self):
         self.assertEqual(package.release_version('v0.57.1'), ('0.57.1', '0.57.1'))

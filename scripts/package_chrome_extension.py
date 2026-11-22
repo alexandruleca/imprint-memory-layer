@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Build the allowlisted, reproducible browser extension packages.
 
-One source, extensions/chrome, makes the manual-install Chrome ZIP and the
-Firefox add-on (ADR 0193): Firefox gets its own manifest and an archive with
-the files at its root, as Mozilla's signing service and Firefox expect.
+One source, extensions/chrome, makes the manual-install Chrome ZIP, the
+Chrome Web Store upload (ADR 0202) and the Firefox add-on (ADR 0193). The
+stores and Firefox take the files at the archive's root, and Firefox gets its
+own manifest.
 """
 import argparse
 import copy
@@ -18,14 +19,17 @@ ROOT = Path(__file__).resolve().parents[1]
 FILES = ('manifest.json', 'background.js', 'capture.js', 'files.js', 'client.js', 'ui.js', 'screenshot.js',
          'popup.html', 'popup.js', 'options.html', 'options.js', 'style.css',
          'icon-16.png', 'icon-32.png', 'icon-48.png', 'icon-128.png', 'INSTALL.txt', 'LICENSE')
-# INSTALL.txt explains Chrome's Load unpacked; a Firefox add-on is installed whole.
-FIREFOX_FILES = tuple(name for name in FILES if name != 'INSTALL.txt')
+# INSTALL.txt explains Chrome's Load unpacked; a store or Firefox installs the package whole.
+STORE_FILES = tuple(name for name in FILES if name != 'INSTALL.txt')
 ARCHIVE_NAME = 'imprint-chrome-extension.zip'
+STORE_ARCHIVE_NAME = 'imprint-chrome-web-store.zip'
 FIREFOX_ARCHIVE_NAME = 'imprint-firefox-extension-unsigned.xpi'
 # The add-on's permanent identity on addons.mozilla.org.
 GECKO_ID = 'capture@imprintmcp.alexandruleca.com'
 # data_collection_permissions arrived in Firefox 140; captures go only to Imprint on this device.
 FIREFOX_MIN_VERSION = '140.0'
+# Firefox for Android took the key in 142; without its own minimum, AMO's linter warns.
+FIREFOX_ANDROID_MIN_VERSION = '142.0'
 
 
 def release_version(tag):
@@ -51,18 +55,20 @@ def firefox_manifest(manifest):
     result['browser_specific_settings'] = {'gecko': {
         'id': GECKO_ID, 'strict_min_version': FIREFOX_MIN_VERSION,
         'data_collection_permissions': {'required': ['none']},
-    }}
+    }, 'gecko_android': {'strict_min_version': FIREFOX_ANDROID_MIN_VERSION}}
     return result
 
 
 def package(source=ROOT / 'extensions/chrome', output=None, browser='chrome', version=None):
+    """browser: chrome (the release ZIP), chrome-web-store or firefox."""
     source = Path(source)
     firefox = browser == 'firefox'
-    if browser not in ('chrome', 'firefox'):
+    names = {'chrome': ARCHIVE_NAME, 'chrome-web-store': STORE_ARCHIVE_NAME, 'firefox': FIREFOX_ARCHIVE_NAME}
+    if browser not in names:
         raise ValueError(f'Unknown browser: {browser}')
-    output = Path(output or ROOT / 'dist' / (FIREFOX_ARCHIVE_NAME if firefox else ARCHIVE_NAME))
+    output = Path(output or ROOT / 'dist' / names[browser])
     files = {}
-    for name in FIREFOX_FILES if firefox else FILES:
+    for name in FILES if browser == 'chrome' else STORE_FILES:
         path = source / name
         if path.is_symlink() or not path.is_file():
             raise ValueError(f'Missing or unsafe extension runtime file: {name}')
@@ -78,7 +84,7 @@ def package(source=ROOT / 'extensions/chrome', output=None, browser='chrome', ve
         manifest = firefox_manifest(manifest)
     if version or firefox:
         files['manifest.json'] = (json.dumps(manifest, indent=2, ensure_ascii=False) + '\n').encode('utf-8')
-    prefix = '' if firefox else 'imprint-chrome-extension/'
+    prefix = 'imprint-chrome-extension/' if browser == 'chrome' else ''
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=output.parent, suffix='.zip', delete=False) as temporary:
         staged = Path(temporary.name)
@@ -100,7 +106,7 @@ def package(source=ROOT / 'extensions/chrome', output=None, browser='chrome', ve
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--browser', choices=('chrome', 'firefox'), default='chrome')
+    parser.add_argument('--browser', choices=('chrome', 'chrome-web-store', 'firefox'), default='chrome')
     parser.add_argument('--output', type=Path)
     parser.add_argument('--version', help='release tag to stamp into the manifest, e.g. v0.57.1')
     args = parser.parse_args()
