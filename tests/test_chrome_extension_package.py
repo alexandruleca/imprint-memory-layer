@@ -54,6 +54,7 @@ class ChromePackageTests(unittest.TestCase):
             gecko = manifest['browser_specific_settings']['gecko']
             self.assertEqual((gecko['id'], gecko['strict_min_version']), (package.GECKO_ID, '140.0'))
             self.assertEqual(gecko['data_collection_permissions'], {'required': ['none']})
+            self.assertEqual(manifest['browser_specific_settings']['gecko_android'], {'strict_min_version': '142.0'})
             for key in ('minimum_chrome_version', 'options_page', 'version_name'):
                 self.assertNotIn(key, manifest)
             self.assertEqual(manifest['version'], '0.57.1')

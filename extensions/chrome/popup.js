@@ -298,13 +298,23 @@ function since(at) {
   return `${Math.round(minutes / 60)} h ago`;
 }
 
+// Built node by node: AMO's linter rejects innerHTML set from a template.
+function symbol(href) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  svg.setAttribute("class", "icon");
+  use.setAttribute("href", href);
+  svg.append(use);
+  return svg;
+}
+
 const jobIcons = {done: "#i-check", failed: "#i-alert", cancelled: "#i-close", error: "#i-alert"};
 
 function showJob(status, {title = "", message, action, at} = {}) {
   $("job-card").hidden = false;
   $("job-card").dataset.status = status;
   const icon = jobIcons[status];
-  $("job-card").querySelector(".job-icon").innerHTML = icon ? `<svg class="icon"><use href="${icon}"/></svg>` : "";
+  $("job-card").querySelector(".job-icon").replaceChildren(...(icon ? [symbol(icon)] : []));
   $("job-title").textContent = title || "Last capture";
   $("job").textContent = message;
   $("job-open").hidden = !action;

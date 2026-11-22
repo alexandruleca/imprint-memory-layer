@@ -26,6 +26,8 @@ FIREFOX_ARCHIVE_NAME = 'imprint-firefox-extension-unsigned.xpi'
 GECKO_ID = 'capture@imprintmcp.alexandruleca.com'
 # data_collection_permissions arrived in Firefox 140; captures go only to Imprint on this device.
 FIREFOX_MIN_VERSION = '140.0'
+# Firefox for Android took the key in 142; without its own minimum, AMO's linter warns.
+FIREFOX_ANDROID_MIN_VERSION = '142.0'
 
 
 def release_version(tag):
@@ -51,7 +53,7 @@ def firefox_manifest(manifest):
     result['browser_specific_settings'] = {'gecko': {
         'id': GECKO_ID, 'strict_min_version': FIREFOX_MIN_VERSION,
         'data_collection_permissions': {'required': ['none']},
-    }}
+    }, 'gecko_android': {'strict_min_version': FIREFOX_ANDROID_MIN_VERSION}}
     return result
 
 
