@@ -26,15 +26,20 @@ def lexical_score(query: str, payload: dict) -> float:
     terms = query_terms(query)
     if not terms:
         return 0.0
-    content = str(payload.get('content', '')).casefold()
+    raw = str(payload.get('content', ''))
     source = str(payload.get('source', '')).casefold()
-    words = Counter(re.findall(r'[\w]+', content))
-    coverage = sum(1 for term in terms if words[term] or term in source) / len(terms)
-    tf = sum(math.log1p(words[term]) for term in terms)
+    words = Counter(re.findall(r'[\w]+', raw.casefold()))
+    # A data file kept whole counts the words of its digest; its data still
+    # matches exact identifiers and verbatim phrases (ADR 0195).
+    from .data_files import split
+    parts = split(raw)
+    described = Counter(re.findall(r'[\w]+', parts[0].casefold())) if parts else words
+    coverage = sum(1 for term in terms if described[term] or term in source) / len(terms)
+    tf = sum(math.log1p(described[term]) for term in terms)
     # Exact identifiers/path fragments deserve more weight than a common word.
     exact = sum(2 for term in terms if ('_' in term or any(c.isdigit() for c in term)) and (words[term] or term in source))
     phrase = 2 if verbatim(query, payload) else 0
-    return coverage + tf / max(1, math.log2(len(words) + 2)) + exact + phrase
+    return coverage + tf / max(1, math.log2(len(described) + 2)) + exact + phrase
 
 
 def fuse(query: str, semantic: list[dict], lexical: list[dict]) -> list[dict]:

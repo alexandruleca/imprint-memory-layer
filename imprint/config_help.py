@@ -161,6 +161,14 @@ HELP: dict[str, dict[str, str]] = {
         "help": "The document types the file scanner picks up: pdf, docx, pptx, xlsx, csv (also .tsv), epub, rtf, html (.html/.htm), eml (.eml/.mbox) and json (.json/.jsonc); all of them by default. Removing a type makes new scans skip those files but does not delete documents already indexed; an empty value turns document ingestion off. Images and audio follow ingest.ocr_enabled and audio.enabled.",
         "example": "\"pdf,docx,html\": to keep spreadsheets, mailboxes and JSON data files from flooding a project's memory.",
     },
+    "ingest.data_files": {
+        "help": "How data files are indexed: JSON, CSV, TSV and XLSX files larger than ingest.data_file_min_kb, and those above 16 KiB in folders of fixtures, snapshots, generated output, training data, datasets or translations. \"whole\" (the default) keeps each one as a few chunks that start with a digest of the file (path, size, structure, a first record): search finds the file by the digest, exact identifiers and quoted phrases, and read_source gives back the whole file, JSON and CSV exactly as they were apart from redacted secrets. \"records\" stores a chunk per record, as before. Files already indexed in the other form change over at the next ingest or refresh on the device that holds them; chat exports (conversations.json) always keep a document per conversation.",
+        "example": "records: to search inside a dataset's individual rows by meaning, at the cost of thousands of chunks per file.",
+    },
+    "ingest.data_file_min_kb": {
+        "help": "The size, in KiB, above which any JSON, CSV, TSV or XLSX file is kept whole when ingest.data_files is \"whole\" (64 by default). Data files in fixture, snapshot, output, training, dataset or locale folders are kept whole from 16 KiB whatever this says. Smaller data files, such as most configuration, keep one chunk per record so each setting can be found on its own.",
+        "example": "256: to keep mid-sized API specs and form definitions searchable record by record.",
+    },
     "ingest.ocr_enabled": {
         "help": "Local OCR (reading text out of images) for image files and for PDFs without a text layer, such as scans. Everything runs on this machine with models installed alongside Imprint. Off, image files are not picked up and scanned PDFs yield no text. Documents that yielded no text before are read again on the next index after a change.",
         "example": "false: on a slow machine where photos and screenshots in your folders make indexing crawl and you don't need their text.",
