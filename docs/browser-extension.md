@@ -111,15 +111,17 @@ The Firefox add-on is the same extension with a Firefox manifest, for Firefox 14
 or later ([ADR 0193](adr/0193-firefox-capture-is-the-chrome-extension-signed-as-an-unlisted-add-on.md)).
 It behaves as described above; the differences are where the browser differs.
 
-- **Install.** Download `imprint-firefox-extension.xpi` from the release, or use the
-  **Firefox add-on** button on the [extension page](https://imprintmcp.alexandruleca.com/chrome-extension/),
-  and open it in Firefox (drag it onto a window, or **File → Open File**), then confirm.
-  Mozilla signs it as an unlisted add-on: it installs in any Firefox but is not listed on
-  addons.mozilla.org and does not update itself, so install a newer release's file the
-  same way ([ADR 0206](adr/0206-the-firefox-add-on-goes-back-to-unlisted-signing.md)).
-- **Unsigned builds.** Prereleases, and releases whose signing addons.mozilla.org
-  throttled, carry `imprint-firefox-extension-unsigned.xpi`; so do v0.61.0 and v0.61.1,
-  released while the add-on was meant to be listed. Release Firefox refuses it. Load it
+- **Install.** Stable releases go to the add-on's addons.mozilla.org listing, and Firefox
+  updates copies installed from it ([ADR 0207](adr/0207-the-firefox-add-on-is-listed-on-addons-mozilla-org-again.md)).
+  The [extension page](https://imprintmcp.alexandruleca.com/chrome-extension/)'s
+  **Add to Firefox** button opens the listing once Mozilla has approved a listed version.
+  Until then the button reads **Firefox add-on** and downloads v0.60.0's
+  `imprint-firefox-extension.xpi`, the last release signed as an unlisted add-on: open it
+  in Firefox (drag it onto a window, or **File → Open File**) and confirm. It does not
+  update itself.
+- **Unsigned builds.** Releases after v0.60.0 carry only
+  `imprint-firefox-extension-unsigned.xpi`; Mozilla signs the listed versions it approves
+  and serves them from the listing. Release Firefox refuses the unsigned file. Load it
   for the session from `about:debugging#/runtime/this-firefox` with **Load Temporary
   Add-on**, or install it in Developer Edition or Nightly with
   `xpinstall.signatures.required` set to `false` in `about:config`.
@@ -129,24 +131,12 @@ It behaves as described above; the differences are where the browser differs.
   checks requests against it ([ADR 0192](adr/0192-the-capture-api-accepts-firefox-extension-origins.md)).
   Reinstalling starts a new ID, so the popup forgets the previous installation's last capture.
 
-Maintainers: signing needs an addons.mozilla.org API key (**Developer Hub → Manage
-API Keys**) stored as the repository secrets `AMO_JWT_ISSUER` (the JWT issuer) and
-`AMO_JWT_SECRET`. With both set, each stable release signs the add-on through
-`scripts/sign_firefox_extension.py` and attaches the signed file in place of the
-unsigned one. AMO throttles uploads: the script waits out a short throttle, and when
-AMO asks it to wait longer than 20 minutes, the release ships with
-only the unsigned add-on and a warning, and the website keeps offering the newest
-signed one. Any other signing failure fails the release. AMO takes each version
-number once across channels, so a number it already holds as listed fails the
-signing; never hand-upload a prerelease build, because `v0.62.0-dev.1` becomes
-0.62.0.1.
-
 ## Store publishing
 
-After a stable release is published, the `chrome-web-store` job in `build-release.yml`
-submits the package that passed the smoke tests. Prereleases are not submitted. The
-job skips with a warning when its secrets are missing, and is safe to rerun: a version
-the store already holds is not submitted again.
+After a stable release is published, two jobs in `build-release.yml` submit the
+packages that passed the smoke tests. Prereleases go to neither store. Each job
+skips with a warning when its secrets are missing, and is safe to rerun: a version
+a store already holds is not submitted again.
 
 - **Chrome Web Store** (`chrome-web-store`, [ADR 0202](adr/0202-stable-releases-submit-the-extension-to-the-chrome-web-store.md)).
   `scripts/publish_chrome_extension.py` uploads `imprint-chrome-web-store.zip` to
@@ -161,6 +151,21 @@ the store already holds is not submitted again.
      ID from **Publisher → Settings**.
   3. Store the key file's whole JSON as the repository secret `CWS_SERVICE_ACCOUNT_JSON`
      and the publisher ID as `CWS_PUBLISHER_ID`.
+- **addons.mozilla.org** (`firefox-listing`, [ADR 0207](adr/0207-the-firefox-add-on-is-listed-on-addons-mozilla-org-again.md)).
+  `scripts/publish_firefox_extension.py` submits `imprint-firefox-extension-unsigned.xpi`
+  as a new listed version with the API key in `AMO_JWT_ISSUER` (the JWT issuer) and
+  `AMO_JWT_SECRET` (**Developer Hub → Manage API Keys**). Mozilla reviews and signs it;
+  the license and listing carry over from the previous listed version. The owner
+  uploaded the first listed version, 0.60.0.1, by hand on 2026-11-23. AMO throttles
+  uploads and version creation: the script waits out a short throttle, and when AMO
+  asks it to wait longer than 20 minutes it warns and the job succeeds without
+  submitting, so the Release run still succeeds and the website is rebuilt. Rerun the
+  job after the wait, or let the next stable release submit its version. Any other
+  failure fails the job. AMO takes each version number once across channels, and a
+  listed version must be higher than the earlier ones, so never hand-submit a
+  prerelease build of a coming release: `v0.62.2-dev.1` becomes 0.62.2.1, which is
+  higher than 0.62.2. The listing's text and screenshots are edited in the Developer
+  Hub. The tooling that once applied them from the repository is in history at commit 301459a.
 
 ## Install from this checkout
 
@@ -256,7 +261,7 @@ npx --prefix imprint/ui playwright install-deps firefox   # system libraries, De
 export $(scripts/fetch-firefox.sh /tmp/imprint-firefox)
 python3 scripts/package_chrome_extension.py --browser firefox
 node extensions/chrome/tests/firefox-smoke.mjs dist/imprint-firefox-extension-unsigned.xpi
-python -m unittest discover -s tests -p 'test_sign_firefox_extension.py' -v
+python -m unittest discover -s tests -p 'test_publish_firefox_extension.py' -v
 python -m unittest discover -s tests -p 'test_publish_chrome_extension.py' -v
 ```
 

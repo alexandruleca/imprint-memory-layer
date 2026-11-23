@@ -3,9 +3,10 @@ title: ADR 0206 — The Firefox add-on goes back to unlisted signing
 description: Stable releases again have addons.mozilla.org sign the Firefox add-on as unlisted and attach it, and the website offers it; the listed submission and the AMO listing tooling are removed, and a signing that AMO throttles for long ships the release with only the unsigned add-on.
 ---
 
-- Status: Accepted
+- Status: Superseded
 - Date: 2026-11-23
 - Supersedes: [ADR 0203](0203-the-firefox-add-on-is-listed-on-addons-mozilla-org.md)
+- Superseded by: [ADR 0207](0207-the-firefox-add-on-is-listed-on-addons-mozilla-org-again.md)
 - Amends: [ADR 0193](0193-firefox-capture-is-the-chrome-extension-signed-as-an-unlisted-add-on.md) — a signing that AMO throttles for longer than 20 minutes ships the release with only the unsigned add-on instead of failing it
 - Related: [ADR 0202](0202-stable-releases-submit-the-extension-to-the-chrome-web-store.md) (the Chrome Web Store, unchanged), [ADR 0192](0192-the-capture-api-accepts-firefox-extension-origins.md), [browser extension](../browser-extension.md#firefox)
 

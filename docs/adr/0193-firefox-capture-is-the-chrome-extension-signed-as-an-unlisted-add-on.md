@@ -8,7 +8,8 @@ description: Build the Firefox add-on from the Chrome extension's source, test i
 - Amends: [ADR 0030](0030-chrome-extension-release-zip.md) — releases also carry a Firefox add-on, and both packages take the release's version
 - Amended by:
   - [ADR 0203](0203-the-firefox-add-on-is-listed-on-addons-mozilla-org.md) — stable releases submit a listed version to addons.mozilla.org instead of signing an unlisted one, and carry only the unsigned add-on (since superseded by ADR 0206)
-  - [ADR 0206](0206-the-firefox-add-on-goes-back-to-unlisted-signing.md) — a signing that AMO throttles for longer than 20 minutes ships the release with only the unsigned add-on instead of failing it
+  - [ADR 0206](0206-the-firefox-add-on-goes-back-to-unlisted-signing.md) — a signing that AMO throttles for longer than 20 minutes ships the release with only the unsigned add-on instead of failing it (since superseded by ADR 0207)
+  - [ADR 0207](0207-the-firefox-add-on-is-listed-on-addons-mozilla-org-again.md) — stable releases submit a listed version to addons.mozilla.org again and carry only the unsigned add-on
 - Related: [ADR 0192](0192-the-capture-api-accepts-firefox-extension-origins.md), [ADR 0185](0185-local-chrome-capture.md), [ADR 0191](0191-chrome-full-page-screenshots-are-stitched-in-the-popup.md)
 
 ## Context
