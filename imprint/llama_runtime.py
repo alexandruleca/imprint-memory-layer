@@ -104,6 +104,18 @@ def cpu_profile() -> bool:
         return False
 
 
+def why_cpu(setting: str, available: list[Gpu], cpu_build: str) -> str:
+    """Why ``choose(setting, available)`` chose no GPU, for Settings and doctor.
+    An index can outlive its GPU: unplugging an external GPU renumbers the
+    rest, and the setting then names none of them."""
+    if cpu_profile():
+        return cpu_build
+    if available:
+        listed = ", ".join(str(gpu.index) for gpu in available)
+        return f"model.gpu_device {setting} names none of the GPUs llama.cpp lists ({listed})"
+    return "llama.cpp found no GPU it can use"
+
+
 def choose(setting: str, available: list[Gpu]) -> Gpu | None:
     """The GPU ``model.gpu_device`` selects, or None when it selects none."""
     if setting == "auto":

@@ -37,7 +37,8 @@ def _embedding_device_check() -> tuple[str, bool, str, str]:
     """Where llama.cpp runs embeddings here (ADR 0086)."""
     from . import config, llama_runtime
     try:
-        gpu = llama_runtime.choose(str(config.GPU_DEVICE), llama_runtime.gpus())
+        available = llama_runtime.gpus()
+        gpu = llama_runtime.choose(str(config.GPU_DEVICE), available)
     except Exception as error:
         return ('runtime:embedding-device', False, f'llama.cpp does not load: {type(error).__name__}: {error}',
                 'Run imprint bootstrap --non-interactive; it reinstalls llama.cpp.')
@@ -45,11 +46,13 @@ def _embedding_device_check() -> tuple[str, bool, str, str]:
         return 'runtime:embedding-device', True, 'CPU (model.device cpu)', ''
     if gpu:
         return 'runtime:embedding-device', True, f'GPU: {gpu.name}', ''
+    detail = 'CPU: ' + llama_runtime.why_cpu(str(config.GPU_DEVICE), available,
+                                             "the cpu install profile installed llama.cpp's CPU build")
     if llama_runtime.cpu_profile():
-        detail = "CPU: the cpu install profile installed llama.cpp's CPU build"
         action = 'Run imprint profile set auto to use a GPU when llama.cpp finds one.'
+    elif available:
+        action = 'Pick a GPU in Settings → GPU, or run imprint config set model.gpu_device auto.'
     else:
-        detail = 'CPU: llama.cpp found no GPU it can use'
         action = 'Update the GPU driver (Vulkan on Windows and Linux) and run imprint setup, or set model.device to auto.'
     if config.DEVICE == 'gpu':
         return 'runtime:embedding-device', False, detail, action

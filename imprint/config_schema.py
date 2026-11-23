@@ -121,11 +121,15 @@ def _gpu_devices() -> tuple[Choice, ...]:
 
 
 def _embedding_devices() -> tuple[Choice, ...]:
-    """What each ``model.device`` value does on this device (ADR 0086)."""
-    from . import config, llama_runtime
-    gpu = llama_runtime.choose(str(config.GPU_DEVICE), _gpus())
-    why = ("the cpu install profile installed llama.cpp's CPU build (imprint profile set auto)"
-           if llama_runtime.cpu_profile() else "llama.cpp found no GPU it can use")
+    """What each ``model.device`` value does on this device (ADR 0086), with
+    the saved ``model.gpu_device``, as the GPU device field shows it; the
+    running server's own copy is read once, at start."""
+    from . import llama_runtime
+    available = _gpus()
+    setting = str(resolve("model.gpu_device")[0])
+    gpu = llama_runtime.choose(setting, available)
+    why = llama_runtime.why_cpu(setting, available,
+                                "the cpu install profile installed llama.cpp's CPU build (imprint profile set auto)")
     here = gpu.name if gpu else "CPU here: " + why
     return (Choice("auto", "Auto", here),
             Choice("cpu", "CPU"),
