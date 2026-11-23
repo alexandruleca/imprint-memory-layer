@@ -40,6 +40,44 @@ class ChooseTests(unittest.TestCase):
         self.assertEqual(llama_runtime.choose('1', EGPU).name, 'AMD Radeon(TM) 8060S Graphics')
 
 
+class WhyCpuTests(unittest.TestCase):
+    """An index can outlive its GPU: with the enclosure unplugged, EGPU's 8060S
+    is GPU 0 and a saved 1 names nothing (2026-11-23, the owner's desktop)."""
+
+    def test_an_index_that_names_no_gpu_says_so_instead_of_blaming_llama_cpp(self):
+        with patch.object(llama_runtime, 'cpu_profile', return_value=False):
+            self.assertEqual(llama_runtime.why_cpu('1', [Gpu(0, 'AMD Radeon(TM) 8060S Graphics', 98304, True)], 'cpu build'),
+                             'model.gpu_device 1 names none of the GPUs llama.cpp lists (0)')
+            self.assertEqual(llama_runtime.why_cpu('auto', [], 'cpu build'), 'llama.cpp found no GPU it can use')
+        with patch.object(llama_runtime, 'cpu_profile', return_value=True):
+            self.assertEqual(llama_runtime.why_cpu('auto', [], 'cpu build'), 'cpu build')
+
+    def test_settings_describe_the_saved_gpu_device_not_the_servers_copy(self):
+        from imprint import config_schema
+        alone = [Gpu(0, 'AMD Radeon(TM) 8060S Graphics', 98304, True)]
+        with patch.object(config_schema, '_gpus', return_value=alone), \
+                patch.object(llama_runtime, 'cpu_profile', return_value=False), \
+                patch.object(config, 'GPU_DEVICE', '1'), patch.dict('os.environ', {'IMPRINT_GPU_DEVICE': '0'}):
+            auto, _, gpu = config_schema._embedding_devices()
+            self.assertEqual((auto.detail, gpu.detail, gpu.unavailable), ('AMD Radeon(TM) 8060S Graphics',) * 2 + ('',))
+        with patch.object(config_schema, '_gpus', return_value=alone), \
+                patch.object(llama_runtime, 'cpu_profile', return_value=False), \
+                patch.dict('os.environ', {'IMPRINT_GPU_DEVICE': '1'}):
+            auto, _, gpu = config_schema._embedding_devices()
+            self.assertEqual(auto.detail, 'CPU here: model.gpu_device 1 names none of the GPUs llama.cpp lists (0)')
+            self.assertEqual(gpu.unavailable, 'model.gpu_device 1 names none of the GPUs llama.cpp lists (0)')
+
+    def test_doctor_names_the_index_and_how_to_fix_it(self):
+        from imprint import doctor
+        with patch.object(llama_runtime, 'gpus', return_value=[Gpu(0, 'AMD Radeon(TM) 8060S Graphics', 98304, True)]), \
+                patch.object(llama_runtime, 'cpu_profile', return_value=False), \
+                patch.object(config, 'GPU_DEVICE', '1'), patch.object(config, 'DEVICE', 'gpu'):
+            name, ok, detail, action = doctor._embedding_device_check()
+        self.assertFalse(ok)
+        self.assertEqual(detail, 'CPU: model.gpu_device 1 names none of the GPUs llama.cpp lists (0)')
+        self.assertIn('model.gpu_device auto', action)
+
+
 class CpuProfileTests(unittest.TestCase):
     def test_only_the_cpu_install_profile_explains_a_cpu_build(self):
         with tempfile.TemporaryDirectory() as data, patch.object(config, 'get_data_dir', return_value=Path(data)):
