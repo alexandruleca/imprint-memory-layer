@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
-"""Submit the Firefox add-on to its listing on addons.mozilla.org (ADR 0203).
+"""Sign the Firefox add-on through addons.mozilla.org as an unlisted add-on.
 
-Each stable release adds a listed version. Mozilla reviews it, and Firefox
-updates installed copies once it is approved. The listing itself (summary,
-categories, license, screenshots) is made once in the Developer Hub, as the
-Chrome Web Store item was; until it exists this script says so and submits
-nothing.
+Mozilla signs unlisted add-ons automatically; the signed .xpi installs in any
+Firefox and is attached to the GitHub release, not listed on AMO (ADRs 0193, 0206).
 
     AMO_JWT_ISSUER=user:… AMO_JWT_SECRET=… \\
-        python scripts/publish_firefox_extension.py imprint-firefox-extension-unsigned.xpi
+        python scripts/sign_firefox_extension.py unsigned.xpi signed.xpi
 
 Uses AMO's v5 API with only the standard library: upload, wait for
-validation, create the version. A version AMO already holds as listed is not
-submitted again, so rerunning a release does not fail.
+validation, create the add-on or a new version of it, wait for the signature,
+download. A version AMO has already signed is downloaded again, so rerunning a
+release does not fail on the duplicate. AMO throttles uploads; a short throttle
+is waited out, and a longer one leaves the release with only the unsigned
+add-on instead of failing it.
 """
 import argparse
 import base64
 import hashlib
 import hmac
+import io
 import json
 import os
 from pathlib import Path
@@ -31,6 +32,10 @@ import uuid as uuidlib
 import zipfile
 
 API = '/api/v5/addons'
+
+
+class Throttled(RuntimeError):
+    """addons.mozilla.org asked for a longer wait than the run has left."""
 
 
 def jwt(issuer, secret, now=None):
@@ -80,8 +85,7 @@ class Client:
                 if wait is None:
                     raise RuntimeError(f'{method} {path}: HTTP {error.code}: {detail}') from None
                 if time.monotonic() + wait > deadline:
-                    raise RuntimeError(f'addons.mozilla.org throttled {method} {path} for {wait / 60:.0f} more minutes; '
-                                       'run this again after that') from None
+                    raise Throttled(f'addons.mozilla.org throttled {method} {path} for {wait / 60:.0f} more minutes') from None
                 print(f'addons.mozilla.org throttled {method} {path}; retrying in {wait:.0f}s')
                 time.sleep(wait)
 
@@ -106,65 +110,72 @@ class Client:
     def upload(self, xpi):
         boundary = uuidlib.uuid4().hex
         body = b''.join([
-            f'--{boundary}\r\nContent-Disposition: form-data; name="channel"\r\n\r\nlisted\r\n'.encode(),
+            f'--{boundary}\r\nContent-Disposition: form-data; name="channel"\r\n\r\nunlisted\r\n'.encode(),
             f'--{boundary}\r\nContent-Disposition: form-data; name="upload"; filename="{xpi.name}"\r\n'
             'Content-Type: application/x-xpinstall\r\n\r\n'.encode(),
             xpi.read_bytes(), f'\r\n--{boundary}--\r\n'.encode()])
         return self.request('POST', f'{API}/upload/', body, f'multipart/form-data; boundary={boundary}')
 
 
-def file_status(version):
-    status = ((version or {}).get('file') or {}).get('status')
-    if status == 'disabled':
-        raise RuntimeError(f'AMO rejected or disabled version {version.get("version")}')
-    return status
+def signed_file(version):
+    file = (version or {}).get('file') or {}
+    if file.get('status') == 'disabled':
+        raise RuntimeError(f'AMO rejected version {version.get("version")}: its file is disabled')
+    return file.get('url') if file.get('status') == 'public' and file.get('url') else None
 
 
-def submit(client, source):
-    source = Path(source)
+def sign(client, source, output):
+    source, output = Path(source), Path(output)
     with zipfile.ZipFile(source) as archive:
         manifest = json.loads(archive.read('manifest.json'))
     guid = manifest['browser_specific_settings']['gecko']['id']
     number = manifest['version']
     addon = f'{API}/addon/{guid}'
+    print(f'Signing {guid} {number} as an unlisted add-on')
     version = client.exists(f'{addon}/versions/v{number}/')
-    if version is not None:
-        if version.get('channel') != 'listed':
-            raise RuntimeError(f'AMO already signed {number} as {version.get("channel")}; '
-                               'it takes each version number once, so release a new version')
-        status = file_status(version)
-        print(f'addons.mozilla.org already has {guid} {number} (file {status})')
-        return status
-    # Authors see the channels an add-on has versions in; the listing is made by hand once.
-    details = client.exists(f'{addon}/')
-    if details is None or 'listed' not in details.get('channels', ['listed']):
-        print(f'::warning::{guid} has no listing on addons.mozilla.org yet, so {number} was not submitted. '
-              'Submit this file once in the Developer Hub (the add-on → Upload New Version → On this site) '
-              'and complete the listing; later stable releases are submitted automatically.')
-        return None
-    print(f'Submitting {guid} {number} to its addons.mozilla.org listing')
-    upload = client.upload(source)
-    upload = client.wait(f'{API}/upload/{upload["uuid"]}/', lambda value: value.get('processed'), 'validation')
-    if not upload.get('valid'):
-        messages = [m.get('message', '') for m in (upload.get('validation') or {}).get('messages', [])
-                    if m.get('type') == 'error']
-        raise RuntimeError('AMO validation failed: ' + '; '.join(messages or ['no message']))
-    # The license and listing carry over from the previous listed version.
-    version = client.request('POST', f'{addon}/versions/', {'upload': upload['uuid']})
-    status = file_status(version)
-    print(f'Submitted {guid} {number} for review (file {status}); Firefox updates users once it is approved')
-    return status
+    if version is not None and version.get('channel', 'unlisted') != 'unlisted':
+        raise RuntimeError(f'AMO already holds {number} as {version["channel"]}; '
+                           'it takes each version number once, so release a new version')
+    if version is None:
+        upload = client.upload(source)
+        upload = client.wait(f'{API}/upload/{upload["uuid"]}/', lambda value: value.get('processed'), 'validation')
+        if not upload.get('valid'):
+            messages = [m.get('message', '') for m in (upload.get('validation') or {}).get('messages', [])
+                        if m.get('type') == 'error']
+            raise RuntimeError('AMO validation failed: ' + '; '.join(messages or ['no message']))
+        # The first upload creates the add-on under its manifest ID; later ones add versions.
+        if client.exists(f'{addon}/') is None:
+            client.request('PUT', f'{addon}/', {'version': {'upload': upload['uuid']}})
+        else:
+            client.request('POST', f'{addon}/versions/', {'upload': upload['uuid']})
+    version = client.wait(f'{addon}/versions/v{number}/', signed_file, 'the signature')
+    data = client.request('GET', signed_file(version), raw=True)
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        if 'META-INF/mozilla.rsa' not in archive.namelist() and 'META-INF/cose.sig' not in archive.namelist():
+            raise RuntimeError('The downloaded add-on carries no Mozilla signature')
+    output.parent.mkdir(parents=True, exist_ok=True)
+    staged = output.with_name(output.name + '.part')
+    staged.write_bytes(data)
+    staged.replace(output)
+    print(f'Signed add-on: {output}')
+    return output
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('source', type=Path)
+    parser.add_argument('output', type=Path)
     args = parser.parse_args()
     issuer, secret = os.environ.get('AMO_JWT_ISSUER'), os.environ.get('AMO_JWT_SECRET')
     if not issuer or not secret:
         sys.exit('Set AMO_JWT_ISSUER and AMO_JWT_SECRET (addons.mozilla.org → Developer Hub → Manage API Keys).')
     client = Client(issuer, secret, os.environ.get('AMO_BASE_URL', 'https://addons.mozilla.org'))
-    submit(client, args.source)
+    try:
+        sign(client, args.source, args.output)
+    except Throttled as error:
+        # A release does not wait hours for AMO: it carries the unsigned add-on, and the
+        # website keeps offering the newest release that has a signed one (ADR 0206).
+        print(f'::warning::{error}, so this release carries only the unsigned Firefox add-on.')
 
 
 if __name__ == '__main__':

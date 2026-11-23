@@ -3,8 +3,9 @@ title: ADR 0203 — The Firefox add-on is listed on addons.mozilla.org
 description: After a stable release is published, CI submits its add-on as a listed version to the add-on's addons.mozilla.org listing for Mozilla's review, so Firefox updates installed copies; releases stop carrying a self-signed add-on.
 ---
 
-- Status: Accepted
+- Status: Superseded
 - Date: 2026-11-22
+- Superseded by: [ADR 0206](0206-the-firefox-add-on-goes-back-to-unlisted-signing.md)
 - Amends: [ADR 0193](0193-firefox-capture-is-the-chrome-extension-signed-as-an-unlisted-add-on.md) — stable releases submit a listed version to addons.mozilla.org instead of signing an unlisted one, and carry only the unsigned add-on
 - Related: [ADR 0202](0202-stable-releases-submit-the-extension-to-the-chrome-web-store.md) (the Chrome counterpart), [ADR 0192](0192-the-capture-api-accepts-firefox-extension-origins.md), [browser extension](../browser-extension.md#store-publishing)
 

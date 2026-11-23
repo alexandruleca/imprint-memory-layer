@@ -1,9 +1,0 @@
-Imprint Capture saves what you choose in the browser into the Imprint app on your own computer. It collects no data for its developer and sends nothing to any server other than your local Imprint.
-
-**What it reads, and when.** The extension does nothing until you open it from the toolbar or with a shortcut. It then reads the address and title of the current tab, to name the capture and offer the actions that suit the page. When you choose an action, it reads only what that action needs: the page's readable text, your selection, the page address, the file the tab shows (on a Google Doc or Sheet, an export of that document, as File → Download would make), a file you pick, or a screenshot of the tab. You see a preview before anything is saved. It does not read your browsing history, cookies, passwords or other tabs, runs nothing in the background, loads no code from the internet and contains no analytics or tracking.
-
-**Where it goes.** The only network destination is Imprint on your computer at http://127.0.0.1 (port 8420 unless you change it). The extension refuses any other address and any redirect, and sends no cookies to it. It sends what you chose to save with its title, address, workspace and project; requests for your workspaces and your last capture's status; and its own installation ID, which Imprint uses to refuse requests from websites. What you save then follows your Imprint settings: it leaves your computer only if you set Imprint up to sync with your other devices (end-to-end encrypted) or to use a cloud model provider.
-
-**What it keeps in the browser.** Its local extension storage holds the address of your local Imprint, the workspace and project you last chose, your six most recent project names, and your last capture's ID, title and destination, which is forgotten after a day or when you dismiss it. All of it is deleted when you remove the add-on.
-
-Full policy: https://imprintmcp.alexandruleca.com/privacy/#extension
