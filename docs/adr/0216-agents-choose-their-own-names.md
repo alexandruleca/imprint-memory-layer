@@ -44,5 +44,6 @@ On 2026-11-27, while the Board was being designed, the owner asked: "let's also 
 
 - `tests/test_tasks.py`: valid and refused names, a live session's name refused with a suggestion, a dead session's name free again, a claim holder's name from another device taken, the fallback given once, events keeping the name of their time, and a token takeover keeping the name.
 - `tests/test_tasks_tool.py`: naming, the refused name and the fallback told on a claim, through the tools. The Agents page's name and Rename control were type-checked and linted, not exercised in a browser.
-- Linux (WSL Ubuntu, Python 3.12 venv): the full suite, 1,495 tests, passed on 2026-11-27.
-- Windows 11 (the installed runtime's Python 3.13, from a native copy of the repository): `tests.test_tasks`, `test_tasks_tool`, `test_cli_tasks`, `test_hooks`, `test_agent_activity`, `test_config_help`, `test_chat_tool_coverage`, `test_adr_records` and `test_docs_tables`, 121 tests, passed.
+- Linux (WSL Ubuntu, Python 3.12 venv): the full suite, 1,522 tests, passed on 2026-11-27 with the Board and built-in skills together.
+- Windows 11 (the installed runtime's Python 3.13, from a native copy of the repository): `tests.test_tasks`, `test_tasks_tool`, `test_cli_tasks`, `test_hooks`, `test_agent_activity`, `test_config_help`, `test_builtin_skills`, `test_registry`, `test_registry_files`, `test_skills_tool`, `test_chat_tool_coverage`, `test_adr_records` and `test_docs_tables`, 187 tests, passed.
+- Not run: macOS, where releasing a dead holder's claims at once depends on `processes.is_alive`.

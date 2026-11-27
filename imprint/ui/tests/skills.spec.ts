@@ -180,7 +180,7 @@ test('marks a built-in read-only and forks it', async ({ page }) => {
   const state = await mockSkills(page);
   await page.goto('/skills/');
   const nav = page.getByRole('navigation', { name: 'Skills and personas' });
-  await expect(nav.getByText('Built in')).toBeVisible();
+  await expect(nav.getByText('Built-in skills')).toBeVisible();
   await nav.getByRole('button', { name: /^imprint-tasks/ }).click();
   await expect(page.getByText('Built-in', { exact: true })).toBeVisible();
   await expect(page.getByText('Ships with this Imprint release, read-only')).toBeVisible();

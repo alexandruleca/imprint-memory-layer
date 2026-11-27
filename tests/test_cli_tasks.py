@@ -7,6 +7,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from emulation import slack
+
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -24,7 +26,7 @@ class CliTasksTests(unittest.TestCase):
     def run_cli(self, *args, ok=True):
         env = {**os.environ, 'PYTHONPATH': str(ROOT), 'IMPRINT_DATA_DIR': str(self.data), 'IMPRINT_WORKSPACE': ''}
         done = subprocess.run([sys.executable, '-m', 'imprint.cli_tasks', *args], cwd=self.cwd, env=env,
-                              capture_output=True, text=True, encoding='utf-8', timeout=120)
+                              capture_output=True, text=True, encoding='utf-8', timeout=slack(120))
         if ok:
             self.assertEqual(done.returncode, 0, done.stderr)
         return done

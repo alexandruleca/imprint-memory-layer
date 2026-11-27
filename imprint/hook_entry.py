@@ -57,8 +57,11 @@ def session_context(payload):
     try:  # The project's Board (ADRs 0211, 0212); it must never cost the session its reminder.
         from imprint import tasks_tool
         session = payload.get('session_id') or payload.get('conversation_id')
+        transcript = str(payload.get('transcript_path') or '').replace('\\', '/')
+        client = 'codex' if '/.codex/' in transcript else 'claude-code' if '/.claude/' in transcript else None
         board = tasks_tool.session_start(_cwd(payload), resolution['workspace'],
-                                         session if isinstance(session, str) else None, resolution.get('project'))
+                                         session if isinstance(session, str) else None, resolution.get('project'),
+                                         client)
     except Exception:
         board = ''
     return f'{REMINDER} {told}' + (f'\n\n{board}' if board else '')

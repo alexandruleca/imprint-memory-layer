@@ -49,5 +49,6 @@ Comments addressed to the user, and Tasks reaching Review, show the dashboard's 
 
 - `tests/test_tasks.py`: comments kept with their author and addresses, mentions, delivery by name, client, device, client on device and holder (the holder when read), no notice of one's own comments, the user's inbox, and reserved names.
 - `tests/test_tasks_tool.py`: a comment told once as a notice to the addressed client and then read in the inbox; a Stalling holder told once. `tests/test_hooks.py`: the session-start context with the project's Board, unread comments and the session's name, within its size.
-- Linux (WSL Ubuntu, Python 3.12 venv): the full suite, 1,495 tests, passed on 2026-11-27.
-- Windows 11 (the installed runtime's Python 3.13, from a native copy of the repository): `tests.test_tasks`, `test_tasks_tool`, `test_cli_tasks`, `test_hooks`, `test_agent_activity`, `test_config_help`, `test_chat_tool_coverage`, `test_adr_records` and `test_docs_tables`, 121 tests, passed.
+- Linux (WSL Ubuntu, Python 3.12 venv): the full suite, 1,522 tests, passed on 2026-11-27 with the Board and built-in skills together.
+- Windows 11 (the installed runtime's Python 3.13, from a native copy of the repository): `tests.test_tasks`, `test_tasks_tool`, `test_cli_tasks`, `test_hooks`, `test_agent_activity`, `test_config_help`, `test_builtin_skills`, `test_registry`, `test_registry_files`, `test_skills_tool`, `test_chat_tool_coverage`, `test_adr_records` and `test_docs_tables`, 187 tests, passed.
+- Not run: macOS.

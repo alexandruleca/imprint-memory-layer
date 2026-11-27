@@ -50,4 +50,6 @@ An edit made to a built-in in a client's folder becomes its fork, as an edit to 
 
 - `tests/test_builtin_skills.py` (21 tests): built-ins listed read-only with an id the same on every device and written into the clients' folders; edits and removal refused with the way to fork; fork and reset through the registry and `imprint skills fork|reset`; a user skill or a client-folder edit with a built-in's name counted as its fork; the release-change notice and its diff; the disable marker synced newest-first and skipped by older devices; built-ins never exported; every shipped built-in valid and named after its folder; the release archive keeping them.
 - The other registry, registry-files, skills, sync and API test modules (930 tests on the branch before it joined `dev`), and Playwright `skills.spec.ts`, `tours.spec.ts` and `page-tours.spec.ts` (54 tests, including forking a built-in and the release-change notice), on Linux. The Skills page was checked in light and dark from screenshots.
-- Linux (WSL Ubuntu, Python 3.12 venv): the full suite passed on `dev` with the Board and built-ins together, 2026-11-27.
+- Linux (WSL Ubuntu, Python 3.12 venv): the full suite, 1,522 tests, passed on 2026-11-27 with the Board and built-in skills together.
+- Windows 11 (the installed runtime's Python 3.13, from a native copy of the repository): `test_builtin_skills`, `test_registry`, `test_registry_files` and `test_skills_tool` with the Board's tests, 187 tests, passed.
+- Not run: macOS.

@@ -648,5 +648,59 @@ class CommentTests(TasksTestCase):
                 tasks.choose_name('s1', reserved, workspace='default')
 
 
+
+class ReviewFindingTests(TasksTestCase):
+    """Defects the spec review of phase 1 found."""
+
+    def ready(self, **fields):
+        return make(acceptance=['x'], status='ready', **fields)['id']
+
+    def test_releasing_cannot_skip_review_or_the_ready_rule(self):
+        task = self.ready()
+        tasks.claim(task, actor=AGENT, workspace='default')
+        for status in ('done', 'review', 'cancelled', 'in_progress'):
+            with self.subTest(status=status), self.assertRaisesRegex(ValueError, 'Backlog or Ready'):
+                tasks.release(task, status=status, actor=AGENT, workspace='default')
+        bare = make()['id']
+        tasks.claim(bare, actor=AGENT, workspace='default')
+        with self.assertRaisesRegex(ValueError, 'acceptance criterion'):
+            tasks.release(bare, status='ready', actor=AGENT, workspace='default')
+        self.assertEqual(tasks.release(bare, actor=AGENT, workspace='default')['status'], 'backlog')
+
+    def test_an_address_with_an_at_sign_reaches_a_name_or_a_client_too(self):
+        task = make()['id']
+        tasks.comment(task, 'To the name', to=['@grimforge'], workspace='default')
+        tasks.comment(task, 'To the client', to=['@codex'], workspace='default')
+        got = [c['text'] for c in tasks.inbox('s1', name='grimforge', client='codex', device='studio',
+                                              workspace='default')]
+        self.assertEqual(got, ['To the name', 'To the client'])
+
+    def test_next_never_offers_a_stale_task_that_was_moved_back_to_backlog(self):
+        task = self.ready(project='shop')
+        tasks.claim(task, actor=AGENT, pid=dead_pid(), workspace='default')
+        tasks.move(task, 'backlog', workspace='default')
+        self.assertIsNone(tasks.next_task(project='shop', client='codex', device='bedrock', workspace='default'))
+
+    def test_a_resumed_sessions_name_stays_taken_once_its_server_renews(self):
+        tasks.choose_name('conversation:c1', 'grimforge', pid=dead_pid(), workspace='default')
+        tasks.renew('conversation:c1')  # The resumed server, alive in this process.
+        with self.assertRaisesRegex(ValueError, 'taken'):
+            tasks.choose_name('s2', 'grimforge', workspace='default')
+
+    def test_tasks_are_filtered_by_holder(self):
+        held = self.ready()
+        self.ready()
+        tasks.claim(held, actor=AGENT, workspace='default')
+        self.assertEqual([t['id'] for t in tasks.listing(holder='Grimforge', workspace='default')], [held])
+        self.assertEqual([t['id'] for t in tasks.listing(holder='session-1', workspace='default')], [held])
+        self.assertEqual(tasks.listing(holder='quill', workspace='default'), [])
+
+    def test_the_users_inbox_can_be_read_without_marking_it(self):
+        task = make()['id']
+        tasks.comment(task, 'For you', to=['user'], actor=AGENT, workspace='default')
+        self.assertEqual(len(tasks.user_inbox(mark=False, workspace='default')), 1)
+        self.assertEqual(len(tasks.user_inbox(mark=False, workspace='default')), 1)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -1467,9 +1467,10 @@ def api_agents(limit: int = 50, before: str | None = None, client: str | None = 
 
 
 @app.post("/api/agents/{session_id}/name")
-def api_agent_name(session_id: str, body: dict):
+async def api_agent_name(session_id: str, request: Request):
     """Rename an agent session on its workspace's Board (ADR 0216)."""
     from . import agent_activity, tasks
+    body = await request.json()
     session = agent_activity.get_session(session_id)
     if session is None:
         return JSONResponse({"error": "No such agent session"}, status_code=404)

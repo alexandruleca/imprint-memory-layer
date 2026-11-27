@@ -13,6 +13,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from emulation import slack
+
 from imprint import config, registry, registry_files
 
 from tests.test_registry import skill
@@ -371,7 +373,7 @@ class CommandLineTests(unittest.TestCase):
 
     def cli(self, *args):
         result = subprocess.run([sys.executable, '-m', 'imprint.cli_skills', *args], env=self.env, cwd=ROOT,
-                                capture_output=True, text=True, encoding='utf-8', timeout=120)
+                                capture_output=True, text=True, encoding='utf-8', timeout=slack(120))
         self.assertNotIn('Traceback', result.stderr)
         return result
 

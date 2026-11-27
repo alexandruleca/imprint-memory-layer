@@ -94,6 +94,12 @@ class HookTests(unittest.TestCase):
             self.assertLess(len(text), 2400)
             unnamed = json.loads(self.run_hook('session-start', data, {'session_id': 's9', 'cwd': str(shop)}).stdout)
             self.assertIn('task_edit(action="name"', unnamed['hookSpecificOutput']['additionalContext'])
+            # A Codex session is told of comments to Codex: its transcript lives under ~/.codex.
+            with patch.object(config, 'get_data_dir', return_value=data), patch.dict(os.environ, {'IMPRINT_WORKSPACE': ''}):
+                tasks.comment(ready, 'Codex: rebase first', to=['codex'])
+            codex = json.loads(self.run_hook('session-start', data, {
+                'session_id': 'x1', 'cwd': str(shop), 'transcript_path': '/home/me/.codex/sessions/x1.jsonl'}).stdout)
+            self.assertIn('1 unread comment', codex['hookSpecificOutput']['additionalContext'])
 
 
     def test_copilot_stop_payload_imports_its_transcript(self):

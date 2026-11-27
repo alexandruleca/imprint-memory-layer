@@ -34,7 +34,7 @@ On 2026-11-27 the owner asked for "a task system kanban style that can be used b
 
 **Ending a Task.** Agents can cancel a Task but not delete it. The user can delete one from the dashboard or the CLI ([ADR 0209](0209-a-tasks-history-is-a-log-of-events-that-devices-merge-by-union.md) says how a deletion travels). Done and Cancelled Tasks leave the Board 14 days after they end and stay readable.
 
-**Access.** Agents read the Board through one MCP tool, `tasks` (board, list, get, next, inbox, handoff), and change it through another, `task_edit` (create, edit, append, move, assign, claim, release, checkpoint, comment, link, block, cancel, name). The `imprint tasks` CLI and the dashboard's API call the same functions. The dashboard shows the Board as a tab of the Agents page, in simple and advanced mode. Tasks are not memories: they are not embedded and `search` does not return them; `tasks` searches their text, and an agent stores what a Task taught as a memory, as it does today.
+**Access.** Agents read the Board through one MCP tool, `tasks` (board, list, get, history, next, inbox, handoff), and change it through another, `task_edit` (create, edit, append, move, assign, claim, release, checkpoint, comment, link, block, cancel, name). The `imprint tasks` CLI and the dashboard's API call the same functions. The dashboard shows the Board as a tab of the Agents page, in simple and advanced mode. Tasks are not memories: they are not embedded and `search` does not return them; `tasks` searches their text, and an agent stores what a Task taught as a memory, as it does today.
 
 **Standalone.** The Board is Imprint's own record. It is neither mirrored to nor imported from GitHub Issues or another tracker. [ADR 0215](0215-the-board-is-the-issue-tracker-of-the-planning-skills.md) makes it usable as the "issue tracker" of the skills above.
 
@@ -67,5 +67,6 @@ On 2026-11-27 the owner asked for "a task system kanban style that can be used b
 
 - `tests/test_tasks.py`: creation, ids and their collisions, workspace isolation and unknown workspaces, redaction, edits, appends, moves, the Ready rule, Features and blockers (nesting and cycles refused), tags, assignees, the Blocked mark, filters, archiving after 14 days, and the user-only deletion that leaves a tombstone.
 - `tests/test_tasks_tool.py`: the `tasks` and `task_edit` tools through an in-process MCP client, including that agents have no delete. `tests/test_cli_tasks.py`: every `imprint tasks` command as a subprocess.
-- Linux (WSL Ubuntu, Python 3.12 venv): the full suite, 1,495 tests, passed on 2026-11-27.
-- Windows 11 (the installed runtime's Python 3.13, from a native copy of the repository): `tests.test_tasks`, `test_tasks_tool`, `test_cli_tasks`, `test_hooks`, `test_agent_activity`, `test_config_help`, `test_chat_tool_coverage`, `test_adr_records` and `test_docs_tables`, 121 tests, passed.
+- Linux (WSL Ubuntu, Python 3.12 venv): the full suite, 1,522 tests, passed on 2026-11-27 with the Board and built-in skills together.
+- Windows 11 (the installed runtime's Python 3.13, from a native copy of the repository): `tests.test_tasks`, `test_tasks_tool`, `test_cli_tasks`, `test_hooks`, `test_agent_activity`, `test_config_help`, `test_builtin_skills`, `test_registry`, `test_registry_files`, `test_skills_tool`, `test_chat_tool_coverage`, `test_adr_records` and `test_docs_tables`, 187 tests, passed.
+- Not run: macOS; and Go-side `imprint workspace delete` and `imprint wipe` removing the Task stores, which were built and vetted but not exercised.

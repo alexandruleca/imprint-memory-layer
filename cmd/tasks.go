@@ -8,8 +8,8 @@ import (
 	"github.com/hunter/imprint/internal/runner"
 )
 
-// Tasks shows and changes the workspace's Board of Tasks (ADR 0208):
-// board, list, show and create, implemented by imprint.cli_tasks.
+// Tasks shows and changes the workspace's Board of Tasks (ADRs 0208-0216),
+// implemented by imprint.cli_tasks: `imprint tasks --help` lists the commands.
 func Tasks(args []string) {
 	projectDir := platform.FindProjectDir()
 	venvPython := platform.VenvPython(projectDir)

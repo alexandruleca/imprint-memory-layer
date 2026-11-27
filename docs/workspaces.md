@@ -102,7 +102,7 @@ Moves preview by default, share the ingestion lock, and apply only to the worksp
 
 ## Workspaces
 
-Workspaces provide isolated memory environments. Each workspace gets its own Qdrant collection, SQLite knowledge graph, and write-ahead log — complete data isolation on the same Qdrant server.
+Workspaces provide isolated memory environments. Each workspace gets its own Qdrant collection, SQLite knowledge graph, [Board](tasks.md) of Tasks, and write-ahead log — complete data isolation on the same Qdrant server.
 
 ```mermaid
 graph LR
@@ -113,7 +113,7 @@ graph LR
     end
 
     subgraph "SQLite (per workspace)"
-        S1[(imprint_graph.sqlite3<br/><small>default</small>)]
+        S1[(imprint_graph.sqlite3 + tasks.sqlite3<br/><small>default</small>)]
         S2[(imprint_graph_research.sqlite3)]
         S3[(imprint_graph_staging.sqlite3)]
     end
@@ -159,10 +159,10 @@ In the dashboard, the workspace menu at the top right of every page shows the ac
 
 **Data per workspace:**
 
-| Workspace | Collection | SQLite | WAL |
-|---|---|---|---|
-| `default` | `memories` | `imprint_graph.sqlite3` | `wal.jsonl` |
-| `research` | `memories_research` | `imprint_graph_research.sqlite3` | `wal_research.jsonl` |
+| Workspace | Collection | SQLite | Board | WAL |
+|---|---|---|---|---|
+| `default` | `memories` | `imprint_graph.sqlite3` | `tasks.sqlite3` | `wal.jsonl` |
+| `research` | `memories_research` | `imprint_graph_research.sqlite3` | `tasks_research.sqlite3` | `wal_research.jsonl` |
 
 **Wipe behavior:**
 

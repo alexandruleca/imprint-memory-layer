@@ -1678,14 +1678,15 @@ def tasks(
     status: str = "",
     priority: str = "",
     assignee: str = "",
+    holder: str = "",
     text: str = "",
     archived: bool = False,
     workspace: str = "",
     ctx: Context | None = None,
 ) -> str:
     """The workspace's Board: Tasks that agents and the user track work with,
-    shared by every client and paired device. Read it before starting work
-    that may already be tracked.
+    shared by every client connected to this Imprint. Read it before starting
+    work that may already be tracked.
 
     Args:
         action: "board" (Tasks by status), "list" (Tasks matching the filters), "get" (one Task),
@@ -1699,14 +1700,15 @@ def tasks(
         status: Only this status: Backlog, Ready, In progress, Review, Done or Cancelled
         priority: Only this priority, P0 to P3
         assignee: Only Tasks assigned to this: "user", a client, "@device" or "client@device"
+        holder: Only Tasks held by this agent (its name)
         text: Only Tasks whose id, title, description, criteria or tags contain this
         archived: For list, include Done and Cancelled Tasks that ended over 14 days ago
         workspace: Target workspace (default: the session's)
     """
     from . import tasks_tool
     return tasks_tool.read(action, task=task, archived=archived, workspace=workspace, project=project,
-                           feature=feature, tag=tag, status=status, priority=priority, assignee=assignee, text=text,
-                           session_project=_session.get('project'), client=_calling_client(ctx))
+                           feature=feature, tag=tag, status=status, priority=priority, assignee=assignee, holder=holder,
+                           text=text, session_project=_session.get('project'), client=_calling_client(ctx))
 
 
 @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False})

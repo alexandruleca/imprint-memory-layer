@@ -164,6 +164,8 @@ imprint restore --project <name> --to <out> [--apply]
                            # preview writing indexed files back from their snapshots, e.g. after a lost
                            # folder; --apply writes only what is missing (--all/--overwrite for the rest)
 imprint upkeep [--dry-run] # bring stored memories up to date now, as the idle queue does
+imprint tasks [list|show|create|move|comment|next|inbox|...]
+                           # the workspace's Board of Tasks that agents and you track work with
 # Heavy jobs (ingest/refresh/retag/scrub/ingest-url/refresh-urls) serialize via a
 # shared queue lock. If another job is already running, the CLI hands its job to
 # the dashboard's queue (an identical waiting job absorbs it) or waits; with

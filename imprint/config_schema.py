@@ -405,7 +405,8 @@ SETTINGS: list[Setting] = [
     Setting("tasks.stale_minutes",    "IMPRINT_TASKS_STALE_MINUTES",    120, int,
             "Minutes without progress from its holder before a claimed Task is Stale and its claim released"),
     Setting("tasks.autonomy",         "IMPRINT_TASKS_AUTONOMY",         "ready", str,
-            "What agents take unasked: off, stale (Stale Tasks only) or ready (Ready and Stale); a workspace can choose its own"),
+            "What agents take unasked: off, stale (Stale Tasks only) or ready (Ready and Stale); a workspace can choose its own",
+            choices=(Choice("ready", "Ready and Stale"), Choice("stale", "Stale only"), Choice("off", "Off"))),
 
     # ── Upkeep (ADR 0201) ─────────────────────────────────────
     # The idle slot's last step: what is stored, brought up to the current

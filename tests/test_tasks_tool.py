@@ -36,7 +36,7 @@ class TasksToolTests(unittest.TestCase):
                 results = []
                 for name, arguments in calls:
                     result = await session.call_tool(name, arguments, raise_on_error=False)
-                    results.append((result.is_error, result.content[0].text))
+                    results.append((result.is_error, '\n'.join(part.text for part in result.content)))
                 return tools, results
         return asyncio.run(run())
 
@@ -259,6 +259,23 @@ class TasksToolTests(unittest.TestCase):
                                                         ('tasks', {}))
         self.assertIn(f'{task} has had no progress from you', first)
         self.assertNotIn('no progress from you', second)
+
+
+    def test_clients_are_known_by_their_client_table_names(self):
+        from imprint import tasks_tool
+        self.assertEqual(tasks_tool.client_id('codex-mcp-client'), 'codex')
+        self.assertEqual(tasks_tool.client_id('cursor-vscode'), 'cursor')
+        self.assertEqual(tasks_tool.client_id('claude-code'), 'claude-code')
+        self.assertEqual(tasks_tool.client_id('claude-ai'), 'claude-desktop')
+        task = tasks.create('For Codex', project='imprint', acceptance=['x'], status='ready', assignees=['codex'],
+                            workspace='default')['id']
+        tasks.comment(task, 'Codex, this one is yours', to=['codex'], workspace='default')
+        _, [(_, offered), (_, claimed)] = self.call(('tasks', {'action': 'next'}),
+                                                    ('task_edit', {'action': 'claim', 'task': task}),
+                                                    client='codex-mcp-client')
+        self.assertIn('Codex, this one is yours', offered)
+        self.assertIn(f'Take {task} next', offered)
+        self.assertRegex(claimed, r'you are codex-\w{4} ')
 
 
 class SkillExamplesTests(unittest.TestCase):

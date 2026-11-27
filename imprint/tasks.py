@@ -620,7 +620,8 @@ def _contains(state: dict, text: str) -> bool:
 
 def listing(*, project: str | None = None, feature: str | None = None, tag: str | None = None,
             status: str | None = None, priority: str | None = None, assignee: str | None = None,
-            text: str | None = None, archived: bool = False, workspace: str | None = None) -> list[dict]:
+            holder: str | None = None, text: str | None = None, archived: bool = False,
+            workspace: str | None = None) -> list[dict]:
     """The workspace's Tasks that match every filter given, in Board order.
     Done and Cancelled Tasks that ended more than 14 days ago are left out
     unless ``archived``."""
@@ -632,8 +633,15 @@ def listing(*, project: str | None = None, feature: str | None = None, tag: str 
     priority = _priority(priority) if priority else None
     tag = tag.strip().lower() if tag else None
     assignee = assignee.strip().lower() if assignee else None
+    holder = holder.strip().lower() if holder else None
+    held_by = {}
+    if holder:
+        for s in states:
+            live = s.get('holder') if not view.claim(s)[1] else None
+            held_by[s['uid']] = {(live.get('name') or '').lower(), (live.get('session') or '').lower()} if live else set()
     found = [s for s in states
              if (archived or not _archived(s, now))
+             and (not holder or holder in held_by[s['uid']])
              and (not project or s['project'] == project)
              and (not feature_uid or s['feature'] == feature_uid)
              and (not tag or tag in s['tags'])
@@ -982,6 +990,10 @@ def release(task: str, *, status: str | None = None, actor: dict | None = None,
         data = {'claim': state['holder']['claim']}
         if status:
             data['status'] = _status(status)
+            if data['status'] not in ('backlog', 'ready'):
+                raise ValueError('Releasing puts a Task back in Backlog or Ready; move it to Review when it is finished')
+            if data['status'] == 'ready' and not state['acceptance']:
+                raise ValueError('A task moves to ready only with at least one acceptance criterion')
         _append(conn, uid, 'released', data, actor)
         _project(conn, uid)
         view = _view(conn)
@@ -992,16 +1004,22 @@ def renew(session: str, *, pid: int | None = None, active_at: float | None = Non
     """Renew the lease of every claim ``session`` holds, in every workspace
     of this installation; ``active_at`` is the holder's latest Imprint
     activity. The holder's Imprint server calls it in the background."""
-    renewed, now = 0, time.time()
+    renewed, now, pid = 0, time.time(), pid or os.getpid()
     for workspace in config.get_known_workspaces():
         with _reading(workspace) as conn:
+            if conn is None:
+                continue
             held = [s['holder']['claim'] for s in _states(conn) if (s.get('holder') or {}).get('session') == session]
-        if not held:
+            named = conn.execute('SELECT pid, device FROM names WHERE session = ?', (session,)).fetchone()
+        stale_name = named is not None and (named['pid'], named['device']) != (pid, _device())
+        if not held and not stale_name:
             continue
         with _writing(workspace) as conn:
             for claim_id in held:
-                _lease(conn, claim_id, now, pid or os.getpid(), _device(), active_at)
+                _lease(conn, claim_id, now, pid, _device(), active_at)
                 renewed += 1
+            if stale_name:  # A resumed session: its name is live again, under this process.
+                conn.execute('UPDATE names SET pid = ?, device = ? WHERE session = ?', (pid, _device(), session))
     return renewed
 
 
@@ -1182,7 +1200,7 @@ def _takeable(view: _View, state: dict, *, ready: bool) -> bool:
         return False
     _, stale = view.claim(state)
     if stale:
-        return True
+        return state['status'] in ('ready', 'in_progress')
     return ready and not state['holder'] and state['status'] == 'ready'
 
 
@@ -1284,11 +1302,12 @@ def _addressed(to: list[str], holder: dict | None, session: str, name: str | Non
     for address in to:
         if address == 'holder' and is_holder:
             return True
-        if address.startswith('@') and device and address[1:] == device:
-            return True
-        if '@' in address[1:] and client and device and address == f'{client}@{device}':
-            return True
-        if address in {a for a in (name, client, device) if a} and address not in ('user', 'holder'):
+        if '@' in address[1:]:
+            if client and device and address == f'{client}@{device}':
+                return True
+            continue
+        bare = address.lstrip('@')  # "@grimforge", "@codex" and "@bedrock" read as the bare word.
+        if bare in {a for a in (name, client, device) if a} and bare not in ('user', 'holder'):
             return True
     return False
 

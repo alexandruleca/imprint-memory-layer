@@ -6,6 +6,7 @@ and the tools word the Board the same way."""
 from __future__ import annotations
 
 import os
+import re
 import time
 
 from . import tasks
@@ -21,6 +22,24 @@ def status_ref(value: str) -> str:
     if status not in tasks.STATUSES:
         raise ValueError(f'status must be one of {", ".join(STATUS_LABELS.values())}')
     return status
+
+
+# Clients by the names their MCP handshake gives, as the client table names
+# them: comments and assignees use the table's names ("codex", "cursor").
+CLIENT_NAMES = {'claude-code': 'claude-code', 'codex-mcp-client': 'codex', 'cursor-vscode': 'cursor',
+                'claude-ai': 'claude-desktop', 'opencode': 'opencode', 'cline': 'cline', 'openclaw': 'openclaw'}
+_CLIENT_PREFIXES = ('codex', 'cursor', 'cline', 'copilot', 'opencode', 'openclaw')
+
+
+def client_id(name: str | None) -> str | None:
+    """A client as the Board knows it, from the name its handshake gave."""
+    raw = (name or '').strip().lower()
+    if not raw:
+        return None
+    if raw in CLIENT_NAMES:
+        return CLIENT_NAMES[raw]
+    known = next((prefix for prefix in _CLIENT_PREFIXES if raw.startswith(prefix)), None)
+    return known or re.sub(r'[^a-z0-9-]+', '-', raw).strip('-')[:40] or None
 
 
 def session() -> str:
@@ -42,7 +61,7 @@ def actor(client: str | None = None, workspace: str = '') -> dict:
         name = tasks.name_of(me, workspace=workspace or None)
     except ValueError:
         name = None
-    return tasks.agent(me, name=name, client=client or agent_activity.current().get('client'))
+    return tasks.agent(me, name=name, client=client_id(client or agent_activity.current().get('client')))
 
 
 def choose_name(name: str, *, actor: dict, workspace: str = '') -> str:
@@ -159,11 +178,12 @@ def inbox_text(items: list[dict]) -> str:
 SESSION_START_LINES = 6
 
 
-def session_start(cwd: str, workspace: str, conversation: str | None, project_name: str | None = None) -> str:
+def session_start(cwd: str, workspace: str, conversation: str | None, project_name: str | None = None,
+                  client: str | None = None) -> str:
     """The Board's part of the session-start context: the project's Ready
     and Stale Tasks, the session's unread comments, its name, and what it
     may take unasked. Nothing when the project has no Tasks."""
-    if not config_path_exists(workspace):
+    if not board_exists(workspace):
         return ''
     if not project_name:
         from .cli_conversations import derive_project
@@ -184,7 +204,8 @@ def session_start(cwd: str, workspace: str, conversation: str | None, project_na
     me = f'conversation:{conversation}' if conversation else None
     name = tasks.name_of(me, workspace=workspace) if me else None
     if me:
-        unread = tasks.inbox(me, name=name, mark=False, workspace=workspace)
+        unread = tasks.inbox(me, name=name, client=client_id(client), device=_device_name(), mark=False,
+                             workspace=workspace)
         if unread:
             lines.append(f"You have {len(unread)} unread comment{'s' if len(unread) != 1 else ''}: tasks(action=\"inbox\").")
     lines.append(f'You are {name} on this Board.' if name else
@@ -197,7 +218,7 @@ def session_start(cwd: str, workspace: str, conversation: str | None, project_na
     return '\n'.join(lines)
 
 
-def config_path_exists(workspace: str) -> bool:
+def board_exists(workspace: str) -> bool:
     from . import config
     try:
         return config.tasks_db_path(workspace).exists()
@@ -337,12 +358,12 @@ def history_text(events: list[dict]) -> str:
 
 # ── The tools ────────────────────────────────────────────────────
 
-def filters(*, project='', feature='', tag='', status='', priority='', assignee='', text='') -> dict:
+def filters(*, project='', feature='', tag='', status='', priority='', assignee='', holder='', text='') -> dict:
     """The filters given, in the tasks module's form."""
     return {key: value for key, value in {
         'project': project or None, 'feature': feature or None, 'tag': tag or None,
         'status': status_ref(status) if status else None, 'priority': priority or None,
-        'assignee': assignee or None, 'text': text or None}.items() if value}
+        'assignee': assignee or None, 'holder': holder or None, 'text': text or None}.items() if value}
 
 
 def _device_name() -> str:
@@ -411,7 +432,7 @@ def read(action: str, *, task: str = '', archived: bool = False, workspace: str 
             feature = tasks.get(given['feature'], workspace=workspace)
             return frontier_text(feature, tasks.frontier(given['feature'], workspace=workspace))
         where = project(given.get('project') or '', session_project)
-        found = tasks.next_task(project=where, client=client, device=_device_name(), workspace=workspace)
+        found = tasks.next_task(project=where, client=client_id(client), device=_device_name(), workspace=workspace)
         return next_text(found, where, tasks.autonomy(workspace))
     found = filters(**given)
     if action == 'board':

@@ -17,12 +17,12 @@ Usage:
     python -m imprint.cli_tasks handoff TASK
     python -m imprint.cli_tasks autonomy [off|stale|ready]
     python -m imprint.cli_tasks comment TASK TEXT [--to A]...
-    python -m imprint.cli_tasks inbox
+    python -m imprint.cli_tasks inbox [--read]
     python -m imprint.cli_tasks block TASK REASON
     python -m imprint.cli_tasks unblock|cancel|release TASK
     python -m imprint.cli_tasks delete TASK --yes
 
-FILTERS: --project P --feature F --tag T --status S --priority P --assignee A --text T.
+FILTERS: --project P --feature F --tag T --status S --priority P --assignee A --holder H --text T.
 Every command takes ``--workspace W`` (default: the active workspace) and
 ``--json``. Changes made here are the user's.
 """
@@ -54,7 +54,7 @@ def _parser() -> argparse.ArgumentParser:
     common.add_argument('--workspace', help='Workspace (default: the active one)')
     common.add_argument('--json', action='store_true', help='Print JSON')
     filtered = argparse.ArgumentParser(add_help=False)
-    for name in ('project', 'feature', 'tag', 'status', 'priority', 'assignee', 'text'):
+    for name in ('project', 'feature', 'tag', 'status', 'priority', 'assignee', 'holder', 'text'):
         filtered.add_argument(f'--{name}', default='')
     commands = parser.add_subparsers(dest='command')
     commands.add_parser('board', parents=[common, filtered], help='Tasks by status (the default)')
@@ -112,11 +112,12 @@ def _parser() -> argparse.ArgumentParser:
     comment.add_argument('text')
     comment.add_argument('--to', action='append', default=[], help='Address it (repeatable): a name, a client, '
                          '"@device", "client@device" or "holder"')
-    commands.add_parser('inbox', parents=[common], help='Unread comments agents addressed to you')
+    inbox = commands.add_parser('inbox', parents=[common], help='Unread comments agents addressed to you')
+    inbox.add_argument('--read', action='store_true', help='Mark them read')
     block = commands.add_parser('block', parents=[common], help='Mark it Blocked')
     block.add_argument('task')
     block.add_argument('reason')
-    delete = commands.add_parser('delete', parents=[common], help='Delete it here and on every paired device')
+    delete = commands.add_parser('delete', parents=[common], help='Delete it, leaving only a tombstone')
     delete.add_argument('task')
     delete.add_argument('--yes', action='store_true', help='Confirm the deletion')
     return parser
@@ -124,7 +125,7 @@ def _parser() -> argparse.ArgumentParser:
 
 def _filters(args) -> dict:
     return tasks_tool.filters(project=args.project, feature=args.feature, tag=args.tag, status=args.status,
-                              priority=args.priority, assignee=args.assignee, text=args.text)
+                              priority=args.priority, assignee=args.assignee, holder=args.holder, text=args.text)
 
 
 def _run(args, workspace: str | None, as_json: bool) -> None:
@@ -163,7 +164,7 @@ def _run(args, workspace: str | None, as_json: bool) -> None:
         _print(handoff, as_json, tasks_tool.handoff_text(handoff))
         return
     if command == 'inbox':
-        items = tasks.user_inbox(workspace=workspace)
+        items = tasks.user_inbox(mark=args.read, workspace=workspace)
         _print(items, as_json, tasks_tool.inbox_text(items))
         return
     if command == 'autonomy':
@@ -183,7 +184,7 @@ def _run(args, workspace: str | None, as_json: bool) -> None:
         return
     if command == 'delete':
         if not args.yes:
-            raise ValueError(f'Deleting {tasks.task_ref(args.task)} removes it on every paired device: '
+            raise ValueError(f'Deleting {tasks.task_ref(args.task)} removes its content for good: '
                              'pass --yes to confirm, or cancel it instead')
         gone = tasks.delete(args.task, **user)
         _print(gone, as_json, f"Deleted {gone['id']}.")

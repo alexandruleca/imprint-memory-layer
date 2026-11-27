@@ -170,7 +170,7 @@ export default function SkillsPage() {
       </div>
       {groups.builtin.length > 0 && (
         <>
-          <PaneHeading>Built in</PaneHeading>
+          <PaneHeading>Built-in skills</PaneHeading>
           <div className="space-y-0.5">{groups.builtin.map(row)}</div>
         </>
       )}

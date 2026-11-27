@@ -165,6 +165,7 @@ func wipeEverything(projectDir, dataDir string, force bool) {
 		"qdrant_storage/    (vector store)",
 		"qdrant_snapshots/  (snapshots)",
 		"imprint_graph*     (knowledge graphs)",
+		"tasks*.sqlite3     (Boards of Tasks)",
 		"wal*.jsonl         (write-ahead logs)",
 		".sessions/         (session state)",
 		"workspace.json     (workspace config)",
@@ -224,6 +225,16 @@ func wipeEverything(projectDir, dataDir string, force bool) {
 	// Remove all imprint_graph*.sqlite3* files (all workspaces)
 	matches, _ := filepath.Glob(filepath.Join(dataDir, "imprint_graph*.sqlite3*"))
 	for _, m := range matches {
+		if err := os.Remove(m); err != nil {
+			output.Warn("failed to remove " + filepath.Base(m) + ": " + err.Error())
+		} else {
+			output.Success("removed " + filepath.Base(m))
+		}
+	}
+
+	// Remove every workspace's Board (tasks*.sqlite3 and its -wal/-shm)
+	boardMatches, _ := filepath.Glob(filepath.Join(dataDir, "tasks*.sqlite3*"))
+	for _, m := range boardMatches {
 		if err := os.Remove(m); err != nil {
 			output.Warn("failed to remove " + filepath.Base(m) + ": " + err.Error())
 		} else {

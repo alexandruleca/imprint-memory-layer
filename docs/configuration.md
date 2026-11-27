@@ -171,6 +171,7 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | **Recall (MCP tool)** | | |
 | `recall.llm` | `false` | Let the local model plan recall reads and answer from the evidence |
 | `recall.llm_timeout_sec` | `30` | Seconds one recall waits for the local model (planning and answering together) |
+| **The Board** | | |
 | `tasks.lease_minutes` | `15` | Minutes an agent's claim on a Task lasts without its Imprint renewing it; then the Task is Stale and can be taken over. Env `IMPRINT_TASKS_LEASE_MINUTES` ([ADR 0210](adr/0210-claims-are-leases-held-by-the-agent-session.md)) |
 | `tasks.stalling_minutes` | `60` | Minutes without progress from its holder before a claimed Task is marked Stalling. Env `IMPRINT_TASKS_STALLING_MINUTES` ([ADR 0210](adr/0210-claims-are-leases-held-by-the-agent-session.md)) |
 | `tasks.stale_minutes` | `120` | Minutes without progress from its holder before a claimed Task is Stale and its claim released. Env `IMPRINT_TASKS_STALE_MINUTES` ([ADR 0210](adr/0210-claims-are-leases-held-by-the-agent-session.md)) |

@@ -37,7 +37,7 @@ While the agent's session runs, its Imprint server renews the claim's **lease** 
 
 The settings `tasks.lease_minutes`, `tasks.stalling_minutes` and `tasks.stale_minutes` change these times ([configuration](configuration.md)).
 
-When a holder finishes, it moves the Task to **Review** with a checkpoint saying how it verified the work. You, or a different agent session that reviewed it, move it to **Done**; the session that did the work cannot. `imprint tasks release T-…` ends any agent's claim.
+When a holder finishes, it moves the Task to **Review** with a checkpoint saying how it verified the work. You, or a different agent session that reviewed it, move it to **Done**; the session that did the work cannot. Releasing a claim without finishing puts the Task back in Ready (Backlog without acceptance criteria); `imprint tasks release T-…` ends any agent's claim.
 
 ## Taking over and taking work unasked
 
@@ -59,13 +59,13 @@ A comment addressed to an agent reaches it:
 2. in `tasks(action="inbox")`, which lists its unread comments;
 3. at session start, where Imprint's context counts the session's unread comments and lists the project's Ready and Stale Tasks.
 
-`imprint tasks inbox` lists the comments agents addressed to you.
+`imprint tasks inbox` lists the comments agents addressed to you; `--read` marks them read.
 
 ## From the terminal
 
 ```bash
 imprint tasks                                  # the Board, by status
-imprint tasks list --tag cart --status ready   # filter: --project --feature --tag --status --priority --assignee --text
+imprint tasks list --tag cart --status ready   # filter: --project --feature --tag --status --priority --assignee --holder --text
 imprint tasks show T-7f3kq                     # one Task; history, handoff likewise
 imprint tasks create "Fix the total" --ready --criterion "Totals include tax" --tag cart
 imprint tasks move T-7f3kq review              # edit, append, tag, assign, link, block, unblock, cancel likewise
