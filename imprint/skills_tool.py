@@ -111,7 +111,7 @@ def listing(kind: str = '') -> str:
                 'with `imprint skills add` or on the dashboard\'s Skills page.')
     lines = []
     for item in items:
-        marks = _marks(item) + [mark for mark, on in (
+        marks = registry.marks(item) + [mark for mark, on in (
             ('disabled', item['state'] == 'disabled'),
             ('shadowed by an older one of the same name', item['shadowed'] and item['origin'] != registry.BUILTIN))
             if on]
@@ -119,15 +119,6 @@ def listing(kind: str = '') -> str:
         lines.append(f"{item['kind']} {item['name']}{files}{' [' + ', '.join(marks) + ']' if marks else ''}: "
                      f"{item['description']}")
     return '\n'.join(lines) + '\n\nLoad one with skills(action="get", name="<name>").'
-
-
-def _marks(item: dict) -> list[str]:
-    """What a built-in or a fork is (ADR 0213)."""
-    if item['origin'] == registry.BUILTIN:
-        return ['built-in'] + (['replaced by your fork'] if item['fork'] else [])
-    if item['fork_of']:
-        return ['fork of the built-in'] + (['the built-in changed since it was forked'] if item['builtin_changed'] else [])
-    return []
 
 
 def read(name: str, kind: str = '', path: str = '', start: int = 0) -> str:
@@ -141,7 +132,7 @@ def read(name: str, kind: str = '', path: str = '', start: int = 0) -> str:
     start = max(0, int(start or 0))
     part = text[start:start + READ_CHARS]
     end = start + len(part)
-    head = [f"{item['kind']} {item['name']} ({', '.join([item['state'], *_marks(item)])}), {path}"]
+    head = [f"{item['kind']} {item['name']} ({', '.join([item['state'], *registry.marks(item)])}), {path}"]
     others = [p for p in files if p != path]
     if others:
         head.append(f'Its other files: {", ".join(others)} (path="<file>" reads one)')

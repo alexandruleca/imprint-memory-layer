@@ -197,7 +197,7 @@ def _run(args, workspace: str | None, as_json: bool) -> None:
     elif command == 'append':
         state = tasks.append(args.task, args.text, **user)
     elif command == 'move':
-        state = tasks.move(args.task, tasks_tool.status_ref(args.status), position=args.position, **user)
+        state = tasks.move(args.task, tasks.status_ref(args.status), position=args.position, **user)
     elif command == 'cancel':
         state = tasks.move(args.task, 'cancelled', **user)
     elif command == 'tag':

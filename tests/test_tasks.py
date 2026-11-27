@@ -8,6 +8,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import secrets
+import time
+
 from imprint import config, tasks
 
 GITHUB_TOKEN = 'ghp_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8'
@@ -21,7 +24,7 @@ class TasksTestCase(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         self.data = Path(directory.name)
         for patcher in (patch.object(config, 'get_data_dir', return_value=self.data),
-                        patch.object(tasks, '_device', return_value='device-a'),
+                        patch.object(tasks.actors, '_device', return_value='device-a'),
                         patch.dict(os.environ, {'IMPRINT_WORKSPACE': ''})):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -53,7 +56,7 @@ class CreateAndReadTests(TasksTestCase):
         first = tasks.create('One', project='p', workspace='default')
         taken = first['id'][2:]
         drawn = iter([*taken, *'abcde'])
-        with patch.object(tasks.secrets, 'choice', side_effect=lambda alphabet: next(drawn)):
+        with patch.object(secrets, 'choice', side_effect=lambda alphabet: next(drawn)):
             second = tasks.create('Two', project='p', workspace='default')
         self.assertEqual(second['id'], 'T-abcde')
         ids = {tasks.create(f'n{n}', project='p', workspace='default')['id'] for n in range(50)}
@@ -73,10 +76,10 @@ class CreateAndReadTests(TasksTestCase):
         self.assertEqual(by_user['created_by'], {'kind': 'user', 'device': 'device-a'})
 
     def test_clocks_keep_order_when_the_wall_clock_stands_still_or_goes_back(self):
-        with patch.object(tasks.time, 'time', return_value=1_800_000_000.0):
+        with patch.object(time, 'time', return_value=1_800_000_000.0):
             a = tasks.create('a', project='p', workspace='default')
             b = tasks.create('b', project='p', workspace='default')
-        with patch.object(tasks.time, 'time', return_value=1_700_000_000.0):
+        with patch.object(time, 'time', return_value=1_700_000_000.0):
             c = tasks.create('c', project='p', workspace='default')
         clocks = [tasks.history(t['id'], workspace='default')[0]['hlc'] for t in (a, b, c)]
         self.assertEqual(clocks, sorted(clocks))
@@ -159,7 +162,7 @@ class ShapeTests(TasksTestCase):
 
     def test_cancelling_ends_a_task_and_reopening_it_clears_the_end(self):
         made = make()
-        with patch.object(tasks.time, 'time', return_value=1_800_000_000.0):
+        with patch.object(time, 'time', return_value=1_800_000_000.0):
             cancelled = tasks.move(made['id'], 'cancelled', actor=AGENT, workspace='default')
         self.assertEqual((cancelled['status'], cancelled['ended_at']), ('cancelled', 1_800_000_000.0))
         reopened = tasks.move(made['id'], 'backlog', workspace='default')
@@ -235,11 +238,11 @@ class GroupingTests(TasksTestCase):
 
     def test_ended_tasks_leave_the_board_after_14_days_and_stay_readable(self):
         made = make(acceptance=['x'])
-        with patch.object(tasks.time, 'time', return_value=1_800_000_000.0):
+        with patch.object(time, 'time', return_value=1_800_000_000.0):
             tasks.move(made['id'], 'done', workspace='default')
-        with patch.object(tasks.time, 'time', return_value=1_800_000_000.0 + 13 * 86400):
+        with patch.object(time, 'time', return_value=1_800_000_000.0 + 13 * 86400):
             self.assertEqual(len(tasks.board(workspace='default')['columns']['done']), 1)
-        with patch.object(tasks.time, 'time', return_value=1_800_000_000.0 + 15 * 86400):
+        with patch.object(time, 'time', return_value=1_800_000_000.0 + 15 * 86400):
             self.assertEqual(tasks.board(workspace='default')['columns']['done'], [])
             self.assertEqual(len(tasks.listing(archived=True, workspace='default')), 1)
             self.assertEqual(tasks.get(made['id'], workspace='default')['status'], 'done')
@@ -270,12 +273,11 @@ T0 = 1_800_000_000.0
 
 
 def time_now():
-    import time
     return time.time()
 
 
 def at(seconds):
-    return patch.object(tasks.time, 'time', return_value=T0 + seconds)
+    return patch.object(time, 'time', return_value=T0 + seconds)
 
 
 def dead_pid():

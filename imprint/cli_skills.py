@@ -74,12 +74,7 @@ def _list(as_json: bool) -> int:
              'or adopt one a client already has: `imprint skills found`.')
         return 0
     for item in items:
-        flags = []
-        if item['origin'] == registry.BUILTIN:
-            flags += ['built-in'] + (['replaced by your fork'] if item['fork'] else [])
-        elif item['fork_of']:
-            flags += ['fork of the built-in'] + (['the built-in changed since you forked it']
-                                                 if item['builtin_changed'] else [])
+        flags = registry.marks(item)
         if item['state'] != 'active':
             flags.append(item['state'])
         if item['shadowed'] and item['origin'] != registry.BUILTIN:

@@ -19,7 +19,7 @@ class TasksApiTests(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         self.data = Path(directory.name)
         for patcher in (patch.object(config, 'get_data_dir', return_value=self.data),
-                        patch.object(tasks, '_device', return_value='device-a'),
+                        patch.object(tasks.actors, '_device', return_value='device-a'),
                         patch.dict(os.environ, {'IMPRINT_WORKSPACE': ''})):
             patcher.start()
             self.addCleanup(patcher.stop)

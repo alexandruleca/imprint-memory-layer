@@ -6,40 +6,12 @@ and the tools word the Board the same way."""
 from __future__ import annotations
 
 import os
-import re
 import time
 
 from . import tasks
 
-STATUS_LABELS = {'backlog': 'Backlog', 'ready': 'Ready', 'in_progress': 'In progress', 'review': 'Review',
-                 'done': 'Done', 'cancelled': 'Cancelled'}
+STATUS_LABELS = tasks.STATUS_LABELS
 COLUMN_LINES = 20
-
-
-def status_ref(value: str) -> str:
-    """A status in its stored form, from ``In progress``, ``in-progress`` or ``in_progress``."""
-    status = (value or '').strip().lower().replace('-', '_').replace(' ', '_')
-    if status not in tasks.STATUSES:
-        raise ValueError(f'status must be one of {", ".join(STATUS_LABELS.values())}')
-    return status
-
-
-# Clients by the names their MCP handshake gives, as the client table names
-# them: comments and assignees use the table's names ("codex", "cursor").
-CLIENT_NAMES = {'claude-code': 'claude-code', 'codex-mcp-client': 'codex', 'cursor-vscode': 'cursor',
-                'claude-ai': 'claude-desktop', 'opencode': 'opencode', 'cline': 'cline', 'openclaw': 'openclaw'}
-_CLIENT_PREFIXES = ('codex', 'cursor', 'cline', 'copilot', 'opencode', 'openclaw')
-
-
-def client_id(name: str | None) -> str | None:
-    """A client as the Board knows it, from the name its handshake gave."""
-    raw = (name or '').strip().lower()
-    if not raw:
-        return None
-    if raw in CLIENT_NAMES:
-        return CLIENT_NAMES[raw]
-    known = next((prefix for prefix in _CLIENT_PREFIXES if raw.startswith(prefix)), None)
-    return known or re.sub(r'[^a-z0-9-]+', '-', raw).strip('-')[:40] or None
 
 
 def session() -> str:
@@ -47,9 +19,9 @@ def session() -> str:
     conversation id where it passes one (Claude Code's), else this process."""
     conversation = os.environ.get('CLAUDE_CODE_SESSION_ID') or os.environ.get('IMPRINT_CLIENT_SESSION')
     if conversation:
-        return f'conversation:{conversation}'
+        return tasks.sessions.conversation(conversation)
     from . import agent_activity
-    return f"process:{agent_activity.current().get('session') or os.getpid()}"
+    return tasks.sessions.process(agent_activity.current().get('session') or os.getpid())
 
 
 def actor(client: str | None = None, workspace: str = '') -> dict:
@@ -61,7 +33,7 @@ def actor(client: str | None = None, workspace: str = '') -> dict:
         name = tasks.name_of(me, workspace=workspace or None)
     except ValueError:
         name = None
-    return tasks.agent(me, name=name, client=client_id(client or agent_activity.current().get('client')))
+    return tasks.agent(me, name=name, client=tasks.client_id(client or agent_activity.current().get('client')))
 
 
 def choose_name(name: str, *, actor: dict, workspace: str = '') -> str:
@@ -146,10 +118,10 @@ def notices(workspace: str | None = None, client: str | None = None) -> str:
     lines = []
     lost = tasks.lost_claims(me['session'], workspace=workspace)
     told = set(tasks.take_unseen(me['session'], [f"lost:{item['claim']}" for item in lost], workspace=workspace))
-    lines += [f"You lost your claim on {item['task']} ({item['title']}) to {_label(item['to'])}, "
+    lines += [f"You lost your claim on {item['task']} ({item['title']}) to {tasks.label(item['to'])}, "
               'who claimed it first on another device. Stop working on it.'
               for item in lost if f"lost:{item['claim']}" in told]
-    unread = tasks.inbox(me['session'], name=me.get('name'), client=me.get('client'), device=_device_name(),
+    unread = tasks.inbox(me['session'], name=me.get('name'), client=me.get('client'), device=tasks.device_name(),
                          mark=False, workspace=workspace)
     told = set(tasks.take_unseen(me['session'], [f"notified:{item['id']}" for item in unread], workspace=workspace))
     fresh = [item for item in unread if f"notified:{item['id']}" in told]
@@ -201,10 +173,10 @@ def session_start(cwd: str, workspace: str, conversation: str | None, project_na
     summary = ', '.join(f'{n} {label}' for label, n in counts.items() if n) or 'nothing open'
     lines = [f"Imprint Board, workspace {workspace}, project {project_name}: {summary}."]
     lines += [f'- {line(state)}' for state in open_ones[:SESSION_START_LINES]]
-    me = f'conversation:{conversation}' if conversation else None
+    me = tasks.sessions.conversation(conversation) if conversation else None
     name = tasks.name_of(me, workspace=workspace) if me else None
     if me:
-        unread = tasks.inbox(me, name=name, client=client_id(client), device=_device_name(), mark=False,
+        unread = tasks.inbox(me, name=name, client=tasks.client_id(client), device=tasks.device_name(), mark=False,
                              workspace=workspace)
         if unread:
             lines.append(f"You have {len(unread)} unread comment{'s' if len(unread) != 1 else ''}: tasks(action=\"inbox\").")
@@ -240,14 +212,6 @@ def _when(seconds: float) -> str:
     return time.strftime('%Y-%m-%d %H:%M', time.localtime(seconds))
 
 
-def _label(holder: dict) -> str:
-    name = holder.get('name') or ''
-    client = holder.get('client') or ''
-    if name and client:
-        return f'{name} ({client})'
-    return name or client or 'an agent'
-
-
 def _ago(seconds: float) -> str:
     minutes = max(0, int((time.time() - seconds) // 60))
     return f'{minutes} min ago' if minutes < 120 else f'{minutes // 60} h ago'
@@ -262,9 +226,9 @@ def line(state: dict) -> str:
     if state.get('assignees'):
         text += ' → ' + ', '.join(state['assignees'])
     if state.get('holder'):
-        text += f" [{'stalling, ' if state.get('stalling') else ''}held by {_label(state['holder'])}]"
+        text += f" [{'stalling, ' if state.get('stalling') else ''}held by {tasks.label(state['holder'])}]"
     elif state.get('stale'):
-        text += f" [stale: {_label(state['previous_holder'])} stopped]"
+        text += f" [stale: {tasks.label(state['previous_holder'])} stopped]"
     if state.get('blocked'):
         text += ' [blocked]'
     if state.get('open_blockers'):
@@ -291,12 +255,12 @@ def detail(state: dict) -> str:
         lines.append(f"Blocked: {state['blocked']['reason']} ({_who(state['blocked']['by'])})")
     holder = state.get('holder')
     if holder:
-        lines.append(f"Held by {_label(holder)} on {holder['device']} since {_when(holder['since'])}, "
+        lines.append(f"Held by {tasks.label(holder)} on {holder['device']} since {_when(holder['since'])}, "
                      f"last progress {_ago(holder['progress_at'])}")
         if state.get('stalling'):
             lines.append('Stalling: no progress for a while; checkpoint, or release it if you stopped')
     elif state.get('stale'):
-        lines.append(f"Stale: {_label(state['previous_holder'])} stopped working on it; "
+        lines.append(f"Stale: {tasks.label(state['previous_holder'])} stopped working on it; "
                      'take it over with task_edit(action="claim")')
     checkpoint = state.get('last_checkpoint')
     if checkpoint:
@@ -362,16 +326,8 @@ def filters(*, project='', feature='', tag='', status='', priority='', assignee=
     """The filters given, in the tasks module's form."""
     return {key: value for key, value in {
         'project': project or None, 'feature': feature or None, 'tag': tag or None,
-        'status': status_ref(status) if status else None, 'priority': priority or None,
+        'status': tasks.status_ref(status) if status else None, 'priority': priority or None,
         'assignee': assignee or None, 'holder': holder or None, 'text': text or None}.items() if value}
-
-
-def _device_name() -> str:
-    try:
-        from .device import current
-        return current()['name'].lower()
-    except (OSError, ValueError):
-        return ''
 
 
 def frontier_text(feature: dict, states: list[dict]) -> str:
@@ -396,7 +352,7 @@ def handoff_text(handoff: dict) -> str:
     lines = [f"Handoff for {state['id']} · {state['title']}"]
     previous = handoff['previous_holder']
     if previous:
-        lines.append(f"Previous holder: {_label(previous)} on {previous.get('device')}, since {_when(previous['since'])}")
+        lines.append(f"Previous holder: {tasks.label(previous)} on {previous.get('device')}, since {_when(previous['since'])}")
     else:
         lines.append('Nobody has held it yet.')
     last = handoff['last_checkpoint']
@@ -426,13 +382,13 @@ def read(action: str, *, task: str = '', archived: bool = False, workspace: str 
     if action == 'inbox':
         me = actor(client, workspace or '')
         return inbox_text(tasks.inbox(me['session'], name=me.get('name'), client=me.get('client'),
-                                      device=_device_name(), workspace=workspace))
+                                      device=tasks.device_name(), workspace=workspace))
     if action == 'next':
         if given.get('feature'):
             feature = tasks.get(given['feature'], workspace=workspace)
             return frontier_text(feature, tasks.frontier(given['feature'], workspace=workspace))
         where = project(given.get('project') or '', session_project)
-        found = tasks.next_task(project=where, client=client_id(client), device=_device_name(), workspace=workspace)
+        found = tasks.next_task(project=where, client=tasks.client_id(client), device=tasks.device_name(), workspace=workspace)
         return next_text(found, where, tasks.autonomy(workspace))
     found = filters(**given)
     if action == 'board':
@@ -454,7 +410,7 @@ def create(*, title: str, project: str, description: str = '', status: str = '',
            acceptance=None, tags=None, assignees=None, feature: str = '', blockers=None, actor: dict,
            workspace: str = '') -> str:
     made = tasks.create(title, project=project, description=description or '',
-                        status=status_ref(status) if status else 'backlog', priority=priority or 'P2',
+                        status=tasks.status_ref(status) if status else 'backlog', priority=priority or 'P2',
                         acceptance=acceptance or (), tags=tags or (), assignees=assignees or (),
                         feature=feature or None, blockers=blockers or (), actor=actor, workspace=workspace or None)
     return f"Created {made['id']}.\n{detail(made)}"
@@ -485,7 +441,7 @@ def change(action: str, task: str, *, actor: dict, workspace: str = '', title=No
         state = tasks.checkpoint(task, text, branch=branch or None, commit=commit or None, files=files or (),
                                  next_step=next_step or None, **where)
     elif action == 'release':
-        state = tasks.release(task, status=status_ref(status) if status else None, **where)
+        state = tasks.release(task, status=tasks.status_ref(status) if status else None, **where)
     elif action == 'edit':
         fields = {k: v for k, v in {'title': title, 'description': description, 'project': project,
                                     'priority': priority, 'acceptance': acceptance, 'position': position}.items()
@@ -496,7 +452,7 @@ def change(action: str, task: str, *, actor: dict, workspace: str = '', title=No
     elif action == 'move':
         if not status:
             raise ValueError('Name the status to move to')
-        state = tasks.move(task, status_ref(status), position=position, **where)
+        state = tasks.move(task, tasks.status_ref(status), position=position, **where)
     elif action == 'cancel':
         state = tasks.move(task, 'cancelled', **where)
     elif action == 'tag':

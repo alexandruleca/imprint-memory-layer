@@ -104,7 +104,7 @@ async def create(request: Request):
         body = await _body(request)
         made = tasks.create(str(body.get('title') or ''), project=str(body.get('project') or ''),
                             description=str(body.get('description') or ''),
-                            status=tasks_tool.status_ref(body['status']) if body.get('status') else 'backlog',
+                            status=tasks.status_ref(body['status']) if body.get('status') else 'backlog',
                             priority=str(body.get('priority') or 'P2'), acceptance=_list(body, 'acceptance'),
                             tags=_list(body, 'tags'), assignees=_list(body, 'assignees'),
                             feature=str(body.get('feature') or '') or None, blockers=_list(body, 'blockers'))
@@ -138,7 +138,7 @@ async def change(task_id: str, action: str, request: Request):
         body = await _body(request) if action not in ('unblock', 'release') else {}
         if action == 'move':
             position = body.get('position')
-            state = tasks.move(task_id, tasks_tool.status_ref(str(body.get('status') or '')),
+            state = tasks.move(task_id, tasks.status_ref(str(body.get('status') or '')),
                                position=float(position) if position is not None else None)
         elif action == 'edit':
             fields = {key: body[key] for key in EDITABLE if key in body}

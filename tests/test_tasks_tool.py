@@ -20,7 +20,7 @@ class TasksToolTests(unittest.TestCase):
         from imprint import server
         self.server = server
         for patcher in (patch.object(config, 'get_data_dir', return_value=self.data),
-                        patch.object(tasks, '_device', return_value='device-a'),
+                        patch.object(tasks.actors, '_device', return_value='device-a'),
                         patch.dict(os.environ, {'IMPRINT_WORKSPACE': ''}),
                         patch.dict(server._session, {'project': 'imprint'})):
             patcher.start()
@@ -253,7 +253,7 @@ class TasksToolTests(unittest.TestCase):
         task = tasks.create('Slow', project='imprint', acceptance=['x'], status='ready', workspace='default')['id']
         self.as_session('conv-1', ('task_edit', {'action': 'claim', 'task': task}))
         later = time.time() + 61 * 60
-        with patch.object(tasks.time, 'time', return_value=later), patch.object(time, 'time', return_value=later):
+        with patch.object(time, 'time', return_value=later):
             tasks.renew('conversation:conv-1')
             [(_, first), (_, second)] = self.as_session('conv-1', ('tasks', {'action': 'get', 'task': task}),
                                                         ('tasks', {}))
@@ -262,11 +262,10 @@ class TasksToolTests(unittest.TestCase):
 
 
     def test_clients_are_known_by_their_client_table_names(self):
-        from imprint import tasks_tool
-        self.assertEqual(tasks_tool.client_id('codex-mcp-client'), 'codex')
-        self.assertEqual(tasks_tool.client_id('cursor-vscode'), 'cursor')
-        self.assertEqual(tasks_tool.client_id('claude-code'), 'claude-code')
-        self.assertEqual(tasks_tool.client_id('claude-ai'), 'claude-desktop')
+        self.assertEqual(tasks.client_id('codex-mcp-client'), 'codex')
+        self.assertEqual(tasks.client_id('cursor-vscode'), 'cursor')
+        self.assertEqual(tasks.client_id('claude-code'), 'claude-code')
+        self.assertEqual(tasks.client_id('claude-ai'), 'claude-desktop')
         task = tasks.create('For Codex', project='imprint', acceptance=['x'], status='ready', assignees=['codex'],
                             workspace='default')['id']
         tasks.comment(task, 'Codex, this one is yours', to=['codex'], workspace='default')

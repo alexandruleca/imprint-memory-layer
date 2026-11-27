@@ -126,18 +126,7 @@ except Exception as e:
 	}
 
 	// Delete SQLite DB files: facts and the Board
-	for _, dbBase := range workspaceDatabases(workspace) {
-		for _, suffix := range []string{"", "-shm", "-wal"} {
-			path := filepath.Join(dataDir, dbBase+suffix)
-			if platform.FileExists(path) {
-				if err := os.Remove(path); err != nil {
-					output.Warn("failed to remove " + filepath.Base(path) + ": " + err.Error())
-				} else {
-					output.Success("removed " + filepath.Base(path))
-				}
-			}
-		}
-	}
+	removeWorkspaceDatabases(dataDir, workspace)
 
 	// Delete WAL file
 	var walName string

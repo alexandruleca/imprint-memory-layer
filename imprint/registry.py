@@ -537,6 +537,15 @@ def _forks(kind: str, name: str) -> list[dict]:
     return [i for i in list_all(kind) if i['name'] == name and i['origin'] != BUILTIN and i['state'] != 'retired']
 
 
+def marks(item: dict) -> list[str]:
+    """What a built-in or a fork is, in words (ADR 0213)."""
+    if item['origin'] == BUILTIN:
+        return ['built-in'] + (['replaced by your fork'] if item.get('fork') else [])
+    if item.get('fork_of'):
+        return ['fork of the built-in'] + (['the built-in changed since it was forked'] if item.get('builtin_changed') else [])
+    return []
+
+
 def read_only(name: str) -> str:
     """Why a built-in cannot be edited, and how to make it the user's."""
     return (f'{name} is a built-in skill and read-only. Fork it to change it: `imprint skills fork {name}`, '
