@@ -270,6 +270,15 @@ The records in force, by area. An amended record is listed with the records that
 Under consideration; not current behavior.
 
 - [ADR 0009](0009-model-profiles-and-embedding-identity.md) **Model profiles and embedding identity.** Evaluate local model profiles with explicit embedding identity and safe re-embedding.
+- [ADR 0208](0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md) **Agents track work as Tasks on a Board in each workspace.** One Board per workspace, filtered by project, with fixed statuses, Features, tags, assignees and filters; standalone, not mirrored to GitHub Issues.
+- [ADR 0209](0209-a-tasks-history-is-a-log-of-events-that-devices-merge-by-union.md) **A Task's history is a log of events that devices merge by union.** Immutable events, exchanged and kept by every paired device; state computed in one fixed order; deletion as a tombstone event.
+- [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) **Claims are leases held by the agent session.** The agent session holds a claim with a token, its Imprint server renews the lease, Stalling after 60 minutes without progress, Stale after 15 minutes without renewal or 120 without progress.
+- [ADR 0211](0211-agents-take-ready-and-stale-tasks-unasked-within-their-project.md) **Agents take Ready and Stale Tasks unasked, within their project.** One Task at a time after the request is done, unblocked, not assigned to the user or elsewhere; `tasks.autonomy`; Imprint starts no agents.
+- [ADR 0212](0212-agents-talk-through-comments-on-tasks.md) **Agents talk through comments on Tasks.** Addressed comments only, delivered on Imprint tool replies, at session start, and through a Claude Code prompt hook kept under 100 ms.
+- [ADR 0213](0213-built-in-skills-ship-with-each-release-and-a-fork-replaces-them.md) **Built-in skills ship with each release, and a fork replaces them.** Read-only, unsynced built-ins (`imprint`, `imprint-tasks`); a same-named user fork replaces one everywhere; release changes shown, never merged.
+- [ADR 0214](0214-the-rules-block-shrinks-to-a-stub-once-agents-keep-searching-first.md) **The rules block shrinks to a stub once agents keep searching first.** A few always-on lines point to the `imprint` skill, kept per client only if search-first sessions fall by no more than 10 points.
+- [ADR 0215](0215-the-board-is-the-issue-tracker-of-the-planning-skills.md) **The Board is the issue tracker of the planning skills.** `imprint-tasks` carries a tracker description adopted through the "Other" option; triage states, sub-issues, blockers, assign, close and the frontier map onto the Board.
+- [ADR 0216](0216-agents-choose-their-own-names.md) **Agents choose their own names.** A session names itself before its first claim or comment; unique among live sessions, kept across a resume, shown wherever it acts and addressable in comments; a fallback when it does not choose.
 
 ## Decision log
 
@@ -484,6 +493,15 @@ Every record in number order. *Date* is when the decision was made.
 | [0205](0205-upkeep-backs-off-when-the-store-is-slow.md) | 2026-11-22 | Accepted | Upkeep backs off when the store is slow |
 | [0206](0206-the-firefox-add-on-goes-back-to-unlisted-signing.md) | 2026-11-23 | Superseded by [ADR 0207](0207-the-firefox-add-on-is-listed-on-addons-mozilla-org-again.md) | The Firefox add-on goes back to unlisted signing |
 | [0207](0207-the-firefox-add-on-is-listed-on-addons-mozilla-org-again.md) | 2026-11-23 | Accepted | The Firefox add-on is listed on addons.mozilla.org again |
+| [0208](0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md) | 2026-11-27 | Proposed | Agents track work as Tasks on a Board in each workspace |
+| [0209](0209-a-tasks-history-is-a-log-of-events-that-devices-merge-by-union.md) | 2026-11-27 | Proposed | A Task's history is a log of events that devices merge by union |
+| [0210](0210-claims-are-leases-held-by-the-agent-session.md) | 2026-11-27 | Proposed | Claims are leases held by the agent session |
+| [0211](0211-agents-take-ready-and-stale-tasks-unasked-within-their-project.md) | 2026-11-27 | Proposed | Agents take Ready and Stale Tasks unasked, within their project |
+| [0212](0212-agents-talk-through-comments-on-tasks.md) | 2026-11-27 | Proposed | Agents talk through comments on Tasks |
+| [0213](0213-built-in-skills-ship-with-each-release-and-a-fork-replaces-them.md) | 2026-11-27 | Proposed | Built-in skills ship with each release, and a fork replaces them |
+| [0214](0214-the-rules-block-shrinks-to-a-stub-once-agents-keep-searching-first.md) | 2026-11-27 | Proposed | The rules block shrinks to a stub once agents keep searching first |
+| [0215](0215-the-board-is-the-issue-tracker-of-the-planning-skills.md) | 2026-11-27 | Proposed | The Board is the issue tracker of the planning skills |
+| [0216](0216-agents-choose-their-own-names.md) | 2026-11-27 | Proposed | Agents choose their own names |
 
 ## How to write and maintain ADRs
 
