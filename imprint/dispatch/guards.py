@@ -111,3 +111,27 @@ def readied_by_dispatched(task: str, workspace: str, dispatched: set[str]) -> bo
     """Whether a Dispatched session created ``task`` Ready or moved it to Ready from Backlog."""
     event = _readying(tasks.history(task, workspace=workspace))
     return bool(event) and event['actor'] == 'agent' and event['session'] in dispatched
+
+
+MISSING_WORK = "is not in this device's copy of the repository"
+
+
+def takeover(state: dict, folder: dict, workspace: str) -> tuple[bool, dict]:
+    """Whether this device can take ``state`` over (ADR 0223): it has no
+    commit yet, or its Handoff's last commit exists here. When it cannot,
+    the Task gets one comment saying so, and is left to the device that
+    has the work. Returns (whether to take it, its Handoff)."""
+    from . import git
+    handoff = tasks.handoff(state['id'], workspace=workspace)
+    commit = handoff.get('commit')
+    if not commit or git.has_commit(folder['path'], commit):
+        return True, handoff
+    marker = f'{commit[:12]} {MISSING_WORK}'
+    said = any(e['kind'] == 'comment' and e['actor'] == 'system' and marker in e['data'].get('text', '')
+               for e in tasks.history(state['id'], workspace=workspace))
+    if not said:
+        tasks.comment(state['id'], f"The Dispatcher on this device did not take this Stale Task over: its last commit "
+                      f"{marker} (branch {handoff.get('branch') or 'unknown'}), so it is left to the device that has "
+                      "the work, or to you once that commit is pushed and fetched here.",
+                      actor=SYSTEM, workspace=workspace)
+    return False, handoff

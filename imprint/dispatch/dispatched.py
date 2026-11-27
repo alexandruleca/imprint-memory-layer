@@ -56,11 +56,34 @@ def instructions() -> str:
     return text.strip()
 
 
+def handoff_lines(handoff: dict | None, project: str) -> list[str]:
+    """Earlier work on the Task, from its Handoff: where the session continues."""
+    if not handoff or not handoff.get('checkpoints'):
+        return []
+    lines = ['', 'Earlier work on this Task (its Handoff): continue from it.']
+    previous = handoff.get('previous_holder')
+    if previous:
+        lines.append(f"- Previous holder: {tasks.label(previous)} on {previous.get('device') or 'a device'}")
+    last = handoff.get('last_checkpoint') or {}
+    if last.get('text'):
+        lines.append(f"- Last checkpoint: {last['text']}")
+    if last.get('next'):
+        lines.append(f"- Its next step: {last['next']}")
+    if handoff.get('branch') or handoff.get('commit'):
+        lines.append('- Work: ' + ' @ '.join(p for p in (handoff.get('branch'), handoff.get('commit')) if p))
+    if handoff.get('files'):
+        lines.append('- Files: ' + ', '.join(handoff['files'][:30]))
+    if handoff.get('conversation'):
+        lines.append(f"- Its conversation: read_source(source=\"{handoff['conversation']}\", project=\"{project}\"), "
+                     'if Imprint has learned it')
+    return lines
+
+
 def prompt(state: dict, *, workspace: str, worktree: dict, token: str, role: str = 'work',
-           note: str = '') -> str:
+           note: str = '', handoff: dict | None = None) -> str:
     """The Dispatched session's prompt: the Task, where to work, the claim
-    token, its client's ``note`` about its own sandbox, and the
-    instructions of ``imprint-dispatch``."""
+    token, its Handoff when it was worked on before, its client's ``note``
+    about its own sandbox, and the instructions of ``imprint-dispatch``."""
     doing = 'work on' if role == 'work' else 'review'
     return '\n'.join([
         f"You are a Dispatched session. Imprint's Dispatcher started you, without the person, to {doing} "
@@ -72,6 +95,7 @@ def prompt(state: dict, *, workspace: str, worktree: dict, token: str, role: str
         f"- Your worktree: {worktree['cwd']}, on branch {worktree['branch']}, made from {worktree['base']} "
         f"at {worktree['base_commit']}",
         f'- Your claim token: {token}',
+        *handoff_lines(handoff, state['project']),
         *(['', note] if note else []),
         '',
         'Follow these instructions:',
@@ -220,7 +244,14 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
     binary = clients.binary(runner, distro)  # before claiming: a missing client claims nothing
     if not binary:
         raise LookupError(f'{runner.label} was not found{where}: put {runner.binary} on PATH or set {runner.setting}')
-    worktree = worktrees.prepare(folder, state['id'], state['title'])
+    # A Task worked on before continues from its Handoff: on its own task
+    # branch, at its last commit when that branch is not here yet (ADR 0223).
+    handoff = tasks.handoff(state['id'], workspace=workspace) if state.get('checkpoints') else None
+    start_at = None
+    if handoff and (handoff.get('branch') or '').startswith(worktrees.branch_prefix(state['id'])) and handoff.get('commit'):
+        from . import git
+        start_at = handoff['commit'] if git.has_commit(folder['path'], handoff['commit']) else None
+    worktree = worktrees.prepare(folder, state['id'], state['title'], start=start_at)
     run_id = uuid.uuid4().hex[:12]
     conversation = str(uuid.uuid4())
     last_message = str(last_message_path(run_id))
@@ -249,7 +280,7 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
                          next_step='The Dispatched session takes the claim over and works the Task.',
                          actor=actor, workspace=workspace)
         text = prompt(claimed['task'], workspace=workspace, worktree=worktree, token=claimed['token'], role=role,
-                      note=runner.note)
+                      note=runner.note, handoff=handoff)
         log = store.log_path(run_id)
         log.parent.mkdir(parents=True, exist_ok=True)
         env = _env(workspace, run_id)

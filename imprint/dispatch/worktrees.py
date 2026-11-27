@@ -88,12 +88,15 @@ def _task_branch(folder: dict, task_id: str) -> str | None:
     return next((line for line in listed.splitlines() if line.startswith(prefix)), None)
 
 
-def prepare(folder: dict, task_id: str, title: str) -> dict:
+def prepare(folder: dict, task_id: str, title: str, *, start: str | None = None) -> dict:
     """The Task's worktree, made or reused: ``{'path', 'cwd', 'branch',
-    'base', 'base_commit', 'created'}``. ``cwd`` is the project's folder
-    inside the worktree, where the session starts."""
+    'base', 'base_commit', 'git_dir', 'created'}``. ``cwd`` is the
+    project's folder inside the worktree, where the session starts. A new
+    branch starts at ``start`` (a takeover's last commit on its task
+    branch, made on another device) when given, else at the branch checked
+    out in the project's folder."""
     path = location(folder, task_id)
-    base = folder.get('branch') or folder['commit']
+    base = start or folder.get('branch') or folder['commit']
     existing = next((branch for listed, branch in _worktrees(folder).items() if _same(listed, path)), None)
     if existing is not None:
         branch, created = existing or _task_branch(folder, task_id) or branch_name(task_id, title), False
@@ -113,7 +116,7 @@ def prepare(folder: dict, task_id: str, title: str) -> dict:
     # The folder a worktree's commits are written to: the repository's own git folder.
     where = wsl_native(folder, path)
     git_dir = git.run(where, 'rev-parse', '--path-format=absolute', '--git-common-dir')
-    return {'path': path, 'cwd': cwd, 'branch': branch, 'base': base, 'base_commit': folder['commit'],
+    return {'path': path, 'cwd': cwd, 'branch': branch, 'base': base, 'base_commit': start or folder['commit'],
             'git_dir': git_dir, 'created': created}
 
 

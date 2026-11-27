@@ -58,3 +58,12 @@ def run(path: str, *args: str, timeout: float = TIMEOUT) -> str:
         error = proc.stderr.decode('utf-8', 'replace').strip() or f'git exited with {proc.returncode}'
         raise GitError(error.splitlines()[-1])
     return proc.stdout.decode('utf-8', 'replace').strip()
+
+
+def has_commit(path: str, commit: str) -> bool:
+    """Whether ``commit`` is in the repository of the folder at ``path``."""
+    try:
+        run(path, 'cat-file', '-e', f'{commit}^{{commit}}')
+        return True
+    except GitError:
+        return False

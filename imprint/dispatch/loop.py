@@ -57,12 +57,13 @@ def candidates(workspace: str, *, choices: list[str] | None = None) -> list[dict
     found, seen = [], set()
     for client in choices:
         for state in tasks.takeable(client=client, device=device, workspace=workspace):
-            if state['id'] not in seen and state['status'] == 'ready' and not state['stale']:
+            if state['id'] not in seen and (state['stale'] or state['status'] == 'ready'):
                 seen.add(state['id'])
                 found.append(state)
     if not found:
         return []
-    found.sort(key=board_order)  # the Board's order across the clients' lists
+    # Stale Tasks before Ready ones (ADR 0220), each in the Board's order across the clients' lists.
+    found.sort(key=lambda state: (not state['stale'], board_order(state)))
     dispatched = tasks.dispatched_sessions(workspace)
     chosen = []
     for state in found:
@@ -160,6 +161,8 @@ class Dispatcher:
                 folder = folders.resolve(state['project'], workspace)
                 if not folder['ok']:
                     self.skipped[state['project']] = folder['reason']
+                    continue
+                if state['stale'] and not guards.takeover(state, folder, workspace)[0]:
                     continue
                 try:
                     run, proc = dispatched.start(state['id'], workspace=workspace, client=state['client'])
