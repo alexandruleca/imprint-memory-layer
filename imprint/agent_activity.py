@@ -192,6 +192,17 @@ def last_call_at() -> float | None:
     return float(row[0]) if row and row[0] is not None else None
 
 
+def recent_directories(limit: int = 200) -> list[str]:
+    """The folders agent sessions worked in, most recently seen first, each once."""
+    try:
+        rows = _connect().execute(
+            "SELECT directory, MAX(last_seen) AS seen FROM agent_sessions WHERE directory IS NOT NULL "
+            "AND directory != '' GROUP BY directory ORDER BY seen DESC LIMIT ?", (limit,)).fetchall()
+    except (sqlite3.Error, OSError):
+        return []
+    return [row['directory'] for row in rows]
+
+
 def end_session() -> None:
     """Mark the session ended and close the database; later calls do nothing."""
     global _session_id
