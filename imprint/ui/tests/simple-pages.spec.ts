@@ -77,7 +77,7 @@ test('simple: Sync is Devices, pairing by a code, without relays or snapshots', 
   await simple(page);
   await page.route('**/api/sync/peers', route => route.fulfill({ json: { peers: [] } }));
   await page.goto('/sync/');
-  await expect(page.getByRole('heading', { name: 'Devices' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Devices', exact: true })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Paired devices' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Snapshots' })).toHaveCount(0);
   await page.getByRole('tab', { name: 'Connect a device' }).click();
@@ -94,7 +94,7 @@ test('advanced: Sync keeps the relay and snapshots', async ({ page }) => {
   await advanced(page);
   await page.route('**/api/sync/peers', route => route.fulfill({ json: { peers: [] } }));
   await page.goto('/sync/');
-  await expect(page.getByRole('heading', { name: 'Sync' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Sync', exact: true })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Snapshots' })).toBeVisible();
   await page.getByRole('tab', { name: 'Live sync' }).click();
   await expect(page.getByLabel(/^Relay/)).toBeVisible();
