@@ -88,7 +88,8 @@ test('the Board tab opens from its address and lays Tasks out by status', async 
     await expect(page.getByRole('region', { name: `${status}, ${count} tasks` })).toBeVisible();
   }
   const working = page.locator('li[data-task="T-cccc3"]');
-  await expect(working).toContainText('grimforge (Claude Code)');
+  await expect(working).toContainText('grimforge');
+  await expect(page.getByRole('region', { name: 'Done, 0 tasks, folded' })).toBeVisible();
   await expect(page.locator('li[data-task="T-dddd4"]')).toContainText('Stale');
   await page.getByRole('tab', { name: 'Sessions' }).click();
   await expect(page).toHaveURL(/#sessions$/);
@@ -142,9 +143,13 @@ test('filters and grouping survive a reload', async ({ page }) => {
   await base(page, { mode: 'advanced', tutorials: false });
   const asked = await mockBoard(page, board());
   await page.goto('/agents/#board');
+  await page.getByRole('button', { name: 'Filters' }).click();
   await page.getByRole('combobox', { name: 'Tag' }).click();
   await page.getByRole('option', { name: '#cart' }).click();
+  await page.keyboard.press('Escape');
   await expect(page.locator('li[data-task="T-bbbb2"]')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Filters, 1 on' })).toBeVisible();
+  await expect(page.getByLabel('Filters on')).toContainText('Tag: cart');
   await page.getByRole('combobox', { name: 'Group by' }).click();
   await page.getByRole('option', { name: 'Group by project' }).click();
   await page.reload();
@@ -152,6 +157,7 @@ test('filters and grouping survive a reload', async ({ page }) => {
   await expect(page.locator('li[data-task="T-aaaa1"]')).toBeVisible();
   await expect(page.locator('li[data-task="T-bbbb2"]')).toHaveCount(0);
   await expect(page.getByRole('region', { name: /^Ready/ }).getByRole('heading', { name: 'shop' })).toBeVisible();
+  await expect(page.getByLabel('Filters on')).toContainText('Tag: cart');
   expect(asked.filter(a => a.path === '/api/tasks/board').at(-1)?.query.get('tag')).toBe('cart');
 });
 
@@ -199,4 +205,29 @@ test('the Board fits a phone without scrolling the page sideways', async ({ page
   await expect(page.locator('li[data-task="T-aaaa1"]')).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
+});
+
+test('what needs the user is counted and shows only those Tasks', async ({ page }) => {
+  await base(page, { mode: 'advanced', tutorials: false });
+  await mockBoard(page, [...board(), task({ id: 'T-eeee5', title: 'Order emails', status: 'review' })]);
+  await page.goto('/agents/#board');
+  const needs = page.getByRole('group', { name: 'What needs you' });
+  await expect(needs.getByRole('button', { name: '1 to review' })).toBeVisible();
+  await needs.getByRole('button', { name: '1 stale' }).click();
+  await expect(page.locator('li[data-task="T-dddd4"]')).toBeVisible();
+  await expect(page.locator('li[data-task="T-cccc3"]')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Show every task' }).click();
+  await expect(page.locator('li[data-task="T-cccc3"]')).toBeVisible();
+});
+
+test('Done and Cancelled unfold, and stay unfolded after a reload', async ({ page }) => {
+  await base(page, { mode: 'advanced', tutorials: false });
+  await mockBoard(page, [...board(), task({ id: 'T-ffff6', title: 'Shipped thing', status: 'done', ended_at: now - 60 })]);
+  await page.goto('/agents/#board');
+  await page.getByRole('button', { name: 'Show Done, 1 tasks' }).click();
+  await expect(page.locator('li[data-task="T-ffff6"]')).toBeVisible();
+  await page.reload();
+  await expect(page.locator('li[data-task="T-ffff6"]')).toBeVisible();
+  await page.getByRole('button', { name: 'Fold Done' }).click();
+  await expect(page.locator('li[data-task="T-ffff6"]')).toHaveCount(0);
 });

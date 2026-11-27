@@ -92,7 +92,7 @@ export function TaskDrawer({ taskId, options, now, simple, onChanged, onClose }:
       </SheetHeader>
       <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4">
         <div className="grid gap-3 sm:grid-cols-3">
-          <Field label="Status" hint={STATUS_HINTS[task.status]}>
+          <Field label="Status">
             <Select items={TASK_STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] }))} value={task.status}
               onValueChange={(next) => { if (next && next !== task.status) void act("move", { status: next }, `Moved to ${STATUS_LABELS[next as TaskStatus]}`); }}>
               <SelectTrigger aria-label="Status" className="w-full"><SelectValue /></SelectTrigger>
@@ -107,9 +107,11 @@ export function TaskDrawer({ taskId, options, now, simple, onChanged, onClose }:
             </Select>
           </Field>
           <FeatureField task={task} options={options} onLink={(feature) => act("link", { feature })} />
+          <p className="-mt-1 text-xs text-muted-foreground sm:col-span-3">{STATUS_LABELS[task.status]}: {STATUS_HINTS[task.status].toLowerCase()}.</p>
         </div>
 
-        <HolderPanel task={task} now={now} simple={simple} onRelease={() => act("release", {}, "Claim released")} />
+        <HolderPanel task={task} now={now} simple={simple} onRelease={() => act("release", {}, "Claim released")}
+          onBack={() => act("move", { status: task.acceptance.length ? "ready" : "backlog" }, task.acceptance.length ? "Back in Ready" : "Back in Backlog")} />
         <BlockedPanel task={task} onBlock={(reason) => act("block", { reason })} onUnblock={() => act("unblock")} />
 
         <Section title="Acceptance criteria">
@@ -119,14 +121,15 @@ export function TaskDrawer({ taskId, options, now, simple, onChanged, onClose }:
         <Section title="Description">
           <DescriptionEditor text={task.description} onSave={(description) => act("edit", { description })} />
         </Section>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Section title="Tags">
-            <Chips values={task.tags} prefix="#" label="tag" onAdd={(v) => act("tags", { add: [v] })} onRemove={(v) => act("tags", { remove: [v] })} />
-          </Section>
-          <Section title="Assignees" hint={'"user" is you; a client (codex), a device (@laptop) or both. None: any agent.'}>
-            <Chips values={task.assignees} label="assignee" onAdd={(v) => act("assignees", { add: [v] })} onRemove={(v) => act("assignees", { remove: [v] })} />
-          </Section>
-        </div>
+        <Section title="Tags">
+          <Chips values={task.tags} prefix="#" label="tag" onAdd={(v) => act("tags", { add: [v] })} onRemove={(v) => act("tags", { remove: [v] })} />
+        </Section>
+        <Section title="Assignees">
+          <Chips values={task.assignees} label="assignee" onAdd={(v) => act("assignees", { add: [v] })} onRemove={(v) => act("assignees", { remove: [v] })} />
+          <p className="text-xs text-muted-foreground">
+            {task.assignees.length ? "Only these take it unasked." : "None: any agent may take it."} &quot;user&quot; is you; also a client (codex), a device (@laptop) or both (codex@laptop).
+          </p>
+        </Section>
         {(task.open_blockers.length > 0 || task.blockers.length > 0 || task.tasks.length > 0) && (
           <Section title="Links">
             <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
@@ -152,7 +155,7 @@ export function TaskDrawer({ taskId, options, now, simple, onChanged, onClose }:
                   <dd className="font-mono text-xs leading-5 break-all">{handoff.branch}{handoff.commit && ` @ ${handoff.commit}`}</dd></>}
                 {handoff.files.length > 0 && <><dt className="text-muted-foreground">Files</dt>
                   <dd className="font-mono text-xs leading-5 break-all">{handoff.files.slice(0, 12).join(", ")}{handoff.files.length > 12 && ` and ${handoff.files.length - 12} more`}</dd></>}
-                {handoff.conversation && <><dt className="text-muted-foreground">Conversation</dt><dd className="font-mono text-xs leading-5 break-all">{handoff.conversation}</dd></>}
+                {handoff.conversation && <><dt className="text-muted-foreground">Agent&apos;s conversation</dt><dd className="font-mono text-xs leading-5 break-all" title="Searchable in Imprint once it has been learned">{handoff.conversation}</dd></>}
               </dl>
             )}
           </Section>
@@ -276,15 +279,20 @@ function FeatureField({ task, options, onLink }: { task: BoardTask; options: Boa
 }
 
 /** Who holds the Task, how fresh its claim is, and what to do when it stopped. */
-function HolderPanel({ task, now, simple, onRelease }: { task: BoardTask; now: Date; simple: boolean; onRelease: () => void }) {
+function HolderPanel({ task, now, simple, onRelease, onBack }: {
+  task: BoardTask; now: Date; simple: boolean; onRelease: () => void; onBack: () => void;
+}) {
   if (task.stale && task.previous_holder) {
     return (
       <Alert variant="destructive">
         <AlertTitle>Stale: {who(task.previous_holder)} stopped</AlertTitle>
         <AlertDescription>
           Its session ended or made no progress for too long, so its claim was released. Another agent can take it over from
-          where it stopped, or you can move it back to Ready.
+          its last checkpoint; agents in its project may do so on their own.
         </AlertDescription>
+        <AlertAction>
+          <Button variant="outline" size="sm" onClick={onBack}>Move back to {task.acceptance.length ? "Ready" : "Backlog"}</Button>
+        </AlertAction>
       </Alert>
     );
   }

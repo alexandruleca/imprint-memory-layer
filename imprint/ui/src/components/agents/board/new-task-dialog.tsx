@@ -107,19 +107,18 @@ export function NewTaskDialog({ open, onOpenChange, options, defaultProject, onC
               aria-describedby={`${id}-criteria-help`} placeholder={"A 503 is retried three times\nThe upload resumes where it stopped"} />
             <p id={`${id}-criteria-help`} className="text-xs text-muted-foreground">One per line. How anyone can tell it is finished.</p>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="grid gap-1.5">
-              <Label htmlFor={`${id}-tags`}>Tags</Label>
-              <Input id={`${id}-tags`} value={tags} onChange={(e) => setTags(e.target.value)} placeholder="upload, bug" />
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor={`${id}-assignees`}>Assign to</Label>
-              <Input id={`${id}-assignees`} value={assignees} onChange={(e) => setAssignees(e.target.value)} aria-describedby={`${id}-assign-help`}
-                placeholder="codex, user" />
-              <p id={`${id}-assign-help`} className="text-xs text-muted-foreground">
-                &quot;user&quot; is you; a client (codex), a device (@laptop) or both (codex@laptop). Empty: any agent.
-              </p>
-            </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor={`${id}-tags`}>Tags</Label>
+            <Input id={`${id}-tags`} value={tags} onChange={(e) => setTags(e.target.value)} placeholder="upload, bug" aria-describedby={`${id}-tags-help`} />
+            <p id={`${id}-tags-help`} className="text-xs text-muted-foreground">Separated by commas.</p>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor={`${id}-assignees`}>Assign to</Label>
+            <Input id={`${id}-assignees`} value={assignees} onChange={(e) => setAssignees(e.target.value)} aria-describedby={`${id}-assign-help`}
+              placeholder="codex, user" />
+            <p id={`${id}-assign-help`} className="text-xs text-muted-foreground">
+              Empty: any agent. &quot;user&quot; is you; also a client (codex), a device (@laptop) or both (codex@laptop).
+            </p>
           </div>
           {options.features.length > 0 && (
             <div className="grid gap-1.5">

@@ -10,6 +10,7 @@ import { TASK_STATUSES, type BoardTask, type TaskStatus } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { StatusDot } from "../status";
 import { STATUS_LABELS, ago, trouble, who } from "./format";
+import { clientName } from "../format";
 
 const PRIORITY_TONE: Record<string, string> = {
   P0: "border-destructive/40 bg-destructive/10 text-destructive",
@@ -50,6 +51,9 @@ export function TaskCard({ task, now, simple, dragging, onOpen, onMove, onDragSt
         {task.feature_title && (
           <span className="mt-1 block truncate text-xs text-muted-foreground" title={`Feature ${task.feature}`}>↳ {task.feature_title}</span>
         )}
+        {task.tasks.length > 0 && (
+          <span className="mt-1 block text-xs text-muted-foreground">Feature · {task.tasks.length} {task.tasks.length === 1 ? "task" : "tasks"}</span>
+        )}
         {(task.tags.length > 0 || task.assignees.length > 0) && (
           <span className="mt-2 flex flex-wrap gap-1">
             {task.tags.map((tag) => <Badge key={tag} variant="secondary" className="h-5 px-1.5 text-[11px] font-normal">#{tag}</Badge>)}
@@ -68,9 +72,9 @@ export function TaskCard({ task, now, simple, dragging, onOpen, onMove, onDragSt
         {(holder || task.comment_count > 0) && (
           <span className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
             {holder && (
-              <span className="flex min-w-0 items-center gap-1.5">
+              <span className="flex min-w-0 items-center gap-1.5" title={`${who(holder)} on ${holder.device}`}>
                 <StatusDot connected={!task.stalling} decorative />
-                <span className="truncate">{who(holder)}</span>
+                <span className="truncate font-medium text-foreground/80">{holder.name || clientName(holder.client)}</span>
                 {!simple && holder.progress_at !== undefined && (
                   <span className="shrink-0 tabular-nums" title="Last progress">· {ago(holder.progress_at, now)}</span>
                 )}

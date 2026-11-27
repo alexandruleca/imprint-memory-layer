@@ -32,6 +32,7 @@ for (const mode of ['simple', 'advanced'] as const) {
       await page.route('**/api/schedule**', route => route.fulfill({ json: { entries: [], total: 0, next: null } }));
       await page.route('**/api/core', route => route.fulfill({ json: { memories: [], budget: 3000, used: 0, kinds: ['preference'], max_text: 500 } }));
       await page.route('**/api/graph?**', route => route.fulfill({ json: { scope: 'root', center: '', nodes: [], edges: [] } }));
+      await page.route('**/api/agents?**', route => route.fulfill({ json: { running: [], sessions: [], next: null, total: 0, clients: [] } }));
       await page.goto(`${tour.page}/`.replace('//', '/'));
       for (const step of stepsIn(tour, mode === 'simple')) {
         if (!step.target || step.optional) continue;

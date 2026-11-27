@@ -249,10 +249,16 @@ export const TOURS: Tour[] = [
     ],
   },
   {
-    id: "/agents", page: "/agents",
+    id: "/agents-2", page: "/agents",
     steps: [
       { target: "page-header", title: "Agents",
-        body: "Every AI client that uses Imprint, as sessions: which run now, what they called and what failed." },
+        body: "Your AI agents: the sessions every client ran, and the Board of Tasks they share." },
+      { target: "agents-tabs", title: "Sessions and Board",
+        body: "Sessions lists what each client called and what failed. Board holds the workspace's Tasks: what is ready, who works on what, and what is stuck." },
+      { target: "board-attention", optional: true, title: "What needs you",
+        body: "Tasks waiting for your review, assigned to you, or stuck. Click one to see only those." },
+      { target: "board-columns", optional: true, title: "Drag Tasks between statuses",
+        body: "Agents claim Ready Tasks and record checkpoints as they work. Open a card to change it, comment to its agent, or see where its work stands." },
     ],
   },
   {

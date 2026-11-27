@@ -173,14 +173,16 @@ Every AI client that uses Imprint starts its own MCP server, and each one is a s
 
 **Board** shows the workspace's [Tasks](tasks.md) in a column per status and refreshes every 5 seconds while agents work ([ADR 0208](adr/0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md)).
 
-- A card shows the Task's id, priority, project, title, Feature, tags and assignees, who holds it and when it last made progress, a **Stalling**, **Stale**, **Blocked** or **Waits on** mark, and its comments.
-- **Find tasks** searches ids, titles, descriptions, criteria and tags; the filters narrow to a project, Feature, tag, priority, assignee or agent, and **Group by** splits each column by project or Feature. The filters and grouping are kept in this browser.
+- **What needs you** counts the Tasks waiting for your review, assigned to you, Stale, Stalling and Blocked; clicking a count shows only those Tasks.
+- A card shows the Task's id, priority, project, title, Feature (or, on a Feature, how many Tasks it has), tags and assignees, the agent working on it and when it last made progress, a **Stalling**, **Stale**, **Blocked** or **Waits on** mark, and its comments.
+- Done and Cancelled start folded to narrow strips with their counts, so every status fits; a strip unfolds on click and still takes a dropped card. Which columns are unfolded is kept in this browser.
+- **Find tasks** searches ids, titles, descriptions, criteria and tags. **Filters** narrows to a project, Feature, tag, priority, assignee or agent, and the filters on show under the toolbar, each with its own clear button. **Group by** splits each column by project or Feature. Filters and grouping are kept in this browser.
 - Drag a card to another column, or onto a card to place it above, or use the card's menu. A move the Board refuses, such as Ready without an acceptance criterion, says why and offers to add criteria.
 - **New task** puts one in Backlog, or in Ready with criteria.
-- A card opens the Task: status, priority, Feature, the agent working on it with a **Release** button, the Blocked mark, criteria, description, tags and assignees, where the work stands (last checkpoint, branch and commit, files, the previous agent's conversation), comments with a box to address an agent, the history, **Cancel task** and **Delete**. The address opens it too (`/agents/?task=T-…#board`).
-- The advanced dashboard sets what agents take unasked in this workspace (`tasks.autonomy`).
+- A card opens the Task: status, priority, Feature, the agent working on it with a **Release** button (a Stale Task offers **Move back to Ready**), the Blocked mark, criteria, description, tags and assignees, where the work stands (last checkpoint, branch and commit, files, the agent's conversation), comments with a box to address an agent, the history, **Cancel task** and **Delete**. The address opens it too (`/agents/?task=T-…#board`).
+- Below the Board, the advanced dashboard sets what agents take unasked in this workspace (`tasks.autonomy`).
 - On any page, a comment an agent addressed to you, or a Task reaching Review, shows a toast with **Open**; in the desktop app it is also a native notification while the dashboard is not in front.
-- The simple dashboard shows the Board without the history, lease times, branch and files.
+- The simple dashboard shows the Board without the history, lease times, branch and files. The Agents page's tutorial walks through the tabs, what needs you and the columns.
 
 ### Commands
 
