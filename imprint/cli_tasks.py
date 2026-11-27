@@ -22,7 +22,9 @@ Usage:
     python -m imprint.cli_tasks block TASK REASON
     python -m imprint.cli_tasks unblock|cancel|release TASK
     python -m imprint.cli_tasks delete TASK --yes
+    python -m imprint.cli_tasks dispatch on|off|status
     python -m imprint.cli_tasks dispatch run TASK [--client claude-code] [--minutes N]
+    python -m imprint.cli_tasks dispatch stop RUN
 
 FILTERS: --project P --feature F --tag T --status S --priority P --assignee A --holder H --text T.
 Every command takes ``--workspace W`` (default: the active workspace) and
@@ -34,6 +36,7 @@ import argparse
 import json
 import os
 import sys
+import time
 
 from . import tasks, tasks_tool
 
@@ -132,6 +135,10 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument('task')
     run.add_argument('--client', default='claude-code', help='The client to start (default: claude-code)')
     run.add_argument('--minutes', type=float, help='Its time limit (default: dispatch.session_minutes)')
+    actions.add_parser('on', parents=[common], help="Switch this device's Dispatcher on for the workspace")
+    actions.add_parser('off', parents=[common], help="Switch this device's Dispatcher off for the workspace")
+    actions.add_parser('status', parents=[common], help='What the Dispatcher does on this device')
+    actions.add_parser('stop', parents=[common], help='Stop a running Dispatched session').add_argument('run')
     return parser
 
 
@@ -140,8 +147,52 @@ def _filters(args) -> dict:
                               priority=args.priority, assignee=args.assignee, holder=args.holder, text=args.text)
 
 
+def _dispatch_status(workspace: str) -> dict:
+    from .dispatch import folders, loop, store
+    return {'workspace': workspace, 'on': store.switched_on(workspace), 'server': loop.server_running(),
+            'autonomy': tasks.autonomy(workspace), 'running': loop.running_runs(), 'recent': store.recent(5),
+            'candidates': [s['id'] for s in loop.candidates(workspace)][:10],
+            'projects': folders.open_projects(workspace)}
+
+
+def _dispatch_status_text(status: dict) -> str:
+    lines = [f"Dispatcher for {status['workspace']} on this device: {'on' if status['on'] else 'off'}"
+             f"{'' if status['server'] or not status['on'] else ' (the dashboard server is not running: nothing is dispatched until it is)'}",
+             f"Agents take unasked here: {status['autonomy']}"]
+    lines.append('Running:' if status['running'] else 'Running: none')
+    lines += [f"  {r['id']}  {r['task']} {r['title']} ({r['client']}, since "
+              f"{time.strftime('%H:%M', time.localtime(r['started_at']))})" for r in status['running']]
+    if status['candidates']:
+        lines.append('Next to take: ' + ', '.join(status['candidates']))
+    lines.append('Projects with open Tasks:' if status['projects'] else 'Projects with open Tasks: none')
+    lines += [f"  {p['project']}: {p['path']} ({p['branch'] or 'detached'})" if p['ok'] else f"  {p['project']}: {p['reason']}"
+              for p in status['projects']]
+    if status['recent']:
+        lines.append('Recent:')
+        lines += [f"  {r['id']}  {r['task']} {r['outcome'] or 'running'}"
+                  f"{': ' + r['detail'] if r['detail'] and r['outcome'] != 'review' else ''}" for r in status['recent']]
+    return '\n'.join(lines)
+
+
 def _dispatch(args, workspace: str | None, as_json: bool) -> None:
-    from .dispatch import dispatched
+    from .dispatch import dispatched, store
+    from .workspace_policy import workspace_name
+    action, name = args.dispatch_command, workspace_name(workspace)
+    if action in ('on', 'off'):
+        store.switch(name, action == 'on')
+        note = ('' if action == 'off' or _dispatch_status(name)['server'] else
+                ' It dispatches while the dashboard server runs: start it with `imprint ui start`.')
+        _print({'workspace': name, 'on': action == 'on'}, as_json,
+               f"Dispatcher for {name} on this device: {action}.{note}")
+        return
+    if action == 'status':
+        status = _dispatch_status(name)
+        _print(status, as_json, _dispatch_status_text(status))
+        return
+    if action == 'stop':
+        stopped = dispatched.request_stop(args.run)
+        _print(stopped, as_json, f"Stopped Dispatched session {stopped['id']} on {stopped['task']}.")
+        return
 
     def started(run):
         if not as_json:

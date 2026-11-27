@@ -402,6 +402,10 @@ HELP: dict[str, dict[str, str]] = {
         "example": "stale: to let agents finish abandoned work but start nothing new by themselves.",
     },
     # ── The Dispatcher ───────────────────────────────────────────────────
+    "dispatch.concurrency": {
+        "help": "How many Dispatched sessions may run at once on this device, across every workspace whose Dispatcher you switched on, counting ones started with imprint tasks dispatch run. Each one works in its own worktree and uses your client's usage. 1 by default; 0 starts none.",
+        "example": "2: to let two Tasks be worked at the same time.",
+    },
     "dispatch.session_minutes": {
         "help": "How long one Dispatched session, an agent session Imprint's Dispatcher started for a Task without you, may run. A session still running then is stopped, its claim released with the end of its log, and the run counts as failed. 60 minutes by default.",
         "example": "120: when your Tasks are large and sessions need longer to reach Review.",

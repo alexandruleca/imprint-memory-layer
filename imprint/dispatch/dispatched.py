@@ -18,7 +18,7 @@ import sys
 import time
 import uuid
 
-from .. import tasks
+from .. import processes, tasks
 from ..tasks.actors import SYSTEM
 from . import folders, runners, store, worktrees
 
@@ -91,32 +91,36 @@ def _group() -> dict:
     return {'start_new_session': True}
 
 
-def stop(proc: subprocess.Popen, grace: float = STOP_GRACE) -> None:
-    """End the client and everything it started: SIGTERM, then SIGKILL after ``grace`` seconds."""
-    if proc.poll() is not None:
-        return
+def _signal_group(pid: int, force: bool) -> None:
     if sys.platform == 'win32':
-        subprocess.run(['taskkill', '/PID', str(proc.pid), '/T'], capture_output=True,
+        subprocess.run(['taskkill', '/PID', str(pid), '/T', *(['/F'] if force else [])], capture_output=True,
                        creationflags=subprocess.CREATE_NO_WINDOW)
-    else:
-        try:
-            os.killpg(proc.pid, signal.SIGTERM)
-        except OSError:
-            proc.terminate()
+        return
     try:
-        proc.wait(timeout=grace)
-        return
-    except subprocess.TimeoutExpired:
-        pass
-    if sys.platform == 'win32':
-        subprocess.run(['taskkill', '/PID', str(proc.pid), '/T', '/F'], capture_output=True,
-                       creationflags=subprocess.CREATE_NO_WINDOW)
-    else:
+        os.killpg(pid, signal.SIGKILL if force else signal.SIGTERM)
+    except OSError:
         try:
-            os.killpg(proc.pid, signal.SIGKILL)
+            os.kill(pid, signal.SIGKILL if force else signal.SIGTERM)
         except OSError:
-            proc.kill()
-    proc.wait()
+            pass
+
+
+def kill(pid: int, proc: subprocess.Popen | None = None, grace: float = STOP_GRACE) -> None:
+    """End a client and everything it started: SIGTERM to its process group
+    (a tree kill on Windows), then SIGKILL after ``grace`` seconds. Works
+    on a session another process started, by its pid."""
+    def alive():
+        return proc.poll() is None if proc else processes.is_alive(pid)
+    if not pid or not alive():
+        return
+    _signal_group(pid, force=False)
+    deadline = time.monotonic() + grace
+    while alive() and time.monotonic() < deadline:
+        time.sleep(0.1)
+    if alive():
+        _signal_group(pid, force=True)
+    if proc:
+        proc.wait()
 
 
 def log_tail(path, limit: int = LOG_TAIL) -> str:
@@ -176,7 +180,8 @@ def start(task: str, *, workspace: str | None = None, client: str = 'claude-code
     run = store.add({'id': run_id, 'workspace': workspace, 'task': state['id'], 'title': state['title'],
                      'project': state['project'], 'client': runner.client, 'role': role,
                      'session': session_of(run_id), 'conversation': conversation, 'worktree': worktree['path'],
-                     'branch': worktree['branch'], 'base': worktree['base'], 'started_at': time.time()})
+                     'branch': worktree['branch'], 'base': worktree['base'], 'started_at': time.time(),
+                     'watcher': os.getpid()})
     try:
         claimed = tasks.claim(state['id'], actor=actor, pid=os.getpid(), workspace=workspace)
     except (PermissionError, ValueError) as error:
@@ -207,35 +212,73 @@ def start(task: str, *, workspace: str | None = None, client: str = 'claude-code
     return {**run, 'pid': proc.pid}, proc
 
 
+class Session:
+    """A running Dispatched session this process watches: one it started
+    (``proc``), or one it adopted by pid after the process that started it
+    went away. ``step`` renews the Dispatcher's lease until the session
+    takes the claim over, stops the session past its time limit, and
+    records the outcome once it has ended."""
+
+    def __init__(self, run: dict, proc: subprocess.Popen | None = None, *, minutes: float | None = None):
+        from ..config_schema import resolve
+        self.run, self.proc, self.pid = run, proc, run['pid']
+        self.limit = 60 * float(minutes if minutes is not None else resolve('dispatch.session_minutes')[0])
+        self.renewed, self.reason = time.monotonic(), None
+
+    def running(self) -> bool:
+        return self.proc.poll() is None if self.proc else processes.is_alive(self.pid)
+
+    def stop(self, reason: str) -> None:
+        self.reason = self.reason or reason
+        kill(self.pid, self.proc)
+
+    def step(self) -> dict | None:
+        """None while the session runs; the run's record once it has ended."""
+        if self.running():
+            if time.time() - self.run['started_at'] > self.limit:
+                self.stop(f'ran past its {self.limit / 60:g}-minute limit and was stopped')
+            elif time.monotonic() - self.renewed >= RENEW_EVERY:
+                tasks.renew(self.run['session'], pid=self.pid)
+                self.renewed = time.monotonic()
+            if self.running():
+                return None
+        code = self.proc.wait() if self.proc else None  # An adopted session's exit code is not known.
+        return finish(self.run['id'], code, reason=self.reason)
+
+
 def watch(run: dict, proc: subprocess.Popen, *, minutes: float | None = None) -> dict:
-    """Wait for the session to end, renewing the Dispatcher's lease until
-    the session takes the claim over and stopping it past ``minutes``
-    (``dispatch.session_minutes``); then record its outcome."""
-    from ..config_schema import resolve
-    limit = 60 * float(minutes if minutes is not None else resolve('dispatch.session_minutes')[0])
-    started, renewed, reason = time.monotonic(), time.monotonic(), None
+    """Wait for the session to end, then record its outcome (``Session.step``)."""
+    session = Session(run, proc, minutes=minutes)
     try:
-        while proc.poll() is None:
-            now = time.monotonic()
-            if now - started > limit:
-                reason = f'ran past its {limit / 60:g}-minute limit and was stopped'
-                stop(proc)
-                break
-            if now - renewed >= RENEW_EVERY:
-                tasks.renew(run['session'], pid=proc.pid)
-                renewed = now
+        while (ended := session.step()) is None:
             time.sleep(POLL)
     except KeyboardInterrupt:
-        reason = 'was stopped by the person'
-        stop(proc)
-    return finish(run['id'], proc.wait(), reason=reason)
+        session.stop('was stopped by the person')
+        ended = session.step()
+    return ended
+
+
+def request_stop(run_id: str, reason: str = 'was stopped by the person') -> dict:
+    """Stop a running session from any process: the reason is recorded for
+    whoever watches it, then its process group is ended."""
+    run = store.get(run_id)
+    if run is None:
+        raise LookupError(f'No Dispatched session {run_id} on this device')
+    if run['ended_at'] is not None:
+        raise ValueError(f"Dispatched session {run_id} already ended: {run['detail']}")
+    store.update(run_id, stop_reason=reason)
+    kill(run['pid'])
+    return store.get(run_id)
 
 
 def finish(run_id: str, exit_code: int | None, *, reason: str | None = None) -> dict:
     """Record how the run ended. A worker whose Task is in Review succeeded;
     any other end releases the claim this run holds, with a comment."""
     run = store.get(run_id)
+    if run['ended_at'] is not None:
+        return run  # Already recorded, by whoever saw it end first.
     workspace, task = run['workspace'], run['task']
+    reason = reason or run.get('stop_reason')
     state = tasks.get(task, workspace=workspace)
     if not reason and run['role'] == 'work' and state['status'] == 'review':
         outcome, detail = 'review', 'moved the Task to Review'

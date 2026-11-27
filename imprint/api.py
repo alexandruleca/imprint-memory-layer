@@ -165,6 +165,9 @@ async def _start_queue_dispatcher():
     # Reminders, timers and scheduled jobs fire from this process (ADR 0158).
     from . import schedule
     schedule.start(run_prompt=_scheduled_prompt)
+    # The Dispatcher starts agent sessions for Tasks where the person switched it on (ADR 0220).
+    from .dispatch import loop as dispatch_loop
+    dispatch_loop.start()
     # Skills and personas: written into the clients, edits there taken back (ADR 0169).
     from . import registry_files
     app.state.registry_pass = asyncio.create_task(registry_files.loop())
@@ -181,6 +184,8 @@ async def _stop_sync_worker():
     await shutdown()
     from . import schedule
     schedule.stop()
+    from .dispatch import loop as dispatch_loop
+    await asyncio.to_thread(dispatch_loop.stop)
     chat_replies.stop_all()
     for name in ('sync_worker', 'registry_pass'):
         task = getattr(app.state, name, None)
@@ -1296,7 +1301,9 @@ def _auto_shutdown_watcher():
     """Background thread: shuts down server when UI disconnects."""
     while not _shutdown_event.is_set():
         _shutdown_event.wait(5)
-        if _last_ui_ping and time.time() - _last_ui_ping > _SHUTDOWN_GRACE:
+        from .dispatch import loop as dispatch_loop
+        # A Dispatched session this server watches keeps it up until the session ends (ADR 0220).
+        if _last_ui_ping and time.time() - _last_ui_ping > _SHUTDOWN_GRACE and not dispatch_loop.busy():
             _shutdown_event.set()
             os.kill(os.getpid(), signal.SIGINT)
             break

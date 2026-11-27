@@ -64,22 +64,34 @@ def _standalone(view: _View, state: dict, features: set[str]) -> bool:
     return state['uid'] not in features and state['feature'] not in view.by_uid
 
 
+def takeable(*, projects=None, client: str | None = None, device: str | None = None,
+             workspace: str | None = None) -> list[dict]:
+    """Every Task an agent of ``client`` on ``device`` may take unasked, in
+    the Board's order (highest priority, then position, then oldest):
+    standalone, Ready or Stale as the workspace's autonomy allows, open to a
+    claim and for that agent. ``projects`` limits it to those projects; the
+    Dispatcher looks across every project with a folder on its device
+    (ADR 0220)."""
+    mode = autonomy(workspace)
+    if mode == 'off':
+        return []
+    with _reading(workspace) as conn:
+        view = _view(conn)
+    features = {s['feature'] for s in view.by_uid.values() if s['feature']}
+    found = [s for s in view.by_uid.values()
+             if (projects is None or s['project'] in projects) and _standalone(view, s, features)
+             and _for_agent(s['assignees'], client, device) and _takeable(view, s, ready=mode == 'ready')]
+    return [view.public(s) for s in sorted(found, key=_order)]
+
+
 def next_task(*, project: str, client: str | None = None, device: str | None = None,
               workspace: str | None = None) -> dict | None:
     """The Task an agent of ``client`` on ``device`` working in ``project``
     may take unasked, if any: a standalone one, highest priority, then
     position, then oldest. A Feature's Tasks are taken when asked, through
     its frontier."""
-    mode = autonomy(workspace)
-    if mode == 'off':
-        return None
-    with _reading(workspace) as conn:
-        view = _view(conn)
-    features = {s['feature'] for s in view.by_uid.values() if s['feature']}
-    found = [s for s in view.by_uid.values()
-             if s['project'] == project and _standalone(view, s, features)
-             and _for_agent(s['assignees'], client, device) and _takeable(view, s, ready=mode == 'ready')]
-    return view.public(min(found, key=_order)) if found else None
+    found = takeable(projects={project}, client=client, device=device, workspace=workspace)
+    return found[0] if found else None
 
 
 def frontier(feature: str, workspace: str | None = None) -> list[dict]:

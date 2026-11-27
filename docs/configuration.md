@@ -179,6 +179,7 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `organize.background` | `false` | Organize new and changed memories when the queue is idle, after background tagging ([ADR 0132](adr/0132-organize-runs-in-the-idle-slot-after-background-tagging.md)) |
 | `organize.auto_move` | `true` | Move catch-all sources with strong evidence without review; weaker proposals still wait ([ADR 0133](adr/0133-strong-placements-apply-by-themselves.md)) |
 | **The Dispatcher** | | |
+| `dispatch.concurrency` | `1` | Dispatched sessions that may run at once on this device, across workspaces; `0` starts none. Env `IMPRINT_DISPATCH_CONCURRENCY` ([ADR 0220](adr/0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md), proposed) |
 | `dispatch.session_minutes` | `60` | Minutes a Dispatched session may run before the Dispatcher stops it and counts it failed. Env `IMPRINT_DISPATCH_SESSION_MINUTES` ([ADR 0220](adr/0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md), proposed) |
 | `dispatch.claude_code.command` | — | Claude Code's binary for Dispatched sessions when `claude` is not on PATH. Env `IMPRINT_DISPATCH_CLAUDE_CODE_COMMAND` ([ADR 0222](adr/0222-only-clients-with-a-sandbox-or-a-check-of-each-action-are-dispatched.md), proposed) |
 | **Upkeep** | | |

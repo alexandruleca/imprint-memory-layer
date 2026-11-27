@@ -1,7 +1,8 @@
-"""The Dispatcher's record of its runs, in ``data/dispatch.sqlite3``.
+"""The Dispatcher's switches and record of its runs, in ``data/dispatch.sqlite3``.
 
-Device-local and never synced: each device's Dispatcher keeps what it
-started. Each run's output goes to ``data/dispatch/<run id>.log``.
+Device-local and never synced (ADR 0220): each device switches its own
+Dispatcher on per workspace and keeps what it started. Each run's output
+goes to ``data/dispatch/<run id>.log``.
 """
 
 from __future__ import annotations
@@ -14,7 +15,10 @@ from pathlib import Path
 from .. import config
 
 COLUMNS = ('id', 'workspace', 'task', 'title', 'project', 'client', 'role', 'session', 'conversation', 'claim',
-           'pid', 'worktree', 'branch', 'base', 'started_at', 'ended_at', 'exit_code', 'outcome', 'detail')
+           'pid', 'worktree', 'branch', 'base', 'started_at', 'ended_at', 'exit_code', 'outcome', 'detail',
+           'watcher', 'stop_reason')
+# Columns later Tasks of the Dispatcher added to a store that existed before them.
+_ADDED = {'watcher': 'INTEGER', 'stop_reason': 'TEXT'}
 
 
 def _db_path() -> Path:
@@ -36,7 +40,34 @@ def _connect() -> sqlite3.Connection:
         ' branch TEXT, base TEXT, started_at REAL NOT NULL, ended_at REAL, exit_code INTEGER, outcome TEXT,'
         ' detail TEXT)')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_runs_started ON runs(started_at DESC)')
+    have = {row[1] for row in conn.execute('PRAGMA table_info(runs)')}
+    for column, kind in _ADDED.items():
+        if column not in have:
+            conn.execute(f'ALTER TABLE runs ADD COLUMN {column} {kind}')
+    conn.execute('CREATE TABLE IF NOT EXISTS switches (workspace TEXT PRIMARY KEY, enabled INTEGER NOT NULL,'
+                 ' changed_at REAL NOT NULL)')
     return conn
+
+
+def switched_on(workspace: str) -> bool:
+    """Whether the person switched the Dispatcher on for ``workspace`` on this device; off by default."""
+    with closing(_connect()) as conn:
+        row = conn.execute('SELECT enabled FROM switches WHERE workspace = ?', (workspace,)).fetchone()
+    return bool(row and row['enabled'])
+
+
+def switch(workspace: str, enabled: bool) -> bool:
+    with closing(_connect()) as conn, conn:
+        conn.execute('INSERT INTO switches (workspace, enabled, changed_at) VALUES (?, ?, ?) ON CONFLICT (workspace)'
+                     ' DO UPDATE SET enabled = excluded.enabled, changed_at = excluded.changed_at',
+                     (workspace, int(bool(enabled)), time.time()))
+    return bool(enabled)
+
+
+def switched_on_workspaces() -> list[str]:
+    with closing(_connect()) as conn:
+        return [row['workspace'] for row in conn.execute('SELECT workspace FROM switches WHERE enabled = 1 '
+                                                         'ORDER BY workspace')]
 
 
 def add(run: dict) -> dict:
@@ -61,6 +92,12 @@ def get(run_id: str) -> dict | None:
     with closing(_connect()) as conn:
         row = conn.execute('SELECT * FROM runs WHERE id = ?', (run_id,)).fetchone()
     return dict(row) if row else None
+
+
+def unfinished() -> list[dict]:
+    """Runs that have not recorded how they ended, oldest first."""
+    with closing(_connect()) as conn:
+        return [dict(row) for row in conn.execute('SELECT * FROM runs WHERE ended_at IS NULL ORDER BY started_at')]
 
 
 def recent(limit: int = 20) -> list[dict]:

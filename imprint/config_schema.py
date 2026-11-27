@@ -409,6 +409,8 @@ SETTINGS: list[Setting] = [
             choices=(Choice("ready", "Ready and Stale"), Choice("stale", "Stale only"), Choice("off", "Off"))),
 
     # ── The Dispatcher (ADRs 0220, 0222) ──────────────────────
+    Setting("dispatch.concurrency",         "IMPRINT_DISPATCH_CONCURRENCY",         1,  int,
+            "Dispatched sessions that may run at once on this device, across workspaces"),
     Setting("dispatch.session_minutes",     "IMPRINT_DISPATCH_SESSION_MINUTES",     60, int,
             "Minutes a Dispatched session may run before the Dispatcher stops it"),
     Setting("dispatch.claude_code.command", "IMPRINT_DISPATCH_CLAUDE_CODE_COMMAND", "", str,
