@@ -94,6 +94,7 @@ export default defineConfig({
             { label: 'Echo voice companion', slug: 'live-voice' },
             { label: 'Browser extension (preview)', slug: 'browser-extension' },
             { label: 'Skills and personas', slug: 'skills' },
+            { label: 'The Board', slug: 'tasks' },
             { label: 'MCP tools', slug: 'mcp' },
             { label: 'HTTP API', slug: 'api' },
           ],

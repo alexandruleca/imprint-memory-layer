@@ -4,7 +4,7 @@ description: The 21 MCP tools Imprint exposes to coding agents — search, batch
 ---
 ## MCP Tools
 
-The imprint MCP server exposes **21 tools**. `wake_up` is internal. Compact search is the default: it returns focused evidence without automatically attaching broad session context. Request `detail="full"` to include workspace context on the first such search in a session.
+The imprint MCP server exposes **23 tools**. `wake_up` is internal. Compact search is the default: it returns focused evidence without automatically attaching broad session context. Request `detail="full"` to include workspace context on the first such search in a session.
 
 `purge_sources(target, workspace, kind="source", recursive=False, apply=False)` previews a file/directory cleanup. After user confirmation, repeat with `apply=True` and the explicit reviewed workspace. `kind="path"` matches recorded absolute paths; source mode also supports legacy/synced records. Apply deletes indexed copies, removes matching source-linked graph facts and excludes re-ingestion until restored. It is annotated as destructive even though preview is the default. Original files, other workspaces, logs and backups are unaffected. See [workspaces](workspaces.md).
 
@@ -66,6 +66,8 @@ The user's skills and personas ([skills](skills.md)) reach every MCP client thro
 |------|---------|
 | `skills` | Read-only. `action="list"` names every skill and persona with its description; `action="get", name=...` returns its `SKILL.md` or `PERSONA.md`, or another file of a skill with `path`, 20,000 characters at a time (`start`/`next_start`). `kind` picks between a skill and a persona of the same name. |
 | `skill_edit` | `action="create"` keeps a new item from `name`, `description` and `instructions` (or `files` with its main file); `action="edit"` replaces the description or instructions, adds or replaces `files` (`null` removes one) or sets `state` to `disabled` or `active`. The registry validates and refuses credentials; each change is written into the clients' folders at once and the replaced version stays in this device's history. Removing an item is the user's, in Imprint. |
+| `tasks` | Reads the workspace's [Board](tasks.md): `board` (Tasks by status), `list` (filtered by `project`, `feature`, `tag`, `status`, `priority`, `assignee`, `text`; `archived` adds Tasks that ended over 14 days ago), `get`, `history`, `next` (the Task this agent may take unasked in its project; with `feature`, that Feature's frontier), `handoff` (where a Task's work stands) and `inbox` (unread comments addressed to this session). Each reply may start with a notice: a lost claim, new comments, or a Stalling claim. |
+| `task_edit` | Changes the Board as this agent session: `create`, `edit`, `append`, `move`, `tag`/`assign`/`link` (`add`, `remove`), `block`/`unblock`, `cancel`; `claim` (returns a claim token; `token` takes a claim back after a restart), `checkpoint` (`text`, `next_step`, `branch`, `commit`, `files`), `release`; `name` (the name the agent goes by) and `comment` (`text`, `to`). Agents cannot delete Tasks; the session that did the work cannot move it to Done. |
 
 ### Knowledge graph
 
