@@ -87,7 +87,7 @@ imprint tasks next --feature T-2b9hd           # a Feature's frontier: what can 
 imprint tasks delete T-7f3kq --yes             # gone here, leaving a tombstone
 imprint tasks dispatch on                      # this device's Dispatcher, for this workspace; off by default (ADR 0220, proposed)
 imprint tasks dispatch status                  # on or off, running sessions, what it would take next
-imprint tasks dispatch run T-7f3kq             # start a Dispatched session on it now and wait (ADR 0220, proposed)
+imprint tasks dispatch run T-7f3kq             # start a Dispatched session on it now and wait; --client codex (ADR 0220, proposed)
 imprint tasks dispatch stop 46b07b86f855       # stop a running Dispatched session
 ```
 

@@ -16,7 +16,7 @@ What each client offers for one-shot, unattended runs, from its `--help` where i
 | Client | One-shot mode | Unattended safety | Bypasses |
 | --- | --- | --- | --- |
 | Claude Code 2.1.332 | `claude -p` | `--permission-mode auto`: a classifier checks each action | `--permission-mode bypassPermissions`, `--dangerously-skip-permissions` |
-| Codex 0.171 | `codex exec` | `--sandbox workspace-write` with `--approve-for-me`: an OS sandbox, and approvals reviewed automatically | `--dangerously-bypass-approvals-and-sandbox`, `--sandbox danger-full-access` |
+| Codex 0.171 | `codex exec` | `--approve-for-me`: commands run in the workspace-write OS sandbox, and approval requests are reviewed automatically (Codex refuses `--sandbox` beside it) | `--dangerously-bypass-approvals-and-sandbox`, `--sandbox danger-full-access` |
 | Cursor CLI | `agent -p` | actions outside its allow-list refused; `--sandbox enabled` (Landlock on Linux) | `--force`, `--yolo`, `--sandbox disabled` |
 | GitHub Copilot CLI | `copilot -p` | requests that need approval refused; `--assisted-approval`; `--sandbox` for shell commands | `--allow-all`, `--yolo`, `--allow-all-tools`, `COPILOT_ALLOW_ALL` |
 | OpenCode | `opencode run` | none: no sandbox, and its default policy allows everything but `.env` files | `--auto` |
@@ -43,14 +43,15 @@ There is no full-access option.
 - how to find the binary;
 - which safety flags it requires, and which flags it refuses;
 - how the session's id is set or read;
-- how its output is read.
+- how its output is read;
+- what a session needs to know about its own sandbox, added to its prompt. Codex's sandbox keeps git's folders read-only, so its sessions run `git add` and `git commit` with escalated permissions, which its automatic review approves for their own branch (found in the first real run, 2026-11-27).
 
 The first version ships two runners. Both take the model and effort from the client's own configuration.
 
 | Runner | Command |
 | --- | --- |
 | Claude Code | `claude -p --permission-mode auto --session-id <uuid> --output-format stream-json` |
-| Codex | `codex exec --sandbox workspace-write --approve-for-me -C <worktree> --json` |
+| Codex | `codex exec --approve-for-me -C <worktree> -c sandbox_workspace_write.writable_roots=['<the repository's git folder>'] --json --output-last-message <file>` |
 
 Cursor CLI and Copilot CLI get runners once a device can test them.
 

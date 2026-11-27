@@ -419,6 +419,12 @@ SETTINGS: list[Setting] = [
             "Failed Dispatched sessions in a row after which the Dispatcher switches itself off; 0 never"),
     Setting("dispatch.claude_code.command", "IMPRINT_DISPATCH_CLAUDE_CODE_COMMAND", "", str,
             "Claude Code's binary for Dispatched sessions when it is not on PATH"),
+    Setting("dispatch.codex.command",       "IMPRINT_DISPATCH_CODEX_COMMAND",       "", str,
+            "Codex's binary for Dispatched sessions when it is not on PATH"),
+    Setting("dispatch.default_client",      "IMPRINT_DISPATCH_DEFAULT_CLIENT",      "", str,
+            "The client Dispatched sessions use for a Task assigned to none; empty: the first allowed"),
+    Setting("dispatch.excluded_clients",    "IMPRINT_DISPATCH_EXCLUDED_CLIENTS",    "", str,
+            "Comma-separated clients the Dispatcher never starts, though available"),
 
     # ── Client rules (ADR 0214) ───────────────────────────────
     # Setup gives clients that load skills a short rules block pointing to

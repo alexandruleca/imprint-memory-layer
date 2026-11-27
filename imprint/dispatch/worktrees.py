@@ -90,8 +90,10 @@ def prepare(folder: dict, task_id: str, title: str) -> dict:
             git.run(folder['path'], 'worktree', 'add', '-b', branch, path, base)
         created = True
     cwd = os.path.join(path, *folder['subfolder'].split('/')) if folder.get('subfolder') else path
+    # The folder a worktree's commits are written to: the repository's own git folder.
+    git_dir = git.run(path, 'rev-parse', '--path-format=absolute', '--git-common-dir')
     return {'path': path, 'cwd': cwd, 'branch': branch, 'base': base, 'base_commit': folder['commit'],
-            'created': created}
+            'git_dir': git_dir, 'created': created}
 
 
 def remove(folder: dict, task_id: str) -> bool:

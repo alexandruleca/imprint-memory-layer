@@ -1,14 +1,17 @@
 "use client";
 
-import { useState } from "react";
-import { Bot, ChevronDown, Square } from "lucide-react";
+import { useRef, useState } from "react";
+import { Bot, ChevronDown, Square, TerminalSquare } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Timestamp } from "@/components/timestamp";
-import { getDispatch, setDispatch, stopDispatched, type DispatchRun, type DispatchStatus } from "@/lib/api";
+import { getDispatch, setConfigValue, setDispatch, stopDispatched, type DispatchRun, type DispatchStatus } from "@/lib/api";
 import { useCached } from "@/lib/use-cached";
 import { cn } from "@/lib/utils";
 
@@ -25,8 +28,64 @@ const OUTCOMES: Record<string, { label: string; tone: string }> = {
  * the other devices whose Dispatcher is on, and the last results. Only the
  * person switches it; agents have no tool for it.
  */
+/** The clients the Dispatcher may start here: tick or untick each, and choose the default (ADR 0222). */
+function ClientsPicker({ data, onChanged }: { data: DispatchStatus; onChanged: () => void }) {
+  const allowed = data.clients.filter((c) => c.allowed);
+  const chosen = allowed.find((c) => c.default);
+  async function save(key: string, value: string, done: string) {
+    try { await setConfigValue(key, value); onChanged(); toast.success(done); }
+    catch (e) { toast.error("Not changed", { description: e instanceof Error ? e.message : String(e) }); }
+  }
+  function tick(client: string, on: boolean) {
+    const off = new Set(data.clients.filter((c) => c.available && !c.allowed).map((c) => c.client));
+    if (on) off.delete(client); else off.add(client);
+    void save("dispatch.excluded_clients", [...off].join(","), on ? "Client allowed" : "Client unticked");
+  }
+  return (
+    <Popover>
+      <PopoverTrigger render={<Button variant="outline" size="xs" aria-label="Clients the Dispatcher may start" />}>
+        <TerminalSquare aria-hidden /> {allowed.length ? allowed.map((c) => c.label).join(", ") : "No client"}
+      </PopoverTrigger>
+      <PopoverContent align="start" className="grid w-96 max-w-[calc(100vw-2rem)] gap-3 text-xs">
+        <p className="text-muted-foreground">
+          Clients this device can start unattended: each runs in its own sandbox or checks each action, never with its
+          safety switched off. A task assigned to a client goes to that client.
+        </p>
+        <ul className="grid gap-2" aria-label="Clients">
+          {data.clients.map((c) => (
+            <li key={c.client} className="flex items-start gap-2">
+              <Checkbox aria-label={`Allow ${c.label}`} checked={c.allowed} disabled={!c.available}
+                onCheckedChange={(on) => tick(c.client, on === true)} />
+              <div className="min-w-0">
+                <div className="font-medium">{c.label}{c.version && <span className="ml-1 font-normal text-muted-foreground">{c.version}</span>}</div>
+                {!c.available && c.reason && <div className="text-muted-foreground">{c.reason}</div>}
+              </div>
+            </li>
+          ))}
+        </ul>
+        {allowed.length > 1 && (
+          <label className="flex flex-wrap items-center gap-2">
+            <span>For tasks assigned to no client:</span>
+            <Select items={allowed.map((c) => ({ value: c.client, label: c.label }))} value={chosen?.client ?? null}
+              onValueChange={(next) => { if (next && next !== chosen?.client) void save("dispatch.default_client", next, "Default client changed"); }}>
+              <SelectTrigger size="sm" className="h-7 text-xs" aria-label="Default client"><SelectValue /></SelectTrigger>
+              <SelectContent>{allowed.map((c) => <SelectItem key={c.client} value={c.client}>{c.label}</SelectItem>)}</SelectContent>
+            </Select>
+          </label>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function DispatcherStrip({ now, onOpen }: { now: Date; onOpen: (task: string) => void }) {
-  const status = useCached<DispatchStatus>("tasks-dispatch", getDispatch, { refreshInterval: 5000 });
+  // The clients are checked again when the strip first opens, then hourly by the server (ADR 0222).
+  const checked = useRef(false);
+  const status = useCached<DispatchStatus>("tasks-dispatch", () => {
+    const refresh = !checked.current;
+    checked.current = true;
+    return getDispatch(refresh);
+  }, { refreshInterval: 5000 });
   const [saving, setSaving] = useState(false);
   const data = status.data;
   if (!data) return null;
@@ -66,9 +125,10 @@ export function DispatcherStrip({ now, onOpen }: { now: Date; onOpen: (task: str
           {data.on
             ? data.autonomy === "off"
               ? "On, but agents take nothing unasked in this workspace."
-              : "On for this device: starts Claude Code on Ready tasks, one at a time, in a worktree of its own."
+              : "On for this device: starts an agent on Ready tasks, one at a time, in a worktree of its own."
             : "Off. Switch it on to have this device start agents on Ready tasks while nobody works on them."}
         </span>
+        <ClientsPicker data={data} onChanged={() => void status.refresh()} />
         {data.devices.length > 0 && (
           <span className="text-xs text-muted-foreground">Also on: {data.devices.map((d) => d.name).join(", ")}</span>
         )}
@@ -94,7 +154,7 @@ export function DispatcherStrip({ now, onOpen }: { now: Date; onOpen: (task: str
       {data.on && !data.held && data.running.length === 0 && (
         <p className="text-xs text-muted-foreground">
           {data.next.length > 0
-            ? <>Next: <Button variant="link" size="sm" className="h-auto px-0 text-xs font-mono" onClick={() => onOpen(data.next[0].id)}>{data.next[0].id}</Button> {data.next[0].title}</>
+            ? <>Next: <Button variant="link" size="sm" className="h-auto px-0 text-xs font-mono" onClick={() => onOpen(data.next[0].id)}>{data.next[0].id}</Button> {data.next[0].title}, for {data.clients.find((c) => c.client === data.next[0].client)?.label ?? data.next[0].client}</>
             : "Nothing to take: no Ready standalone task is open to it."}
         </p>
       )}

@@ -418,6 +418,18 @@ HELP: dict[str, dict[str, str]] = {
         "help": "How many Dispatched sessions may fail in a row (end without reaching Review, crash, or run past their time limit) before the Dispatcher switches itself off on this device and tells you in a comment. Sessions you stop do not count. 3 by default; 0 never switches it off.",
         "example": "1: to look at the very first failure before anything else runs.",
     },
+    "dispatch.codex.command": {
+        "help": "The Codex binary the Dispatcher starts for Dispatched sessions, when codex is neither on the PATH of the system the project lives on nor bundled with the ChatGPT/Codex VS Code extension. Empty by default.",
+        "example": "/opt/codex/bin/codex: when Codex is installed outside PATH.",
+    },
+    "dispatch.default_client": {
+        "help": "The client a Dispatched session uses for a Task that is not assigned to a client: claude-code or codex. Empty by default, which picks the first available client you allow, Claude Code before Codex. A Task assigned to a client always goes to that client, or waits when it is not available here.",
+        "example": "codex: to have Codex work unassigned Tasks, and Claude Code review them.",
+    },
+    "dispatch.excluded_clients": {
+        "help": "Clients the Dispatcher never starts on this device, though they are installed and connected; the Board's strip unticks them here. Empty by default: every available client is allowed.",
+        "example": "codex: to keep Dispatched sessions to Claude Code.",
+    },
     "dispatch.claude_code.command": {
         "help": "The Claude Code binary the Dispatcher starts for Dispatched sessions, when claude is not on the PATH of the system the project lives on. Empty by default: the Dispatcher looks for claude on PATH.",
         "example": "/home/me/.local/bin/claude: when Claude Code is installed outside PATH.",

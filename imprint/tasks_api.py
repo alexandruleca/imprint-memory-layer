@@ -109,11 +109,12 @@ async def set_autonomy(request: Request):
 
 
 @router.get("/dispatch")
-def dispatch_status():
-    """This device's Dispatcher for the active workspace (ADR 0220): the Board's strip."""
+def dispatch_status(refresh: bool = False):
+    """This device's Dispatcher for the active workspace (ADR 0220): the
+    Board's strip; ``refresh`` checks the clients again (ADR 0222)."""
     from .dispatch import status
     try:
-        return status.status(config.get_active_workspace(), projects=False)
+        return status.status(config.get_active_workspace(), projects=False, refresh=refresh)
     except (ValueError, LookupError, OSError) as error:
         return _refused(error)
 

@@ -30,6 +30,10 @@ FAKE_CLAUDE = textwrap.dedent('''\
     sys.path.insert(0, {repo!r})
     from imprint import tasks
     args = sys.argv[1:]
+    if '--version' in args:
+        print('9.9.9 (Claude Code)'); sys.exit(0)
+    if '--help' in args:
+        print('--permission-mode <mode> (choices: "acceptEdits", "auto") --session-id <uuid> --output-format'); sys.exit(0)
     session = args[args.index('--session-id') + 1]
     prompt = sys.stdin.read()
     open(os.environ['FAKE_RECORD'], 'w').write(json.dumps({{'argv': args, 'prompt': prompt, 'cwd': os.getcwd(),
@@ -79,6 +83,11 @@ class DispatchCase(unittest.TestCase):
         self.addCleanup(env.stop)
         agent_activity.close()
         self.addCleanup(agent_activity.close)
+        # Imprint is connected to the fake client, and clients are checked afresh in each test.
+        (self.home / '.claude.json').write_text(json.dumps({'mcpServers': {'imprint': {'command': 'imprint'}}}))
+        from imprint.dispatch import clients
+        clients._cache.clear()
+        self.addCleanup(clients._cache.clear)
         self.repo = self.root / 'code' / 'shop'
         self.repo.mkdir(parents=True)
         _git(self.repo, 'init', '-q', '-b', 'dev')
@@ -234,10 +243,18 @@ class SkillTests(DispatchCase):
 
 
 class RunnerTests(unittest.TestCase):
+    CONTEXT = {'session_id': 'sid-1', 'cwd': '/wt', 'git_dir': '/repo/.git', 'last_message': '/data/run.last'}
+
     def test_claude_code_runs_one_shot_in_auto_mode_with_its_session_id(self):
-        self.assertEqual(runners.CLAUDE_CODE.argv('claude', 'sid-1'),
+        self.assertEqual(runners.CLAUDE_CODE.argv('claude', self.CONTEXT),
                          ['claude', '-p', '--permission-mode', 'auto', '--session-id', 'sid-1',
                           '--output-format', 'stream-json', '--verbose'])
+
+    def test_codex_runs_with_approvals_reviewed_in_its_workspace_write_sandbox(self):
+        self.assertEqual(runners.CODEX.argv('codex', self.CONTEXT),
+                         ['codex', 'exec', '--approve-for-me', '-C', '/wt',
+                          '-c', "sandbox_workspace_write.writable_roots=['/repo/.git']", '--json',
+                          '--output-last-message', '/data/run.last'])
 
     def test_no_bypass_flag_ever_passes(self):
         for flag in ('--dangerously-skip-permissions', '--allow-dangerously-skip-permissions',
@@ -254,7 +271,7 @@ class RunnerTests(unittest.TestCase):
     def test_every_runner_builds_a_command_line_that_passes_the_check(self):
         for runner in runners.RUNNERS.values():
             with self.subTest(runner=runner.client):
-                runners.check(runner.argv(runner.binary, 'sid'))
+                runners.check(runner.argv(runner.binary, self.CONTEXT))
 
 
 class WorktreeNameTests(unittest.TestCase):

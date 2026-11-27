@@ -56,7 +56,11 @@ def instructions() -> str:
     return text.strip()
 
 
-def prompt(state: dict, *, workspace: str, worktree: dict, token: str, role: str = 'work') -> str:
+def prompt(state: dict, *, workspace: str, worktree: dict, token: str, role: str = 'work',
+           note: str = '') -> str:
+    """The Dispatched session's prompt: the Task, where to work, the claim
+    token, its client's ``note`` about its own sandbox, and the
+    instructions of ``imprint-dispatch``."""
     doing = 'work on' if role == 'work' else 'review'
     return '\n'.join([
         f"You are a Dispatched session. Imprint's Dispatcher started you, without the person, to {doing} "
@@ -68,6 +72,7 @@ def prompt(state: dict, *, workspace: str, worktree: dict, token: str, role: str
         f"- Your worktree: {worktree['cwd']}, on branch {worktree['branch']}, made from {worktree['base']} "
         f"at {worktree['base_commit']}",
         f'- Your claim token: {token}',
+        *(['', note] if note else []),
         '',
         'Follow these instructions:',
         '',
@@ -123,9 +128,23 @@ def kill(pid: int, proc: subprocess.Popen | None = None, grace: float = STOP_GRA
         proc.wait()
 
 
+def last_message_path(run_id: str):
+    """Where a client that writes its final message to a file (Codex) puts it."""
+    return store.log_path(run_id).with_suffix('.last')
+
+
 def log_tail(path, limit: int = LOG_TAIL) -> str:
-    """The end of a session's log as people read it: its final result, else
-    its last message, else the raw end of the log."""
+    """The end of a session's log as people read it: the final message the
+    client wrote beside it, else its final result, else its last message,
+    else the raw end of the log."""
+    try:
+        with open(str(path)[:-len('.log')] + '.last' if str(path).endswith('.log') else '', encoding='utf-8',
+                  errors='replace') as last:
+            text = last.read().strip()
+        if text:
+            return text[-limit:]
+    except OSError:
+        pass
     try:
         with open(path, encoding='utf-8', errors='replace') as log:
             lines = log.read().splitlines()
@@ -141,6 +160,9 @@ def log_tail(path, limit: int = LOG_TAIL) -> str:
             continue
         if event.get('type') == 'result' and isinstance(event.get('result'), str) and event['result'].strip():
             return event['result'].strip()[-limit:]
+        item = event.get('item') if isinstance(event.get('item'), dict) else {}
+        if not last_text and item.get('type') == 'agent_message' and isinstance(item.get('text'), str):
+            last_text = item['text'].strip()
         if not last_text and event.get('type') == 'assistant':
             content = (event.get('message') or {}).get('content') or []
             texts = [part.get('text', '') for part in content if isinstance(part, dict) and part.get('type') == 'text']
@@ -160,9 +182,11 @@ def _our_sessions(task: str, run_id: str, workspace: str) -> set[str]:
     return ours
 
 
-def start(task: str, *, workspace: str | None = None, client: str = 'claude-code', role: str = 'work') -> tuple[dict, subprocess.Popen]:
-    """Claim ``task`` and start a Dispatched session of ``client`` on it:
-    (the run's record, the client's process)."""
+def start(task: str, *, workspace: str | None = None, client: str | None = None,
+          role: str = 'work') -> tuple[dict, subprocess.Popen]:
+    """Claim ``task`` and start a Dispatched session of ``client`` on it
+    (by default, the client the Task is assigned to, else the default
+    client, ADR 0222): (the run's record, the client's process)."""
     workspace = _workspace(workspace)
     state = tasks.get(task, workspace=workspace)
     if role == 'work' and state['status'] not in WORKABLE:
@@ -171,11 +195,19 @@ def start(task: str, *, workspace: str | None = None, client: str = 'claude-code
     folder = folders.resolve(state['project'], workspace)
     if not folder['ok']:
         raise LookupError(folder['reason'])
+    if client is None:
+        from . import clients
+        client = clients.for_task(state, clients.allowed(), tasks.device_name())
+        if client is None:
+            raise LookupError(f"No client this device may start for {state['id']}: "
+                              '`imprint tasks dispatch status` says which are available')
     runner = runners.get(client)
-    conversation = str(uuid.uuid4())
-    argv = runners.command(runner, conversation)  # before claiming: a missing client claims nothing
+    runners.command(runner, {'session_id': '', 'cwd': '', 'git_dir': '', 'last_message': ''})  # a missing client claims nothing
     worktree = worktrees.prepare(folder, state['id'], state['title'])
     run_id = uuid.uuid4().hex[:12]
+    conversation = str(uuid.uuid4())
+    argv = runners.command(runner, {'session_id': conversation, 'cwd': worktree['cwd'], 'git_dir': worktree['git_dir'],
+                                    'last_message': str(last_message_path(run_id))})
     actor = tasks.agent(session_of(run_id), client=runner.client)
     run = store.add({'id': run_id, 'workspace': workspace, 'task': state['id'], 'title': state['title'],
                      'project': state['project'], 'client': runner.client, 'role': role,
@@ -193,7 +225,8 @@ def start(task: str, *, workspace: str | None = None, client: str = 'claude-code
                          branch=worktree['branch'], commit=worktree['base_commit'],
                          next_step='The Dispatched session takes the claim over and works the Task.',
                          actor=actor, workspace=workspace)
-        text = prompt(claimed['task'], workspace=workspace, worktree=worktree, token=claimed['token'], role=role)
+        text = prompt(claimed['task'], workspace=workspace, worktree=worktree, token=claimed['token'], role=role,
+                      note=runner.note)
         log = store.log_path(run_id)
         log.parent.mkdir(parents=True, exist_ok=True)
         with open(log, 'wb') as output:
@@ -314,7 +347,7 @@ def finish(run_id: str, exit_code: int | None, *, reason: str | None = None, sto
     return ended
 
 
-def run(task: str, *, workspace: str | None = None, client: str = 'claude-code', minutes: float | None = None,
+def run(task: str, *, workspace: str | None = None, client: str | None = None, minutes: float | None = None,
         on_start=None) -> dict:
     """Dispatch ``task`` now and wait for its session to end: the run's record."""
     started, proc = start(task, workspace=workspace, client=client)

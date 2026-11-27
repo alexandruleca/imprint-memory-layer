@@ -1311,12 +1311,16 @@ export type DispatchStatus = {
   workspace: string; on: boolean; server: boolean; autonomy: Autonomy; running: DispatchRun[]; recent: DispatchRun[];
   /** Why it starts nothing now although it is on, such as the daily limit. */
   held: string | null;
-  next: { id: string; title: string; project: string }[];
+  next: { id: string; title: string; project: string; client: string }[];
+  /** The clients it can start here (ADR 0222): available ones with a version, the rest with the reason. */
+  clients: { client: string; label: string; available: boolean; version: string | null; reason: string | null;
+    allowed: boolean; default: boolean }[];
   /** Other paired devices whose Dispatcher is on for this workspace. */
   devices: { device: string; name: string; on: boolean; at: number }[];
 };
-export function getDispatch() {
-  return fetchAPI<DispatchStatus>("/api/tasks/dispatch");
+/** ``refresh`` checks the clients again, as the strip does when it first opens. */
+export function getDispatch(refresh = false) {
+  return fetchAPI<DispatchStatus>(`/api/tasks/dispatch${refresh ? "?refresh=true" : ""}`);
 }
 /** Switch this device's Dispatcher for the active workspace; the person's choice only. */
 export function setDispatch(on: boolean) {

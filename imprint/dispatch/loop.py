@@ -21,11 +21,11 @@ import threading
 import time
 
 from .. import config, processes, tasks
-from . import dispatched, folders, guards, store
+from ..tasks.view import _order as board_order
+from . import clients, dispatched, folders, guards, store
 
 PASS_SECONDS = 30.0
 POLL_SECONDS = 2.0
-CLIENT = 'claude-code'  # The only runner until clients are detected (Dispatcher 5).
 
 
 def _setting(key: str):
@@ -47,16 +47,29 @@ def running_runs() -> list[dict]:
     return [run for run in store.unfinished() if processes.is_alive(run['pid'])]
 
 
-def candidates(workspace: str) -> list[dict]:
-    """The Tasks the Dispatcher would take in ``workspace``, in order: Ready
-    and standalone, open to an agent of its client on this device, as the
+def candidates(workspace: str, *, choices: list[str] | None = None) -> list[dict]:
+    """The Tasks the Dispatcher would take in ``workspace``, in the Board's
+    order, each with the ``client`` that would work it: Ready and
+    standalone, open to one of the clients allowed on this device, as the
     workspace's autonomy allows, and not readied by a Dispatched session."""
-    found = [state for state in tasks.takeable(client=CLIENT, device=tasks.device_name(), workspace=workspace)
-             if state['status'] == 'ready' and not state['stale']]
+    choices = clients.allowed() if choices is None else choices
+    device = tasks.device_name()
+    found, seen = [], set()
+    for client in choices:
+        for state in tasks.takeable(client=client, device=device, workspace=workspace):
+            if state['id'] not in seen and state['status'] == 'ready' and not state['stale']:
+                seen.add(state['id'])
+                found.append(state)
     if not found:
         return []
+    found.sort(key=board_order)  # the Board's order across the clients' lists
     dispatched = tasks.dispatched_sessions(workspace)
-    return [state for state in found if not guards.readied_by_dispatched(state['id'], workspace, dispatched)]
+    chosen = []
+    for state in found:
+        client = clients.for_task(state, choices, device)
+        if client and not guards.readied_by_dispatched(state['id'], workspace, dispatched):
+            chosen.append({**state, 'client': client})
+    return chosen
 
 
 class Dispatcher:
@@ -73,6 +86,7 @@ class Dispatcher:
 
     def start(self) -> None:
         self.recover()
+        threading.Thread(target=clients.detected, kwargs={'refresh': True}, daemon=True).start()
         self._thread = threading.Thread(target=self._run, name='imprint-dispatcher', daemon=True)
         self._thread.start()
 
@@ -148,7 +162,7 @@ class Dispatcher:
                     self.skipped[state['project']] = folder['reason']
                     continue
                 try:
-                    run, proc = dispatched.start(state['id'], workspace=workspace, client=CLIENT)
+                    run, proc = dispatched.start(state['id'], workspace=workspace, client=state['client'])
                 except (LookupError, PermissionError, ValueError, OSError, RuntimeError) as error:
                     print(f"[imprint] dispatcher passed over {state['id']}: {error}", file=sys.stderr, flush=True)
                     continue

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from .. import tasks
 from ..device import current
-from . import folders, guards, loop, store
+from . import clients, folders, guards, loop, store
 
 
 def switch(workspace: str, on: bool) -> bool:
@@ -21,7 +21,7 @@ def switch(workspace: str, on: bool) -> bool:
     return on
 
 
-def status(workspace: str, *, projects: bool = True) -> dict:
+def status(workspace: str, *, projects: bool = True, refresh: bool = False) -> dict:
     """This device's Dispatcher for ``workspace``: whether it is on, whether
     the dashboard server that runs it is up, the sessions running and the
     last results, the Tasks it would take next, the other devices whose
@@ -31,8 +31,9 @@ def status(workspace: str, *, projects: bool = True) -> dict:
     found = {
         'workspace': workspace, 'on': store.switched_on(workspace), 'server': loop.server_running(),
         'autonomy': tasks.autonomy(workspace), 'running': loop.running_runs(), 'recent': store.recent(8),
-        'held': guards.held(),
-        'next': [{'id': s['id'], 'title': s['title'], 'project': s['project']} for s in loop.candidates(workspace)][:5],
+        'held': guards.held(), 'clients': clients.listing(refresh=refresh),
+        'next': [{'id': s['id'], 'title': s['title'], 'project': s['project'], 'client': s['client']}
+                 for s in loop.candidates(workspace)][:5],
         'devices': [d for d in tasks.dispatching(workspace) if d['on'] and d['device'] != here],
     }
     if projects:

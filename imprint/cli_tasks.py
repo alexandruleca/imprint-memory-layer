@@ -133,7 +133,8 @@ def _parser() -> argparse.ArgumentParser:
     run = actions.add_parser('run', parents=[common],
                              help='Start a Dispatched session on a Task now and wait for it to end')
     run.add_argument('task')
-    run.add_argument('--client', default='claude-code', help='The client to start (default: claude-code)')
+    run.add_argument('--client', default=None,
+                     help="The client to start (default: the one it is assigned to, else this device's default)")
     run.add_argument('--minutes', type=float, help='Its time limit (default: dispatch.session_minutes)')
     actions.add_parser('on', parents=[common], help="Switch this device's Dispatcher on for the workspace")
     actions.add_parser('off', parents=[common], help="Switch this device's Dispatcher off for the workspace")
@@ -155,6 +156,9 @@ def _dispatch_status_text(status: dict) -> str:
         lines.append(f"Starting nothing now: {status['held']}")
     if status['devices']:
         lines.append('Also on: ' + ', '.join(d['name'] for d in status['devices']))
+    lines.append('Clients:')
+    lines += [f"  {c['label']}: {'default' if c['default'] else 'allowed' if c['allowed'] else 'unticked' if c['available'] else c['reason']}"
+              f"{' (' + c['version'] + ')' if c['version'] else ''}" for c in status['clients']]
     lines.append('Running:' if status['running'] else 'Running: none')
     lines += [f"  {r['id']}  {r['task']} {r['title']} ({r['client']}, since "
               f"{time.strftime('%H:%M', time.localtime(r['started_at']))})" for r in status['running']]
@@ -182,7 +186,7 @@ def _dispatch(args, workspace: str | None, as_json: bool) -> None:
                f"Dispatcher for {name} on this device: {action}.{note}")
         return
     if action == 'status':
-        status = dispatch_status.status(name)
+        status = dispatch_status.status(name, refresh=True)
         _print(status, as_json, _dispatch_status_text(status))
         return
     if action == 'stop':
