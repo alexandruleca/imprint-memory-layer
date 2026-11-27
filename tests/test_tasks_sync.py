@@ -156,5 +156,33 @@ class TasksSyncTests(unittest.TestCase):
         self.assertEqual(sync_delta.decode(sync_delta.encode({'memories': {}}))['tasks'], {})
 
 
+    def test_tasks_given_the_same_id_on_two_devices_end_with_the_same_two_ids_everywhere(self):
+        import secrets
+        for first, second in (('default', 'peer'), ('peer', 'default')):
+            with self.subTest(order=first):
+                for workspace in ('default', 'peer'):
+                    path = config.tasks_db_path(workspace)
+                    for suffix in ('', '-wal', '-shm'):
+                        Path(str(path) + suffix).unlink(missing_ok=True)
+                with patch.object(secrets, 'choice', side_effect=lambda alphabet: 'k'):
+                    older = tasks.create('Made first', project='shop', workspace=first)
+                    newer = tasks.create('Made second', project='shop', workspace=second)
+                self.assertEqual(older['id'], newer['id'])
+                self.send(first, second)
+                self.send(second, first)
+                self.send(first, second)
+                a, b = self.board('default'), self.board('peer')
+                self.assertEqual(sorted(a), sorted(b))
+                self.assertEqual(len(a), 2)
+                self.assertEqual(a[older['id']]['title'], 'Made first')  # The older one keeps its id.
+                [renamed] = [t for t in a.values() if t['title'] == 'Made second']
+                self.assertNotEqual(renamed['id'], older['id'])
+                self.assertEqual(renamed['former_ids'], [older['id']])
+                self.assertEqual(b[renamed['id']]['former_ids'], [older['id']])
+                self.assertIn(renamed['id'], [t['id'] for t in tasks.listing(text=older['id'], workspace='peer')])
+                [event] = [e for e in tasks.history(renamed['id'], workspace=second) if e['kind'] == 'renamed'][:1]
+                self.assertEqual(event['actor'], 'system')
+
+
 if __name__ == '__main__':
     unittest.main()

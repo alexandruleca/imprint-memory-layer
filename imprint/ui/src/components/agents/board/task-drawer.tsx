@@ -35,6 +35,7 @@ const KIND_LABELS: Record<string, string> = {
   created: "created it", edited: "edited", appended: "added to the description", moved: "moved it", tagged: "changed tags",
   assigned: "changed assignees", linked: "changed links", blocked: "marked it blocked", unblocked: "cleared the block",
   claimed: "claimed it", released: "released it", checkpoint: "recorded a checkpoint", comment: "commented", deleted: "deleted it",
+  renamed: "gave it a new id, since another device's Task had the same one",
 };
 
 /** One Task: everything about it, and every change the user can make. */
@@ -87,7 +88,9 @@ export function TaskDrawer({ taskId, options, now, simple, onChanged, onClose }:
   return (
     <>
       <SheetHeader className="gap-1 border-b border-border pr-12">
-        <SheetDescription className="flex items-center gap-2 font-mono text-xs">{task.id} · {task.project}</SheetDescription>
+        <SheetDescription className="flex items-center gap-2 font-mono text-xs">
+          {task.id} · {task.project}{task.former_ids?.length ? ` · was ${task.former_ids.join(", ")}` : ""}
+        </SheetDescription>
         <EditableTitle task={task} onSave={(title) => act("edit", { title })} />
       </SheetHeader>
       <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4">
@@ -174,7 +177,7 @@ export function TaskDrawer({ taskId, options, now, simple, onChanged, onClose }:
                   <li key={event.id} className="flex gap-2">
                     <span className="w-24 shrink-0 tabular-nums"><Timestamp seconds={event.recorded_at} now={now} /></span>
                     <span className="min-w-0">
-                      <span className="text-foreground">{event.actor === "user" ? "You" : event.agent || event.client || "An agent"}</span>{" "}
+                      <span className="text-foreground">{event.actor === "user" ? "You" : event.actor === "system" ? "Imprint" : event.agent || event.client || "An agent"}</span>{" "}
                       {KIND_LABELS[event.kind] ?? event.kind}
                       {event.kind === "moved" && typeof event.data.status === "string" && ` to ${STATUS_LABELS[event.data.status as TaskStatus] ?? event.data.status}`}
                     </span>

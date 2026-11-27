@@ -19,7 +19,7 @@ def _created(state: dict | None, event: dict) -> dict:
         'holder': None, 'previous_holder': None, 'worked_by': None, 'lost_claims': [],
         'last_checkpoint': None, 'checkpoints': 0, 'comments': [], 'comment_count': 0,
         'created_at': event['recorded_at'], 'created_hlc': event['hlc'], 'created_by': _who(event),
-        'updated_at': event['recorded_at'], 'ended_at': None, 'status_at': event['recorded_at'],
+        'updated_at': event['recorded_at'], 'ended_at': None, 'status_at': event['recorded_at'], 'former_ids': [],
     }
 
 
@@ -152,7 +152,17 @@ def _commented(state: dict, event: dict) -> dict:
     return state
 
 
-_APPLY = {'created': _created, 'comment': _commented, 'claimed': _claimed, 'released': _released, 'checkpoint': _checkpoint, 'edited': _edited, 'appended': _appended, 'moved': _moved, 'tagged': _tagged,
+def _renamed(state: dict, event: dict) -> dict:
+    """Every device that noticed the clash records the same new id; the
+    second record changes nothing."""
+    new = event['data'].get('id')
+    if new and new != state['id']:
+        state['former_ids'] = [*state.get('former_ids', []), state['id']]
+        state['id'] = new
+    return state
+
+
+_APPLY = {'renamed': _renamed, 'created': _created, 'comment': _commented, 'claimed': _claimed, 'released': _released, 'checkpoint': _checkpoint, 'edited': _edited, 'appended': _appended, 'moved': _moved, 'tagged': _tagged,
           'assigned': _assigned, 'linked': _linked, 'blocked': _blocked, 'unblocked': _unblocked}
 
 

@@ -24,10 +24,16 @@ def agent(session: str, name: str | None = None, client: str | None = None, devi
     return actor
 
 
+# Imprint itself, for what it records on its own, such as renaming a Task
+# whose id another device also gave out (ADR 0209).
+SYSTEM = {'kind': 'system'}
+ACTORS = ('user', 'agent', 'system')
+
+
 def _actor(actor: dict | None) -> dict:
     actor = dict(actor or USER)
-    if actor.get('kind') not in ('user', 'agent'):
-        raise ValueError('actor must be the user or an agent')
+    if actor.get('kind') not in ACTORS:
+        raise ValueError('actor must be the user, an agent or Imprint')
     if actor['kind'] == 'agent' and not actor.get('session'):
         raise ValueError('an agent actor needs its session')
     actor.setdefault('device', _device())
@@ -72,7 +78,7 @@ def label(holder: dict) -> str:
 
 
 def _who(event: dict) -> dict:
-    if event['actor'] == 'user':
-        return {'kind': 'user', 'device': event['device']}
+    if event['actor'] in ('user', 'system'):
+        return {'kind': event['actor'], 'device': event['device']}
     return {'kind': 'agent', 'session': event['session'], 'name': event['agent'],
             'client': event['client'], 'device': event['device']}

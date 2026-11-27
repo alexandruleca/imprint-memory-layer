@@ -1220,7 +1220,7 @@ export const TASK_STATUSES = ["backlog", "ready", "in_progress", "review", "done
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 export type TaskPriority = "P0" | "P1" | "P2" | "P3";
 /** Who wrote something on the Board: the user, or an agent session with its name and client. */
-export type TaskPerson = { kind: "user" | "agent"; device?: string; session?: string; name?: string | null; client?: string | null };
+export type TaskPerson = { kind: "user" | "agent" | "system"; device?: string; session?: string; name?: string | null; client?: string | null };
 export type TaskHolder = { session: string; name: string | null; client: string | null; device: string; since: number; progress_at?: number };
 export type TaskComment = { id: string; text: string; to: string[]; by: TaskPerson; at: number };
 export type TaskCheckpoint = { text: string; next?: string; branch?: string; commit?: string; files?: string[]; by: TaskPerson; at: number };
@@ -1232,12 +1232,14 @@ export type BoardTask = {
   holder: TaskHolder | null; previous_holder: TaskHolder | null; stalling: boolean; stale: boolean; worked_by: string | null;
   last_checkpoint: TaskCheckpoint | null; checkpoints: number; comments: TaskComment[]; comment_count: number;
   created_at: number; created_by: TaskPerson; updated_at: number; ended_at: number | null; status_at: number;
+  /** Ids it had before another device's Task with the same id made it take a new one. */
+  former_ids?: string[];
 };
 export type BoardOptions = { projects: string[]; tags: string[]; assignees: string[]; holders: string[]; features: { id: string; title: string }[] };
 export type Autonomy = "off" | "stale" | "ready";
 export type BoardData = { workspace: string; columns: Record<TaskStatus, BoardTask[]>; total: number; options: BoardOptions; autonomy: Autonomy };
 export type BoardFilters = { project?: string; feature?: string; tag?: string; priority?: string; assignee?: string; holder?: string; text?: string; archived?: boolean };
-export type TaskEvent = { id: string; kind: string; data: Record<string, unknown>; hlc: string; device: string; actor: "user" | "agent";
+export type TaskEvent = { id: string; kind: string; data: Record<string, unknown>; hlc: string; device: string; actor: "user" | "agent" | "system";
   session: string | null; agent: string | null; client: string | null; recorded_at: number };
 export type TaskHandoff = { previous_holder: TaskHolder | null; last_checkpoint: TaskCheckpoint | null; checkpoints: TaskCheckpoint[];
   branch: string | null; commit: string | null; files: string[]; conversation: string | null };

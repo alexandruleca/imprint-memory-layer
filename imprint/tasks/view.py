@@ -101,8 +101,8 @@ def get(task: str, workspace: str | None = None) -> dict:
 
 
 def _contains(state: dict, text: str) -> bool:
-    haystack = ' '.join([state['id'], state['title'], state['description'], *state['appended'],
-                         *state['acceptance'], *state['tags']]).lower()
+    haystack = ' '.join([state['id'], *state.get('former_ids', []), state['title'], state['description'],
+                         *state['appended'], *state['acceptance'], *state['tags']]).lower()
     return text.lower() in haystack
 
 

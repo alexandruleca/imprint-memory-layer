@@ -7,10 +7,12 @@ Agents' names and read state stay on their device."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 
-from .store import _project, _reading, _writing
+from .actors import ACTORS, SYSTEM, _actor
+from .store import ID_ALPHABET, _append, _project, _reading, _writing
 from .validation import _redacted
 
 
@@ -29,7 +31,7 @@ def import_events(events: list[dict], workspace: str | None = None) -> int:
             if not all(field in event for field in _EVENT_FIELDS) or not isinstance(event['data'], dict):
                 continue
             clock = _HLC.match(str(event['hlc']))
-            if not clock or event['actor'] not in ('user', 'agent'):
+            if not clock or event['actor'] not in ACTORS:
                 continue
             event = {**event, 'data': _redacted_data(event['data'])}
             cursor = conn.execute(
@@ -53,7 +55,34 @@ def import_events(events: list[dict], workspace: str | None = None) -> int:
                 _project(conn, uid)
             except LookupError:
                 pass  # Its creation has not arrived yet.
+        if touched:
+            _rename_collisions(conn)
     return stored
+
+
+def _derived_id(uid: str, attempt: int) -> str:
+    """An id for a Task drawn from its own identity: every device derives the same one."""
+    digest = hashlib.sha256(f'{uid}:{attempt}'.encode()).digest()
+    return 'T-' + ''.join(ID_ALPHABET[byte % len(ID_ALPHABET)] for byte in digest[:5])
+
+
+def _rename_collisions(conn) -> None:
+    """Tasks from two devices that drew the same id: the older (by its
+    creation's clock, then its identity) keeps it, and each other one is
+    renamed to an id derived from its own identity (ADR 0209)."""
+    clashes = conn.execute('SELECT id FROM tasks GROUP BY id HAVING COUNT(*) > 1').fetchall()
+    for (task_id,) in clashes:
+        states = sorted((json.loads(row['state']) for row in conn.execute('SELECT state FROM tasks WHERE id = ?', (task_id,))),
+                        key=lambda state: (state['created_hlc'], state['uid']))
+        taken = {row['id'] for row in conn.execute('SELECT id FROM tasks')}
+        for state in states[1:]:
+            attempt, new = 0, _derived_id(state['uid'], 0)
+            while new in taken:
+                attempt += 1
+                new = _derived_id(state['uid'], attempt)
+            taken.add(new)
+            _append(conn, state['uid'], 'renamed', {'id': new, 'was': task_id}, _actor(SYSTEM))
+            _project(conn, state['uid'])
 
 
 

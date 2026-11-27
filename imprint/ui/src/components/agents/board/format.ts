@@ -19,6 +19,7 @@ export const PRIORITY_LABELS: Record<TaskPriority, string> = { P0: "P0 · urgent
 export function who(person: TaskPerson | TaskHolder | null | undefined): string {
   if (!person) return "nobody";
   if ("kind" in person && person.kind === "user") return "you";
+  if ("kind" in person && person.kind === "system") return "Imprint";
   const name = person.name || "an agent";
   return person.client ? `${name} (${clientName(person.client)})` : name;
 }

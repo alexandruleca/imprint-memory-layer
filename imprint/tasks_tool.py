@@ -203,6 +203,8 @@ def board_exists(workspace: str) -> bool:
 def _who(person: dict) -> str:
     if person.get('kind') == 'user':
         return 'the user'
+    if person.get('kind') == 'system':
+        return 'Imprint'
     name = person.get('name') or 'an agent'
     client = person.get('client')
     return f'{name} ({client})' if client else name
@@ -314,7 +316,8 @@ def list_text(states: list[dict]) -> str:
 def history_text(events: list[dict]) -> str:
     lines = []
     for event in events:
-        who = 'the user' if event['actor'] == 'user' else (event.get('agent') or event.get('client') or 'an agent')
+        who = ('the user' if event['actor'] == 'user' else 'Imprint' if event['actor'] == 'system'
+               else (event.get('agent') or event.get('client') or 'an agent'))
         data = {k: v for k, v in event['data'].items() if k != 'id'}
         lines.append(f"{_when(event['recorded_at'])} {event['kind']} by {who}" + (f': {data}' if data else ''))
     return '\n'.join(lines)
