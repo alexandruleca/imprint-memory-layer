@@ -5,7 +5,7 @@ description: Imprint ships its own skills read-only with each release and never 
 
 - Status: Accepted
 - Date: 2026-11-27
-- Scope: Only `imprint-tasks` ships; the `imprint` skill comes with [ADR 0214](0214-the-rules-block-shrinks-to-a-stub-once-agents-keep-searching-first.md).
+- Scope: `imprint` and `imprint-tasks` ship; the short rules block that points to them is [ADR 0214](0214-the-rules-block-shrinks-to-a-stub-once-agents-keep-searching-first.md).
 - Related: [ADR 0168](0168-skills-and-personas-are-kept-once-and-synced-to-paired-devices.md) (the registry), [ADR 0169](0169-skills-and-personas-are-written-into-the-folders-clients-read.md) (client folders), [ADR 0170](0170-skills-and-personas-reach-every-mcp-client-through-imprints-server.md) (skills through MCP), [ADR 0214](0214-the-rules-block-shrinks-to-a-stub-once-agents-keep-searching-first.md) (the `imprint` skill)
 
 ## Context
@@ -48,7 +48,7 @@ An edit made to a built-in in a client's folder becomes its fork, as an edit to 
 
 ## Validation
 
-- `tests/test_builtin_skills.py` (21 tests): built-ins listed read-only with an id the same on every device and written into the clients' folders; edits and removal refused with the way to fork; fork and reset through the registry and `imprint skills fork|reset`; a user skill or a client-folder edit with a built-in's name counted as its fork; the release-change notice and its diff; the disable marker synced newest-first and skipped by older devices; built-ins never exported; every shipped built-in valid and named after its folder; the release archive keeping them.
+- `tests/test_builtin_skills.py` (23 tests): built-ins listed read-only with an id the same on every device and written into the clients' folders; edits and removal refused with the way to fork; fork and reset through the registry and `imprint skills fork|reset`; a user skill or a client-folder edit with a built-in's name counted as its fork; the release-change notice and its diff; the disable marker synced newest-first and skipped by older devices; built-ins never exported; every shipped built-in valid and named after its folder; the `imprint` skill holding the rules block's guidance; every tool call in a built-in naming a tool and arguments the server has; the release archive keeping them.
 - The other registry, registry-files, skills, sync and API test modules (930 tests on the branch before it joined `dev`), and Playwright `skills.spec.ts`, `tours.spec.ts` and `page-tours.spec.ts` (54 tests, including forking a built-in and the release-change notice), on Linux. The Skills page was checked in light and dark from screenshots.
 - Linux (WSL Ubuntu, Python 3.12 venv): the full suite, 1,522 tests, passed on 2026-11-27 with the Board and built-in skills together.
 - Windows 11 (the installed runtime's Python 3.13, from a native copy of the repository): `test_builtin_skills`, `test_registry`, `test_registry_files` and `test_skills_tool` with the Board's tests, 187 tests, passed.

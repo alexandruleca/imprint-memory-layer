@@ -440,6 +440,34 @@ class ShippedBuiltinTests(unittest.TestCase):
         tasks = registry.validate('skill', {'SKILL.md': (registry.BUILTINS / 'imprint-tasks' / 'SKILL.md').read_text()})
         self.assertIn('Board of Tasks', tasks['description'])
 
+    def test_the_imprint_skill_holds_how_to_use_imprint(self):
+        """ADRs 0213 and 0214: the guidance the long rules block carried."""
+        files = {f.relative_to(registry.BUILTINS / 'imprint').as_posix(): f.read_text(encoding='utf-8')
+                 for f in (registry.BUILTINS / 'imprint').rglob('*') if f.is_file()}
+        valid = registry.validate('skill', files)
+        self.assertEqual(valid['name'], 'imprint')
+        self.assertIn('search', valid['description'].lower())
+        body = files['SKILL.md']
+        for needed in ('search(', 'get_memory(', 'file_chunks(', 'read_source(', 'store(', 'use_workspace(',
+                       'untrusted', 'Do not store', 'imprint-tasks'):
+            with self.subTest(needed):
+                self.assertIn(needed, body)
+
+    def test_every_tool_call_in_a_built_in_names_a_tool_and_arguments_the_server_has(self):
+        import asyncio
+        import re
+        from imprint import server
+        tools = {tool.name: set(tool.parameters['properties']) for tool in asyncio.run(server.mcp.list_tools())}
+        calls = 0
+        for path in sorted(registry.BUILTINS.rglob('*.md')):
+            for name, arguments in re.findall(r'`(\w+)\(([^`]*)\)`', path.read_text(encoding='utf-8')):
+                with self.subTest(path=path.name, call=f'{name}({arguments})'):
+                    self.assertIn(name, tools)
+                    for argument in re.findall(r'(\w+)=', arguments):
+                        self.assertIn(argument, tools[name])
+                calls += 1
+        self.assertGreater(calls, 30)
+
     def test_the_release_archive_keeps_the_built_ins(self):
         patterns = [line.strip() for line in (ROOT / '.releaseignore').read_text().splitlines()
                     if line.strip() and not line.startswith('#')]
