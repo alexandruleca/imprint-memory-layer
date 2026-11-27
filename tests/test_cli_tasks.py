@@ -91,5 +91,19 @@ class CliTasksTests(unittest.TestCase):
         self.assertIn('--yes', done.stderr)
 
 
+    def test_autonomy_next_and_handoff_from_the_terminal(self):
+        self.assertIn('ready', self.run_cli('autonomy').stdout)
+        self.run_cli('autonomy', 'stale')
+        self.assertIn('stale', self.run_cli('autonomy').stdout)
+        feature = json.loads(self.run_cli('create', 'Checkout', '--json').stdout)['id']
+        task = json.loads(self.run_cli('create', 'First', '--ready', '--criterion', 'x', '--feature', feature,
+                                       '--json').stdout)['id']
+        frontier = json.loads(self.run_cli('next', '--feature', feature, '--json').stdout)
+        self.assertEqual([t['id'] for t in frontier], [task])
+        handoff = json.loads(self.run_cli('handoff', task, '--json').stdout)
+        self.assertEqual(handoff['task']['id'], task)
+        self.assertIsNone(handoff['previous_holder'])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -199,5 +199,31 @@ class TasksToolTests(unittest.TestCase):
         self.assertEqual(tasks.get(task, workspace='default')['holder']['name'], fallback)
 
 
+    def test_an_agent_asks_what_to_take_next_and_reads_a_handoff(self):
+        task = tasks.create('Parser', project='imprint', acceptance=['x'], status='ready', priority='P1',
+                            workspace='default')['id']
+        [(_, offered)] = self.as_session('conv-1', ('tasks', {'action': 'next'}))
+        self.assertIn(f'Take {task} next', offered)
+        self.assertIn(f'task_edit(action="claim", task="{task}")', offered)
+        self.as_session('conv-1', ('task_edit', {'action': 'name', 'name': 'grimforge'}),
+                        ('task_edit', {'action': 'claim', 'task': task}),
+                        ('task_edit', {'action': 'checkpoint', 'task': task, 'text': 'Tokenizer done.',
+                                       'branch': 'task/p', 'commit': 'abc', 'files': ['p.py']}))
+        [(_, nothing)] = self.as_session('conv-2', ('tasks', {'action': 'next'}))
+        self.assertIn('Nothing on the Board for you to take', nothing)
+        [(_, handoff)] = self.as_session('conv-2', ('tasks', {'action': 'handoff', 'task': task}))
+        for text in ('Handoff for', 'grimforge (claude-code)', 'Tokenizer done.', 'task/p @ abc', 'p.py',
+                     'read_source(source="conversation/conv-1"'):
+            self.assertIn(text, handoff)
+
+    def test_a_features_frontier_through_next(self):
+        feature = tasks.create('Checkout', project='imprint', workspace='default')['id']
+        first = tasks.create('First', project='imprint', acceptance=['x'], status='ready', feature=feature,
+                             workspace='default')['id']
+        [(_, frontier)] = self.as_session('conv-1', ('tasks', {'action': 'next', 'feature': feature}))
+        self.assertIn(f'Frontier of {feature}', frontier)
+        self.assertIn(first, frontier)
+
+
 if __name__ == '__main__':
     unittest.main()

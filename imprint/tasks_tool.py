@@ -259,8 +259,70 @@ def filters(*, project='', feature='', tag='', status='', priority='', assignee=
         'assignee': assignee or None, 'text': text or None}.items() if value}
 
 
-def read(action: str, *, task: str = '', archived: bool = False, workspace: str = '', **given) -> str:
+def _device_name() -> str:
+    try:
+        from .device import current
+        return current()['name'].lower()
+    except (OSError, ValueError):
+        return ''
+
+
+def frontier_text(feature: dict, states: list[dict]) -> str:
+    head = f"Frontier of {feature['id']} ({feature['title']}): {len(states)} to take now"
+    return '\n'.join([head, *(f'- {line(state)}' for state in states)])
+
+
+def next_text(state: dict | None, project: str, mode: str) -> str:
+    if state is None:
+        return (f'Nothing on the Board for you to take unasked in project {project} (autonomy: {mode}). '
+                'Ask the user, or look at tasks(action="board").')
+    task = state['id']
+    start_from = (f'start from its handoff: tasks(action="handoff", task="{task}")' if state.get('stale')
+                  else 'work to its acceptance criteria')
+    return (f"Take {task} next: {line(state)}\n"
+            f'Claim it with task_edit(action="claim", task="{task}"), say so in your reply, and {start_from}.\n'
+            + detail(state))
+
+
+def handoff_text(handoff: dict) -> str:
+    state = handoff['task']
+    lines = [f"Handoff for {state['id']} · {state['title']}"]
+    previous = handoff['previous_holder']
+    if previous:
+        lines.append(f"Previous holder: {_label(previous)} on {previous.get('device')}, since {_when(previous['since'])}")
+    else:
+        lines.append('Nobody has held it yet.')
+    last = handoff['last_checkpoint']
+    if last:
+        lines.append(f"Last checkpoint ({_when(last['at'])}): {last['text']}")
+        if last.get('next'):
+            lines.append(f"Next: {last['next']}")
+    if handoff['branch'] or handoff['commit']:
+        lines.append('Work: ' + ' @ '.join(p for p in (handoff['branch'], handoff['commit']) if p))
+    if handoff['files']:
+        lines.append('Files: ' + ', '.join(handoff['files'][:30]))
+    earlier = handoff['checkpoints'][:-1]
+    if earlier:
+        lines.append('Earlier checkpoints:')
+        lines.extend(f"- {_when(c['at'])}: {c['text']}" for c in earlier)
+    if handoff['conversation']:
+        lines.append(f'Conversation: read_source(source="{handoff["conversation"]}", project="{state["project"]}"), '
+                     'if Imprint has learned it')
+    lines.append(f'Take it over with task_edit(action="claim", task="{state["id"]}").')
+    lines.extend(['', detail(state)])
+    return '\n'.join(lines)
+
+
+def read(action: str, *, task: str = '', archived: bool = False, workspace: str = '', session_project: str | None = None,
+         client: str | None = None, **given) -> str:
     workspace = workspace or None
+    if action == 'next':
+        if given.get('feature'):
+            feature = tasks.get(given['feature'], workspace=workspace)
+            return frontier_text(feature, tasks.frontier(given['feature'], workspace=workspace))
+        where = project(given.get('project') or '', session_project)
+        found = tasks.next_task(project=where, client=client, device=_device_name(), workspace=workspace)
+        return next_text(found, where, tasks.autonomy(workspace))
     found = filters(**given)
     if action == 'board':
         return board_text(tasks.board(workspace=workspace, **found), found.get('project'))
@@ -272,6 +334,8 @@ def read(action: str, *, task: str = '', archived: bool = False, workspace: str 
         return detail(tasks.get(task, workspace=workspace))
     if action == 'history':
         return history_text(tasks.history(task, workspace=workspace))
+    if action == 'handoff':
+        return handoff_text(tasks.handoff(task, workspace=workspace))
     raise ValueError(f'Unknown action {action!r}')
 
 

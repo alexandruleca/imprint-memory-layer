@@ -397,6 +397,10 @@ HELP: dict[str, dict[str, str]] = {
         "help": "How long a claimed Task can go without progress from its holder before its claim is released and the Task is Stale, even while the holder's session still runs, so another agent can take it over from its last checkpoint. A session left waiting for your input loses its claim after this long. 120 minutes by default.",
         "example": "240: when agents work on long tasks between checkpoints and you do not want them taken over.",
     },
+    "tasks.autonomy": {
+        "help": "What agents take from the Board without being asked, once they have finished what you asked: ready lets them take a Ready Task, or a Stale one to finish, in the project they work in; stale lets them take only Stale ones; off leaves every Task until you point an agent at it. They never take one assigned to you, one assigned to another client or device, or one that waits on another Task. A workspace can choose its own with imprint tasks autonomy. ready by default.",
+        "example": "stale: to let agents finish abandoned work but start nothing new by themselves.",
+    },
     "organize.auto_move": {
         "help": "Lets Organize move a source by itself when the evidence is strong: the source names exactly one project's registered folder, or one distinctive project name (such as checkout-service) at least twice and no other. Those moves are listed on the Organize page with an undo. Weaker proposals, including every one that rests on the local model's reading, wait for your review. On by default; off sends every proposal to review.",
         "example": "false: to review every move yourself before anything changes project.",

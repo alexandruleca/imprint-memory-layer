@@ -13,6 +13,9 @@ Usage:
     python -m imprint.cli_tasks move TASK STATUS [--position N]
     python -m imprint.cli_tasks tag|assign TASK [--add X]... [--remove X]...
     python -m imprint.cli_tasks link TASK [--feature F | --no-feature] [--blocker B]... [--unblocker B]...
+    python -m imprint.cli_tasks next [--project P] [--feature F] [--client C] [--device D]
+    python -m imprint.cli_tasks handoff TASK
+    python -m imprint.cli_tasks autonomy [off|stale|ready]
     python -m imprint.cli_tasks block TASK REASON
     python -m imprint.cli_tasks unblock|cancel|release TASK
     python -m imprint.cli_tasks delete TASK --yes
@@ -94,6 +97,14 @@ def _parser() -> argparse.ArgumentParser:
     link.add_argument('--no-feature', action='store_true', help='Take it out of its Feature')
     link.add_argument('--blocker', action='append', default=[], help='Add a blocking Task (repeatable)')
     link.add_argument('--unblocker', action='append', default=[], help='Remove a blocking Task (repeatable)')
+    nxt = commands.add_parser('next', parents=[common], help="What an agent may take unasked; a Feature's frontier")
+    nxt.add_argument('--project', help="Default: this directory's project")
+    nxt.add_argument('--feature', help="List this Feature's frontier instead")
+    nxt.add_argument('--client', help='As an agent of this client')
+    nxt.add_argument('--device', help='As an agent on this device')
+    commands.add_parser('handoff', parents=[common], help="Where a Task's work stands").add_argument('task')
+    autonomy = commands.add_parser('autonomy', parents=[common], help='What agents take unasked here')
+    autonomy.add_argument('value', nargs='?', choices=tasks.AUTONOMY)
     block = commands.add_parser('block', parents=[common], help='Mark it Blocked')
     block.add_argument('task')
     block.add_argument('reason')
@@ -127,6 +138,25 @@ def _run(args, workspace: str | None, as_json: bool) -> None:
     if command == 'history':
         events = tasks.history(args.task, workspace=workspace)
         _print(events, as_json, tasks_tool.history_text(events))
+        return
+    if command == 'next':
+        if args.feature:
+            feature = tasks.get(args.feature, workspace=workspace)
+            states = tasks.frontier(args.feature, workspace=workspace)
+            _print(states, as_json, tasks_tool.frontier_text(feature, states))
+            return
+        from .cli_conversations import derive_project
+        project = args.project or derive_project(os.getcwd())
+        found = tasks.next_task(project=project, client=args.client, device=args.device, workspace=workspace)
+        _print(found, as_json, tasks_tool.next_text(found, project, tasks.autonomy(workspace)))
+        return
+    if command == 'handoff':
+        handoff = tasks.handoff(args.task, workspace=workspace)
+        _print(handoff, as_json, tasks_tool.handoff_text(handoff))
+        return
+    if command == 'autonomy':
+        value = tasks.set_autonomy(args.value, workspace=workspace) if args.value else tasks.autonomy(workspace)
+        _print({'autonomy': value}, as_json, f'Agents take unasked here: {value}')
         return
     if command == 'create':
         from .cli_conversations import derive_project

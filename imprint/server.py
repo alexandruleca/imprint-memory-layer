@@ -1670,7 +1670,7 @@ def _calling_client(ctx: Context | None) -> str | None:
 
 @mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False})
 def tasks(
-    action: Literal["board", "list", "get", "history"] = "board",
+    action: Literal["board", "list", "get", "history", "next", "handoff"] = "board",
     task: str = "",
     project: str = "",
     feature: str = "",
@@ -1681,15 +1681,18 @@ def tasks(
     text: str = "",
     archived: bool = False,
     workspace: str = "",
+    ctx: Context | None = None,
 ) -> str:
     """The workspace's Board: Tasks that agents and the user track work with,
     shared by every client and paired device. Read it before starting work
     that may already be tracked.
 
     Args:
-        action: "board" (Tasks by status), "list" (Tasks matching the filters), "get" (one Task)
-                or "history" (one Task's changes)
-        task: The Task for get and history, e.g. "T-7f3kq"
+        action: "board" (Tasks by status), "list" (Tasks matching the filters), "get" (one Task),
+                "history" (one Task's changes), "next" (the Task you may take unasked in your
+                project; with feature, that Feature's frontier) or "handoff" (where a Task's work
+                stands, to take it over)
+        task: The Task for get, history and handoff, e.g. "T-7f3kq"
         project: Only this project's Tasks
         feature: Only the Tasks of this Feature (a Task id)
         tag: Only Tasks with this tag
@@ -1702,7 +1705,8 @@ def tasks(
     """
     from . import tasks_tool
     return tasks_tool.read(action, task=task, archived=archived, workspace=workspace, project=project,
-                           feature=feature, tag=tag, status=status, priority=priority, assignee=assignee, text=text)
+                           feature=feature, tag=tag, status=status, priority=priority, assignee=assignee, text=text,
+                           session_project=_session.get('project'), client=_calling_client(ctx))
 
 
 @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False})

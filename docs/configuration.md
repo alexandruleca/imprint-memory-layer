@@ -174,6 +174,7 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `tasks.lease_minutes` | `15` | Minutes an agent's claim on a Task lasts without its Imprint renewing it; then the Task is Stale and can be taken over. Env `IMPRINT_TASKS_LEASE_MINUTES` ([ADR 0210](adr/0210-claims-are-leases-held-by-the-agent-session.md)) |
 | `tasks.stalling_minutes` | `60` | Minutes without progress from its holder before a claimed Task is marked Stalling. Env `IMPRINT_TASKS_STALLING_MINUTES` ([ADR 0210](adr/0210-claims-are-leases-held-by-the-agent-session.md)) |
 | `tasks.stale_minutes` | `120` | Minutes without progress from its holder before a claimed Task is Stale and its claim released. Env `IMPRINT_TASKS_STALE_MINUTES` ([ADR 0210](adr/0210-claims-are-leases-held-by-the-agent-session.md)) |
+| `tasks.autonomy` | `ready` | What agents take unasked: `off`, `stale` (Stale Tasks only) or `ready` (Ready and Stale), in their own project; `imprint tasks autonomy` sets a workspace's own. Env `IMPRINT_TASKS_AUTONOMY` ([ADR 0211](adr/0211-agents-take-ready-and-stale-tasks-unasked-within-their-project.md)) |
 | `organize.background` | `false` | Organize new and changed memories when the queue is idle, after background tagging ([ADR 0132](adr/0132-organize-runs-in-the-idle-slot-after-background-tagging.md)) |
 | `organize.auto_move` | `true` | Move catch-all sources with strong evidence without review; weaker proposals still wait ([ADR 0133](adr/0133-strong-placements-apply-by-themselves.md)) |
 | **Upkeep** | | |

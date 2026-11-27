@@ -191,7 +191,7 @@ Usage:
                              Remove Imprint from clients, including their recorded WSL profiles; stops nothing
   imprint skills [list|show|add|found|adopt|enable|disable|remove|apply]
                              Your skills and personas, written into the connected clients and synced to paired devices
-  imprint tasks [board|list|show|history|create|edit|append|move|tag|assign|link|block|unblock|cancel|release|delete]
+  imprint tasks [board|list|show|history|create|edit|append|move|tag|assign|link|block|unblock|cancel|release|delete|next|handoff|autonomy]
                              The workspace's Board of Tasks that agents and you track work with
   imprint uninstall [-y] [--keep-data]
                              Disconnect clients, stop Imprint processes, remove runtime and memories (--keep-data keeps memories)

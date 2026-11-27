@@ -486,5 +486,99 @@ class NameTests(TasksTestCase):
         self.assertEqual(tasks.name_of('s1b', workspace='default'), 'grimforge')
 
 
+
+class NextTests(TasksTestCase):
+    def ready(self, title, **fields):
+        fields.setdefault('project', 'shop')
+        return make(title, acceptance=['x'], status='ready', **fields)['id']
+
+    def pick(self, **given):
+        given.setdefault('project', 'shop')
+        given.setdefault('client', 'codex')
+        given.setdefault('device', 'bedrock')
+        found = tasks.next_task(workspace='default', **given)
+        return found['id'] if found else None
+
+    def test_the_next_task_is_ready_unblocked_unclaimed_and_in_the_agents_project(self):
+        make('Backlog only', project='shop')
+        self.ready('Other project', project='blog')
+        blocker = self.ready('Blocker first', priority='P3')
+        self.ready('Waits on the blocker', priority='P0', blockers=[blocker])
+        marked = self.ready('Marked blocked', priority='P0')
+        tasks.block(marked, 'No access', workspace='default')
+        self.ready('For the user', priority='P0', assignees=['user'])
+        self.ready('For Claude Code', priority='P0', assignees=['claude-code'])
+        held = self.ready('Held', priority='P0')
+        tasks.claim(held, actor=AGENT, workspace='default')
+        want = self.ready('Take me', priority='P1')
+        self.assertEqual(self.pick(), want)
+        self.assertIsNone(self.pick(project='nowhere'))
+
+    def test_assignees_match_the_agents_client_device_or_both(self):
+        for assignee in ('codex', '@bedrock', 'codex@bedrock'):
+            with self.subTest(assignee=assignee):
+                task = self.ready(f'For {assignee}', project=assignee, assignees=[assignee])
+                self.assertEqual(self.pick(project=assignee), task)
+                self.assertIsNone(self.pick(project=assignee, client='claude-code', device='studio'))
+
+    def test_priority_then_position_then_age_decide(self):
+        old = self.ready('Old P1', priority='P1')
+        new = self.ready('New P1', priority='P1')
+        self.assertEqual(self.pick(), old)
+        tasks.move(new, 'ready', position=1, workspace='default')
+        self.assertEqual(self.pick(), new)
+        top = self.ready('P0', priority='P0')
+        self.assertEqual(self.pick(), top)
+
+    def test_a_stale_task_is_offered_for_takeover(self):
+        task = self.ready('Abandoned')
+        tasks.claim(task, actor=AGENT, pid=dead_pid(), workspace='default')
+        self.assertEqual(self.pick(), task)
+
+    def test_autonomy_limits_what_is_taken_unasked(self):
+        ready = self.ready('Ready one')
+        stale = self.ready('Stale one', priority='P3')
+        tasks.claim(stale, actor=AGENT, pid=dead_pid(), workspace='default')
+        self.assertEqual(tasks.autonomy(workspace='default'), 'ready')
+        tasks.set_autonomy('stale', workspace='default')
+        self.assertEqual(self.pick(), stale)
+        tasks.set_autonomy('off', workspace='default')
+        self.assertIsNone(self.pick())
+        self.assertEqual(tasks.autonomy(workspace='work'), 'ready')
+        with self.assertRaisesRegex(ValueError, 'off, stale or ready'):
+            tasks.set_autonomy('always', workspace='default')
+        del ready
+
+    def test_a_features_frontier_is_its_open_unblocked_unclaimed_tasks_in_order(self):
+        feature = make('Checkout', project='shop')['id']
+        first = self.ready('First', feature=feature, priority='P1')
+        second = self.ready('Second', feature=feature, priority='P2', assignees=['claude-code'])
+        self.ready('Third', feature=feature, blockers=[first])
+        self.ready('Mine', feature=feature, assignees=['user'])
+        self.ready('Elsewhere')
+        tasks.set_autonomy('off', workspace='default')
+        self.assertEqual([t['id'] for t in tasks.frontier(feature, workspace='default')], [first, second])
+
+    def test_a_handoff_gives_the_next_agent_where_the_work_stands(self):
+        task = self.ready('Parser')
+        tasks.choose_name('conversation:5c1d2e3f-aaaa-bbbb-cccc-111122223333', 'grimforge', workspace='default')
+        holder = tasks.agent('conversation:5c1d2e3f-aaaa-bbbb-cccc-111122223333', name='grimforge',
+                             client='claude-code')
+        tasks.claim(task, actor=holder, workspace='default')
+        tasks.checkpoint(task, 'Tokenizer done.', branch='task/x-parser', commit='aaa111', files=['a.py'],
+                         actor=holder, workspace='default')
+        tasks.checkpoint(task, 'Grammar half done.', next_step='Finish the grammar.', branch='task/x-parser',
+                         commit='bbb222', files=['b.py', 'a.py'], actor=holder, workspace='default')
+        tasks.renew('conversation:5c1d2e3f-aaaa-bbbb-cccc-111122223333', pid=dead_pid())
+        handoff = tasks.handoff(task, workspace='default')
+        self.assertTrue(handoff['task']['stale'])
+        self.assertEqual(handoff['previous_holder']['name'], 'grimforge')
+        self.assertEqual(handoff['last_checkpoint']['text'], 'Grammar half done.')
+        self.assertEqual((handoff['branch'], handoff['commit']), ('task/x-parser', 'bbb222'))
+        self.assertEqual(handoff['files'], ['b.py', 'a.py'])
+        self.assertEqual([c['text'] for c in handoff['checkpoints']], ['Tokenizer done.', 'Grammar half done.'])
+        self.assertEqual(handoff['conversation'], 'conversation/5c1d2e3f')
+
+
 if __name__ == '__main__':
     unittest.main()

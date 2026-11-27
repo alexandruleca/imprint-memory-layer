@@ -45,6 +45,7 @@ TAG_CHARS = 40
 TAGS = 30
 
 USER = {'kind': 'user'}
+AUTONOMY = ('off', 'stale', 'ready')
 ARCHIVE_DAYS = 14
 ASSIGNEES = 20
 
@@ -92,6 +93,10 @@ CREATE TABLE IF NOT EXISTS names (
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS names_by_lower ON names (lower);
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS clock (
     one     INTEGER PRIMARY KEY CHECK (one = 1),
     wall    INTEGER NOT NULL,
@@ -1116,3 +1121,108 @@ def ensure_name(session: str, *, client: str | None = None, pid: int | None = No
                 break
         _name(conn, session, name, client, pid, chosen=False)
     return name
+
+
+
+# ── Finding work (ADR 0211) ──────────────────────────────────────
+
+def autonomy(workspace: str | None = None) -> str:
+    """What agents in this workspace take unasked: ``off``, ``stale`` (Stale
+    Tasks only) or ``ready`` (Ready and Stale). A workspace's own choice,
+    else this device's ``tasks.autonomy``."""
+    with _reading(workspace) as conn:
+        row = conn.execute("SELECT value FROM settings WHERE key = 'autonomy'").fetchone() if conn else None
+    if row and row['value'] in AUTONOMY:
+        return row['value']
+    from .config_schema import resolve
+    value = str(resolve('tasks.autonomy')[0]).strip().lower()
+    return value if value in AUTONOMY else 'ready'
+
+
+def set_autonomy(value: str, workspace: str | None = None) -> str:
+    value = (value or '').strip().lower()
+    if value not in AUTONOMY:
+        raise ValueError('autonomy is off, stale or ready')
+    with _writing(workspace) as conn:
+        conn.execute("INSERT INTO settings (key, value) VALUES ('autonomy', ?) "
+                     'ON CONFLICT (key) DO UPDATE SET value = excluded.value', (value,))
+    return value
+
+
+def _for_agent(assignees: list[str], client: str | None, device: str | None) -> bool:
+    """Whether an agent of ``client`` on ``device`` may take it unasked."""
+    if 'user' in assignees:
+        return False
+    if not assignees:
+        return True
+    client, device = (client or '').lower(), (device or '').lower()
+    return any(a in (client, f'@{device}', f'{client}@{device}') for a in assignees if a)
+
+
+def _takeable(view: _View, state: dict, *, ready: bool) -> bool:
+    """Open to a claim: Stale, or (when ``ready``) Ready and unclaimed, and
+    neither marked Blocked nor waiting on a Task that is not Done."""
+    if state['blocked'] or any(view.by_uid[b]['status'] != 'done' for b in state['blockers'] if b in view.by_uid):
+        return False
+    _, stale = view.claim(state)
+    if stale:
+        return True
+    return ready and not state['holder'] and state['status'] == 'ready'
+
+
+def next_task(*, project: str, client: str | None = None, device: str | None = None,
+              workspace: str | None = None) -> dict | None:
+    """The Task an agent of ``client`` on ``device`` working in ``project``
+    may take unasked, if any: highest priority, then position, then oldest."""
+    mode = autonomy(workspace)
+    if mode == 'off':
+        return None
+    with _reading(workspace) as conn:
+        view = _view(conn)
+    found = [s for s in view.by_uid.values()
+             if s['project'] == project and _for_agent(s['assignees'], client, device)
+             and _takeable(view, s, ready=mode == 'ready')]
+    return view.public(min(found, key=_order)) if found else None
+
+
+def frontier(feature: str, workspace: str | None = None) -> list[dict]:
+    """A Feature's Tasks that can be taken now, in order: Ready or Stale,
+    unblocked, unclaimed and not the user's. Planning skills work it when
+    asked, so the workspace's autonomy does not limit it."""
+    with _reading(workspace) as conn:
+        uid = _uid(conn, feature)
+        view = _view(conn)
+    found = [s for s in view.by_uid.values()
+             if s['feature'] == uid and 'user' not in s['assignees'] and _takeable(view, s, ready=True)]
+    return [view.public(s) for s in sorted(found, key=_order)]
+
+
+def _conversation(holder: dict | None) -> str | None:
+    """The source a holder's conversation is learned under, when its session
+    is a client conversation: Claude Code and Cursor key it by the first
+    eight characters of its id, the other clients by the whole id."""
+    session = (holder or {}).get('session') or ''
+    if not session.startswith('conversation:'):
+        return None
+    conversation = session.split(':', 1)[1]
+    short = (holder.get('client') or '').lower().startswith(('claude', 'cursor'))
+    return f'conversation/{conversation[:8] if short else conversation}'
+
+
+def handoff(task: str, workspace: str | None = None) -> dict:
+    """What the next agent starts from: the Task, who held it, its
+    checkpoints, where the work is, and the previous holder's conversation."""
+    with _reading(workspace) as conn:
+        uid = _uid(conn, task)
+        view = _view(conn)
+        events = _events(conn, uid)
+    shown = view.public(view.by_uid[uid])
+    checkpoints = [{**e['data'], 'by': _who(e), 'at': e['recorded_at']} for e in events if e['kind'] == 'checkpoint']
+    last = checkpoints[-1] if checkpoints else None
+    files = []
+    for checkpoint in reversed(checkpoints):
+        files.extend(f for f in checkpoint.get('files', []) if f not in files)
+    previous = shown['holder'] or shown.get('previous_holder')
+    return {'task': shown, 'previous_holder': previous, 'last_checkpoint': last, 'checkpoints': checkpoints[-10:],
+            'branch': (last or {}).get('branch'), 'commit': (last or {}).get('commit'), 'files': files[:100],
+            'conversation': _conversation(previous)}
