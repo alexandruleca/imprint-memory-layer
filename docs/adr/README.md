@@ -152,6 +152,7 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0170](0170-skills-and-personas-reach-every-mcp-client-through-imprints-server.md) **Skills and personas reach every MCP client through Imprint's server.** The handshake lists the active items a client does not already load from its own folders on this computer; the read-only `skills` tool lists and reads them and `skill_edit` creates and changes them, written into the clients' folders at once.
 - [ADR 0171](0171-personas-are-written-for-codex-and-cursor.md) **Personas are written for Codex and Cursor.** Personas go into the fewest of the connected clients' subagent folders that reach them all: Markdown for Claude Code and Cursor, a TOML custom agent for Codex, whose edits come back into the persona.
 - [ADR 0142](0142-agents-are-reminded-to-search-imprint-never-refused.md) **Agents are reminded to search Imprint, never refused.** The read hook reminds a session that has not searched Imprint, once, to prefer searching first, and always lets Read, Grep and Glob run; Cursor gets the reminder after the read.
+- [ADR 0214](0214-the-rules-block-shrinks-to-a-stub-once-agents-keep-searching-first.md) **The rules block shrinks to a stub once agents keep searching first.** Four always-on lines point to the `imprint` skill for Claude Code, Codex, Cursor, Copilot and OpenCode; upkeep restores a client's full block once if its search-first sessions fall by more than 10 points.
 
 ### The Board
 
@@ -159,7 +160,7 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0209](0209-a-tasks-history-is-a-log-of-events-that-devices-merge-by-union.md) **A Task's history is a log of events that devices merge by union.** Immutable events, exchanged and kept by every paired device; state computed in one fixed order; deletion as a tombstone event. Amended by [ADR 0218](0218-imprint-renames-a-task-whose-id-another-device-gave-out.md) (colliding ids).
 - [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) **Claims are leases held by the agent session.** The agent session holds a claim with a token, its Imprint server renews the lease, Stalling after 60 minutes without progress, Stale after 15 minutes without renewal or 120 without progress.
 - [ADR 0211](0211-agents-take-ready-and-stale-tasks-unasked-within-their-project.md) **Agents take Ready and Stale Tasks unasked, within their project.** One Task at a time after the request is done, unblocked, not assigned to the user or elsewhere; `tasks.autonomy`; Imprint starts no agents.
-- [ADR 0212](0212-agents-talk-through-comments-on-tasks.md) **Agents talk through comments on Tasks.** Addressed comments only, delivered on Imprint tool replies, at session start, and through a Claude Code prompt hook kept under 100 ms.
+- [ADR 0212](0212-agents-talk-through-comments-on-tasks.md) **Agents talk through comments on Tasks.** Addressed comments only, delivered on Imprint tool replies, at session start, and through a Claude Code prompt hook in shell, a few milliseconds a prompt.
 - [ADR 0213](0213-built-in-skills-ship-with-each-release-and-a-fork-replaces-them.md) **Built-in skills ship with each release, and a fork replaces them.** Read-only, unsynced built-ins (`imprint`, `imprint-tasks`); a same-named user fork replaces one everywhere; release changes shown, never merged.
 - [ADR 0215](0215-the-board-is-the-issue-tracker-of-the-planning-skills.md) **The Board is the issue tracker of the planning skills.** `imprint-tasks` carries a tracker description adopted through the "Other" option; triage states, sub-issues, blockers, assign, close and the frontier map onto the Board.
 - [ADR 0218](0218-imprint-renames-a-task-whose-id-another-device-gave-out.md) **Imprint renames a Task whose id another device gave out.** The older keeps the id; the other takes one derived from its identity, recorded by Imprint; former ids stay searchable.
@@ -283,7 +284,6 @@ The records in force, by area. An amended record is listed with the records that
 Under consideration; not current behavior.
 
 - [ADR 0009](0009-model-profiles-and-embedding-identity.md) **Model profiles and embedding identity.** Evaluate local model profiles with explicit embedding identity and safe re-embedding.
-- [ADR 0214](0214-the-rules-block-shrinks-to-a-stub-once-agents-keep-searching-first.md) **The rules block shrinks to a stub once agents keep searching first.** A few always-on lines point to the `imprint` skill, kept per client only if search-first sessions fall by no more than 10 points.
 
 ## Decision log
 
@@ -504,7 +504,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0211](0211-agents-take-ready-and-stale-tasks-unasked-within-their-project.md) | 2026-11-27 | Accepted | Agents take Ready and Stale Tasks unasked, within their project |
 | [0212](0212-agents-talk-through-comments-on-tasks.md) | 2026-11-27 | Accepted | Agents talk through comments on Tasks |
 | [0213](0213-built-in-skills-ship-with-each-release-and-a-fork-replaces-them.md) | 2026-11-27 | Accepted | Built-in skills ship with each release, and a fork replaces them |
-| [0214](0214-the-rules-block-shrinks-to-a-stub-once-agents-keep-searching-first.md) | 2026-11-27 | Proposed | The rules block shrinks to a stub once agents keep searching first |
+| [0214](0214-the-rules-block-shrinks-to-a-stub-once-agents-keep-searching-first.md) | 2026-11-27 | Accepted | The rules block shrinks to a stub once agents keep searching first |
 | [0215](0215-the-board-is-the-issue-tracker-of-the-planning-skills.md) | 2026-11-27 | Accepted | The Board is the issue tracker of the planning skills |
 | [0216](0216-agents-choose-their-own-names.md) | 2026-11-27 | Accepted | Agents choose their own names |
 | [0217](0217-the-simple-dashboard-lists-the-board-as-tasks.md) | 2026-11-27 | Accepted | The simple dashboard lists the Board as Tasks |
