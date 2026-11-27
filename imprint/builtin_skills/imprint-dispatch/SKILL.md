@@ -28,3 +28,14 @@ Imprint's Dispatcher started you to work on one Task of the Board. Nobody is wat
 8. **If you cannot finish**, record a checkpoint saying where you stopped and why, comment to `user` with what you need from them, and end the run. The Dispatcher releases the claim.
 
 End your run once the Task is in Review or you have recorded why you stopped.
+
+## Reviewing
+
+When your prompt says you are to **review** the Task, another session did the work and you check it. The Task stays in Review while you hold it.
+
+1. **Name yourself** and **take over the claim** with your token, as above.
+2. **Read the Task**: its acceptance criteria, the worker's checkpoints (how it says it verified each criterion) and the comments.
+3. **Check the change** in your worktree, which is on the Task's branch: read `git diff <base>...HEAD`, with the base your prompt names, run the project's tests and checks as its own instructions say, and check each acceptance criterion yourself. Look for real defects; leave style preferences out.
+4. **Do not change the work.** Reviewing is reading and running, not fixing; make no commits.
+5. **Pass**: when every criterion holds and you found no defect, comment what you checked and how, then `task_edit(action="move", task="T-…", status="Done")`. The Dispatcher tells the person the branch is ready to merge.
+6. **Fail**: comment your findings to `holder`, each with where it is (file and line) and what would fix it, then `task_edit(action="move", task="T-…", status="Ready")`. The next worker continues on the same branch from your comment.

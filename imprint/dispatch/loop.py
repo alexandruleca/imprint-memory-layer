@@ -22,9 +22,10 @@ import time
 
 from .. import config, processes, tasks
 from ..tasks.view import _order as board_order
-from . import clients, dispatched, folders, guards, store
+from . import clients, dispatched, folders, guards, store, worktrees
 
 PASS_SECONDS = 30.0
+CLEANUP_SECONDS = 600.0
 POLL_SECONDS = 2.0
 
 
@@ -69,8 +70,56 @@ def candidates(workspace: str, *, choices: list[str] | None = None) -> list[dict
     for state in found:
         client = clients.for_task(state, choices, device)
         if client and not guards.readied_by_dispatched(state['id'], workspace, dispatched):
-            chosen.append({**state, 'client': client})
+            chosen.append({**state, 'client': client, 'role': 'work'})
     return chosen
+
+
+def reviews(workspace: str, *, choices: list[str] | None = None) -> list[dict]:
+    """Tasks in Review the Dispatcher would review (ADR 0221), in the
+    Board's order, each with its reviewer's ``client``: standalone, not the
+    person's, not held, not for another device, as autonomy allows."""
+    if tasks.autonomy(workspace) == 'off':
+        return []
+    choices = clients.allowed() if choices is None else choices
+    device = tasks.device_name()
+    found = []
+    for state in tasks.listing(status='review', workspace=workspace):
+        if 'user' in state['assignees'] or state.get('feature') or state.get('tasks') or state.get('holder'):
+            continue
+        devices = [a for a in state['assignees'] if '@' in a]
+        if devices and not any(a.split('@', 1)[1].lower() == device for a in devices):
+            continue
+        client = guards.reviewer(state, choices, workspace)
+        if client:
+            found.append({**state, 'client': client, 'role': 'review'})
+    return sorted(found, key=board_order)
+
+
+def cleanup() -> int:
+    """Remove the worktrees of Tasks that reached Done or Cancelled, or are
+    gone, keeping their branches (ADR 0223). A worktree still in use (on
+    Windows, a process may keep it as its folder for a while after the
+    session ends) is tried again on a later pass. Returns how many went."""
+    removed = 0
+    for run in store.uncleaned():
+        if any(r['task'] == run['task'] for r in running_runs()):
+            continue
+        try:
+            state = tasks.get(run['task'], workspace=run['workspace'])
+        except LookupError:
+            state = None  # deleted
+        if state is not None and state['status'] not in ('done', 'cancelled'):
+            continue
+        try:
+            folder = folders.resolve(run['project'], run['workspace'])
+            if folder['ok']:
+                worktrees.remove(folder, run['task'])
+            store.mark_cleaned(run['workspace'], run['task'])
+            removed += 1
+        except Exception as error:  # in use, or git is unavailable now: next time
+            print(f"[imprint] dispatcher could not remove the worktree of {run['task']} yet: {error}",
+                  file=sys.stderr, flush=True)
+    return removed
 
 
 class Dispatcher:
@@ -80,7 +129,7 @@ class Dispatcher:
         self.skipped: dict[str, str] = {}  # project -> why it was passed over on the last pass
         self._stopping, self._wake = threading.Event(), threading.Event()
         self._thread: threading.Thread | None = None
-        self._next_pass = 0.0
+        self._next_pass = self._next_cleanup = 0.0
         self._lock = threading.Lock()
 
     # ── Lifecycle ──────────────────────────────────────────────
@@ -138,6 +187,9 @@ class Dispatcher:
             self._next_pass = time.monotonic() + self.interval
             self.recover()
             self.dispatch()
+        if time.monotonic() >= self._next_cleanup:
+            self._next_cleanup = time.monotonic() + CLEANUP_SECONDS
+            cleanup()
 
     def watch(self) -> None:
         for run_id, session in list(self.sessions.items()):
@@ -155,17 +207,20 @@ class Dispatcher:
             return None
         self.skipped = {}
         for workspace in store.switched_on_workspaces():
-            for state in candidates(workspace):
+            for state in [*reviews(workspace), *candidates(workspace)]:  # reviews first (ADR 0221)
                 if state['project'] in self.skipped:
                     continue
                 folder = folders.resolve(state['project'], workspace)
                 if not folder['ok']:
                     self.skipped[state['project']] = folder['reason']
                     continue
+                if state['role'] == 'review' and not guards.takeover(state, folder, workspace, doing='review this Task')[0]:
+                    continue
                 if state['stale'] and not guards.takeover(state, folder, workspace)[0]:
                     continue
                 try:
                     run, proc = dispatched.start(state['id'], workspace=workspace, client=state['client'],
+                                                 role=state['role'],
                                                  on_wait=self.watch)  # its sessions are watched while the claim travels
                 except (LookupError, PermissionError, ValueError, OSError, RuntimeError) as error:
                     print(f"[imprint] dispatcher passed over {state['id']}: {error}", file=sys.stderr, flush=True)

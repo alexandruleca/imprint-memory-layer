@@ -45,6 +45,16 @@ FAKE_CLAUDE = textwrap.dedent('''\
     token = re.search(r'- Your claim token: (\\S+)', prompt).group(1)
     me = tasks.agent('conversation:' + session, client='claude-code')
     tasks.claim(task, actor=me, token=token)
+    if '- Your role: review' in prompt:
+        verdict = os.environ.get('FAKE_REVIEW', 'pass')
+        if verdict == 'pass':
+            tasks.comment(task, 'Checked both criteria: they hold', actor=me)
+            tasks.move(task, 'done', actor=me)
+        elif verdict == 'return':
+            tasks.comment(task, 'done.txt is empty: write the word done in it', to=['holder'], actor=me)
+            tasks.move(task, 'ready', actor=me)
+        print(json.dumps({{'type': 'result', 'subtype': 'success', 'result': 'Reviewed: ' + verdict}}))
+        sys.exit(0)
     print(json.dumps({{'type': 'assistant', 'message': {{'content': [{{'type': 'text', 'text': 'Working on it'}}]}}}}))
     if mode == 'review':
         open('done.txt', 'w').write('done')

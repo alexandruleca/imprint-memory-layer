@@ -17,6 +17,8 @@ import { cn } from "@/lib/utils";
 
 const OUTCOMES: Record<string, { label: string; tone: string }> = {
   review: { label: "reached Review", tone: "text-emerald-700 dark:text-emerald-300" },
+  passed: { label: "review passed: Done", tone: "text-emerald-700 dark:text-emerald-300" },
+  returned: { label: "review sent it back", tone: "text-amber-700 dark:text-amber-300" },
   failed: { label: "failed", tone: "text-destructive" },
   stopped: { label: "stopped", tone: "text-muted-foreground" },
   lost: { label: "another device took it", tone: "text-muted-foreground" },
@@ -133,7 +135,7 @@ export function DispatcherStrip({ now, onOpen }: { now: Date; onOpen: (task: str
           {data.on
             ? data.autonomy === "off"
               ? "On, but agents take nothing unasked in this workspace."
-              : "On for this device: starts an agent on Ready tasks, one at a time, in a worktree of its own."
+              : "On for this device: reviews tasks in Review, then takes over Stale and Ready ones, one at a time, each in a worktree of its own."
             : "Off. Switch it on to have this device start agents on Ready tasks while nobody works on them."}
         </span>
         <ClientsPicker data={data} onChanged={() => void status.refresh()} />
@@ -147,7 +149,7 @@ export function DispatcherStrip({ now, onOpen }: { now: Date; onOpen: (task: str
           <span className="relative flex size-2"><span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-500 opacity-60" /><span className="relative inline-flex size-2 rounded-full bg-emerald-500" /></span>
           <Button variant="link" size="sm" className="h-auto px-0 text-xs font-mono" onClick={() => onOpen(run.task)}>{run.task}</Button>
           <span className="min-w-0 truncate">{run.title}</span>
-          <Badge variant="secondary" className="font-normal">{run.client}</Badge>
+          <Badge variant="secondary" className="font-normal">{run.role === "review" ? `${run.client} · review` : run.client}</Badge>
           <span className="text-muted-foreground">since <Timestamp seconds={run.started_at} now={now} /></span>
           <Button variant="outline" size="xs" className="ml-auto" onClick={() => void stop(run)} aria-label={`Stop the session on ${run.task}`}>
             <Square aria-hidden /> Stop

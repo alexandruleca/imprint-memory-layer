@@ -38,6 +38,7 @@ Interactive sessions keep reviewing only when asked.
 
 ## Consequences
 
+- The Board lets the holder of a Task in Review move it to Done when it did not do the work, so a reviewer can claim the Task it checks; the session that did the work still cannot mark it Done.
 - Tasks can reach Done without the person having read the change; the branch still waits for them to merge.
 - A review costs a session of the device's usage, and a cross-client review needs both clients set up.
 - An interactive session's work, moved to Review, is reviewed by a Dispatched session when the Dispatcher is on.

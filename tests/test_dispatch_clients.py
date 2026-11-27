@@ -30,6 +30,16 @@ FAKE_CODEX = textwrap.dedent('''\
     me = tasks.agent('process:' + uuid.uuid4().hex, client='codex')
     tasks.claim(task, actor=me, token=token)
     last = args[args.index('--output-last-message') + 1]
+    if '- Your role: review' in prompt:
+        verdict = os.environ.get('FAKE_REVIEW', 'pass')
+        if verdict == 'pass':
+            tasks.comment(task, 'Codex checked it: fine', actor=me)
+            tasks.move(task, 'done', actor=me)
+        else:
+            tasks.comment(task, 'Codex found a problem', to=['holder'], actor=me)
+            tasks.move(task, 'ready', actor=me)
+        open(last, 'w').write('Reviewed: ' + verdict)
+        sys.exit(0)
     print(json.dumps({{'type': 'item.completed', 'item': {{'type': 'agent_message', 'text': 'working'}}}}))
     if os.environ.get('FAKE_MODE', 'review') == 'review':
         tasks.checkpoint(task, 'Done and verified', actor=me)

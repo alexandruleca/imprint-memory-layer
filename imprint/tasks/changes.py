@@ -137,7 +137,8 @@ def move(task: str, status: str, *, position: float | None = None, actor: dict |
         if status == 'ready' and not state['acceptance']:
             raise ValueError('A task moves to ready only with at least one acceptance criterion')
         if status == 'done' and actor['kind'] == 'agent':
-            if (state['holder'] or {}).get('session') == actor['session']:
+            # A Dispatched reviewer holds a Task in Review while it checks it (ADR 0221).
+            if (state['holder'] or {}).get('session') == actor['session'] and state['status'] != 'review':
                 raise PermissionError('Move it to Review first: another session or the user marks it Done')
             if state['worked_by'] == actor['session']:
                 raise PermissionError('The session that did the work does not mark it Done: '

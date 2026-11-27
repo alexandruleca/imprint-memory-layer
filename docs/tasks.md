@@ -49,7 +49,7 @@ Agents also take work without being asked. Once an agent has finished what you a
 
 ## Dispatched sessions
 
-When you switch a device's **Dispatcher** on for a workspace (off by default), that device starts agent sessions for Tasks itself, with nobody at the keyboard: Stale Tasks first, then Ready ones, by the same rules as taking work unasked, each in a worktree of its own outside the project, and never pushing or merging. Before it starts one, its claim must reach the paired devices: the Dispatcher has sync exchange at once and waits up to 2 minutes for it, and starts nothing when another device's earlier claim won. While a session runs, the Dispatcher stops it itself the moment another device's earlier claim takes the Task, so two devices never keep working on one Task. The switch, the limits and the clients are described on the dashboard's Board and in the configuration ([ADRs 0220-0224](adr/0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md), proposed).
+When you switch a device's **Dispatcher** on for a workspace (off by default), that device starts agent sessions for Tasks itself, with nobody at the keyboard: it reviews Tasks in Review first, in a different client from the one that did the work where it can (a passing review moves the Task to Done and tells you its branch is ready to merge; a failing one sends it back to Ready with its findings, and after two you get the Task), then takes over Stale Tasks and works Ready ones, by the same rules as taking work unasked, each in a worktree of its own outside the project, and never pushing or merging. Before it starts one, its claim must reach the paired devices: the Dispatcher has sync exchange at once and waits up to 2 minutes for it, and starts nothing when another device's earlier claim won. While a session runs, the Dispatcher stops it itself the moment another device's earlier claim takes the Task, so two devices never keep working on one Task. The switch, the limits and the clients are described on the dashboard's Board and in the configuration ([ADRs 0220-0224](adr/0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md), proposed).
 
 ## Progress
 
@@ -91,7 +91,7 @@ imprint tasks next --feature T-2b9hd           # a Feature's frontier: what can 
 imprint tasks delete T-7f3kq --yes             # gone here, leaving a tombstone
 imprint tasks dispatch on                      # this device's Dispatcher, for this workspace; off by default (ADR 0220, proposed)
 imprint tasks dispatch status                  # on or off, running sessions, what it would take next
-imprint tasks dispatch run T-7f3kq             # start a Dispatched session on it now and wait; --client codex (ADR 0220, proposed)
+imprint tasks dispatch run T-7f3kq             # start a Dispatched session on it now and wait; --client codex, --review (ADR 0220, proposed)
 imprint tasks dispatch stop 46b07b86f855       # stop a running Dispatched session
 ```
 

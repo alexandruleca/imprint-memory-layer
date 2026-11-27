@@ -87,7 +87,7 @@ def handoff_lines(handoff: dict | None, project: str) -> list[str]:
 
 
 def prompt(state: dict, *, workspace: str, worktree: dict, token: str, role: str = 'work',
-           note: str = '', handoff: dict | None = None) -> str:
+           note: str = '', handoff: dict | None = None, base: str | None = None) -> str:
     """The Dispatched session's prompt: the Task, where to work, the claim
     token, its Handoff when it was worked on before, its client's ``note``
     about its own sandbox, and the instructions of ``imprint-dispatch``."""
@@ -102,6 +102,8 @@ def prompt(state: dict, *, workspace: str, worktree: dict, token: str, role: str
         f"- Your worktree: {worktree['cwd']}, on branch {worktree['branch']}, made from {worktree['base']} "
         f"at {worktree['base_commit']}",
         f'- Your claim token: {token}',
+        *([f'- Review against: {base} (`git diff {base}...HEAD` when it is a commit)',
+           '- Your role: review. Follow the "Reviewing" part of the instructions below.'] if role == 'review' else []),
         *handoff_lines(handoff, state['project']),
         *(['', note] if note else []),
         '',
@@ -236,6 +238,8 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
     if role == 'work' and state['status'] not in WORKABLE:
         raise ValueError(f"{state['id']} is {tasks.STATUS_LABELS.get(state['status'], state['status'])}: "
                          'a Dispatched session works on Backlog, Ready or Stale Tasks')
+    if role == 'review' and state['status'] != 'review':
+        raise ValueError(f"{state['id']} is not in Review: a Dispatched review checks finished work")
     folder = folders.resolve(state['project'], workspace)
     if not folder['ok']:
         raise LookupError(folder['reason'])
@@ -243,7 +247,10 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
     distro = folder.get('distro')
     where = f' in {distro}' if distro else ''
     if client is None:
-        client = clients.for_task(state, clients.allowed(where=distro), tasks.device_name())
+        from . import guards
+        choices = clients.allowed(where=distro)
+        client = (guards.reviewer(state, choices, workspace) if role == 'review'
+                  else clients.for_task(state, choices, tasks.device_name()))
         if client is None:
             raise LookupError(f"No client this device may start for {state['id']}{where}: "
                               '`imprint tasks dispatch status` says which are available')
@@ -255,7 +262,9 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
     # branch, at its last commit when that branch is not here yet (ADR 0223).
     handoff = tasks.handoff(state['id'], workspace=workspace) if state.get('checkpoints') else None
     start_at = None
-    if handoff and (handoff.get('branch') or '').startswith(worktrees.branch_prefix(state['id'])) and handoff.get('commit'):
+    on_branch = (handoff or {}).get('branch') or ''
+    if handoff and handoff.get('commit') and (role == 'review' or on_branch.startswith(worktrees.branch_prefix(state['id']))):
+        # A review checks the work where it ends, on whatever branch it was done.
         from . import git
         start_at = handoff['commit'] if git.has_commit(folder['path'], handoff['commit']) else None
     worktree = worktrees.prepare(folder, state['id'], state['title'], start=start_at)
@@ -293,8 +302,12 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
         if not held:
             finish(run_id, None, lost=winner, started=False)
             raise ClaimLost(f"{state['id']} was claimed first by {winner}: no session started")
+        base = None
+        if role == 'review':
+            from . import guards
+            base = guards.review_base(state, workspace) or f"the merge base of HEAD and {folder.get('branch') or 'the main branch'}"
         text = prompt(claimed['task'], workspace=workspace, worktree=worktree, token=claimed['token'], role=role,
-                      note=runner.note, handoff=handoff)
+                      note=runner.note, handoff=handoff, base=base)
         log = store.log_path(run_id)
         log.parent.mkdir(parents=True, exist_ok=True)
         env = _env(workspace, run_id)
@@ -430,20 +443,35 @@ def finish(run_id: str, exit_code: int | None, *, reason: str | None = None, sto
     if run.get('stop_reason'):
         reason, stopped = run['stop_reason'], True
     state = tasks.get(task, workspace=workspace)
+    label = runners.RUNNERS[run['client']].label if run['client'] in runners.RUNNERS else run['client']
     if not reason and run['role'] == 'work' and state['status'] == 'review':
         outcome, detail = 'review', 'moved the Task to Review'
+    elif not reason and run['role'] == 'review' and state['status'] in ('done', 'ready'):
+        from . import guards
+        if state['status'] == 'done':
+            outcome, detail = 'passed', 'passed the review and moved the Task to Done'
+            tasks.comment(task, f"A Dispatched review ({label}) passed this Task: {run['branch']} is ready to merge.",
+                          to=['user'], actor=SYSTEM, workspace=workspace)
+        else:
+            outcome, detail = 'returned', 'found problems and sent the Task back to Ready'
+            holder = state.get('holder') or (state.get('previous_holder') if state.get('stale') else None)
+            if holder and holder['session'] in _our_sessions(task, run_id, workspace):
+                tasks.release(task, actor=SYSTEM, workspace=workspace)
+        store.update(run_id, ended_at=time.time(), exit_code=exit_code, outcome=outcome, detail=detail)
+        guards.after_review(store.get(run_id), outcome)
+        return store.get(run_id)
     else:
         outcome = 'stopped' if stopped else 'failed'
         detail = reason or (f'ended (exit code {exit_code}) without moving the Task to Review'
-                            if run['role'] == 'work' else f'ended (exit code {exit_code})')
+                            if run['role'] == 'work' else f'ended (exit code {exit_code}) without deciding the review')
         # A holder whose process ended is Stale at once, and the Board shows it as the previous holder.
         holder = state.get('holder') or (state.get('previous_holder') if state.get('stale') else None)
         released = False
-        if holder and holder['session'] in _our_sessions(task, run_id, workspace) and state['status'] != 'review':
-            tasks.release(task, actor=SYSTEM, workspace=workspace)
+        if holder and holder['session'] in _our_sessions(task, run_id, workspace) and \
+                (state['status'] != 'review' or run['role'] == 'review'):
+            tasks.release(task, actor=SYSTEM, workspace=workspace)  # a reviewer's release leaves it in Review
             released = True
         tail = log_tail(store.log_path(run_id))
-        label = runners.RUNNERS[run['client']].label if run['client'] in runners.RUNNERS else run['client']
         text = f'The Dispatched session ({label}) {detail}.'
         if released:
             text += ' Its claim is released.'
@@ -465,9 +493,10 @@ def finish(run_id: str, exit_code: int | None, *, reason: str | None = None, sto
 
 
 def run(task: str, *, workspace: str | None = None, client: str | None = None, minutes: float | None = None,
-        on_start=None) -> dict:
-    """Dispatch ``task`` now and wait for its session to end: the run's record."""
-    started, proc = start(task, workspace=workspace, client=client)
+        on_start=None, role: str = 'work') -> dict:
+    """Dispatch ``task`` now, to work on it or (``role='review'``) to review
+    it, and wait for its session to end: the run's record."""
+    started, proc = start(task, workspace=workspace, client=client, role=role)
     if on_start:
         on_start(started)
     return watch(started, proc, minutes=minutes)

@@ -16,9 +16,9 @@ from .. import config
 
 COLUMNS = ('id', 'workspace', 'task', 'title', 'project', 'client', 'role', 'session', 'conversation', 'claim',
            'pid', 'worktree', 'branch', 'base', 'started_at', 'ended_at', 'exit_code', 'outcome', 'detail',
-           'watcher', 'stop_reason', 'distro')
+           'watcher', 'stop_reason', 'distro', 'cleaned')
 # Columns later Tasks of the Dispatcher added to a store that existed before them.
-_ADDED = {'watcher': 'INTEGER', 'stop_reason': 'TEXT', 'distro': 'TEXT'}
+_ADDED = {'watcher': 'INTEGER', 'stop_reason': 'TEXT', 'distro': 'TEXT', 'cleaned': 'REAL'}
 
 
 def _db_path() -> Path:
@@ -111,6 +111,25 @@ def unfinished() -> list[dict]:
     """Runs that have not recorded how they ended, oldest first."""
     with closing(_connect()) as conn:
         return [dict(row) for row in conn.execute('SELECT * FROM runs WHERE ended_at IS NULL ORDER BY started_at')]
+
+
+def uncleaned() -> list[dict]:
+    """Ended runs whose worktree has not been removed yet, one per Task, newest first."""
+    with closing(_connect()) as conn:
+        rows = conn.execute('SELECT * FROM runs WHERE ended_at IS NOT NULL AND cleaned IS NULL AND worktree IS NOT NULL '
+                            'ORDER BY started_at DESC').fetchall()
+    seen, found = set(), []
+    for row in rows:
+        if (row['workspace'], row['task']) not in seen:
+            seen.add((row['workspace'], row['task']))
+            found.append(dict(row))
+    return found
+
+
+def mark_cleaned(workspace: str, task: str) -> None:
+    with closing(_connect()) as conn, conn:
+        conn.execute('UPDATE runs SET cleaned = ? WHERE workspace = ? AND task = ? AND cleaned IS NULL',
+                     (time.time(), workspace, task))
 
 
 def recent(limit: int = 20) -> list[dict]:

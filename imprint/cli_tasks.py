@@ -23,7 +23,7 @@ Usage:
     python -m imprint.cli_tasks unblock|cancel|release TASK
     python -m imprint.cli_tasks delete TASK --yes
     python -m imprint.cli_tasks dispatch on|off|status
-    python -m imprint.cli_tasks dispatch run TASK [--client claude-code] [--minutes N]
+    python -m imprint.cli_tasks dispatch run TASK [--client claude-code] [--minutes N] [--review]
     python -m imprint.cli_tasks dispatch stop RUN
 
 FILTERS: --project P --feature F --tag T --status S --priority P --assignee A --holder H --text T.
@@ -136,6 +136,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument('--client', default=None,
                      help="The client to start (default: the one it is assigned to, else this device's default)")
     run.add_argument('--minutes', type=float, help='Its time limit (default: dispatch.session_minutes)')
+    run.add_argument('--review', action='store_true', help='Review a Task in Review instead of working on it')
     actions.add_parser('on', parents=[common], help="Switch this device's Dispatcher on for the workspace")
     actions.add_parser('off', parents=[common], help="Switch this device's Dispatcher off for the workspace")
     actions.add_parser('status', parents=[common], help='What the Dispatcher does on this device')
@@ -200,10 +201,13 @@ def _dispatch(args, workspace: str | None, as_json: bool) -> None:
                   f"Its log: {dispatched.store.log_path(run['id'])}\nWaiting for the session to end "
                   '(Ctrl+C stops it)...', flush=True)
 
-    run = dispatched.run(args.task, workspace=workspace, client=args.client, minutes=args.minutes, on_start=started)
-    verdict = 'reached Review' if run['outcome'] == 'review' else f"failed: the session {run['detail']}"
+    run = dispatched.run(args.task, workspace=workspace, client=args.client, minutes=args.minutes, on_start=started,
+                         role='review' if args.review else 'work')
+    verdicts = {'review': 'reached Review', 'passed': 'passed its review: Done',
+                'returned': 'was sent back to Ready by its review'}
+    verdict = verdicts.get(run['outcome']) or f"{run['outcome']}: the session {run['detail']}"
     _print(run, as_json, f"{run['task']} {verdict}.")
-    if run['outcome'] != 'review':
+    if run['outcome'] not in verdicts:
         raise SystemExit(1)
 
 
