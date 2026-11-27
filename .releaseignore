@@ -33,6 +33,8 @@ installers/
 # Tests, their fixtures (including third-party chat templates) + benchmark results
 /tests/
 benchmark/
+# The LongMemEval harness, with its downloaded dataset and benchmark Qdrant data
+/evals/
 __pycache__/
 *.pyc
 .pytest_cache/

@@ -34,3 +34,8 @@ uninstall-cleanup.log
 
 # Dashboard static export: CI, releases and the container build it from source (make dashboard-build).
 imprint/ui/out/
+
+# LongMemEval benchmark: downloaded dataset, its own Imprint data dir, run output
+evals/longmemeval/datasets/
+evals/longmemeval/.data/
+evals/longmemeval/runs/
