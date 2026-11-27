@@ -129,6 +129,30 @@ class _SessionNotice(Middleware):
 mcp.add_middleware(_SessionNotice())
 
 
+class _BoardNotice(Middleware):
+    """Count each call as the session's activity for its claims' leases, and
+    prefix what the Board has for this session (ADRs 0210, 0212)."""
+
+    async def on_call_tool(self, context, call_next):
+        result = await call_next(context)
+        try:
+            from . import tasks_tool
+            tasks_tool.touch()
+            notice = tasks_tool.notices()
+        except Exception:  # The Board must not cost the agent its result.
+            return result
+        if not notice or not isinstance(result, ToolResult):
+            return result
+        structured = result.structured_content
+        if isinstance(structured, dict) and isinstance(structured.get('result'), str):
+            structured = {**structured, 'result': f'{notice}\n\n{structured["result"]}'}
+        return ToolResult(content=[TextContent(type='text', text=notice), *result.content],
+                          structured_content=structured, meta=result.meta)
+
+
+mcp.add_middleware(_BoardNotice())
+
+
 def _client_info(params):
     """The client's Implementation from initialize params or a session's
     client_params; SDK v2 names it client_info, v1 clientInfo."""
@@ -1683,7 +1707,8 @@ def tasks(
 
 @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False})
 def task_edit(
-    action: Literal["create", "edit", "append", "move", "tag", "assign", "link", "block", "unblock", "cancel"],
+    action: Literal["create", "edit", "append", "move", "tag", "assign", "link", "block", "unblock", "cancel",
+                    "claim", "checkpoint", "release"],
     task: str = "",
     title: str | None = None,
     description: str | None = None,
@@ -1699,6 +1724,11 @@ def task_edit(
     add: list[str] | None = None,
     remove: list[str] | None = None,
     text: str = "",
+    token: str = "",
+    branch: str = "",
+    commit: str = "",
+    files: list[str] | None = None,
+    next_step: str = "",
     workspace: str = "",
     ctx: Context | None = None,
 ) -> str:
@@ -1711,7 +1741,8 @@ def task_edit(
         action: "create"; on an existing task: "edit" (replace the fields given), "append" (add
                 text to the description), "move" (to status), "tag"/"assign" (add, remove),
                 "link" (feature, and blockers to add/remove), "block" (text is the reason),
-                "unblock" or "cancel"
+                "unblock" or "cancel"; "claim" (take it to work on), "checkpoint" (record
+                progress while you hold it) or "release" (let it go unfinished)
         task: The Task to change, e.g. "T-7f3kq"
         title: The title
         description: What and why, in Markdown (edit replaces it; append adds to it)
@@ -1726,7 +1757,12 @@ def task_edit(
         blockers: For create, the Tasks that must be Done first
         add: For tag, assign or link, the tags, assignees or blocking Tasks to add
         remove: For tag, assign or link, those to remove
-        text: For append, the text; for block, the reason
+        text: For append, the text; for block, the reason; for checkpoint, what is done
+        token: For claim, the token an earlier claim of yours returned, to take it back after a restart
+        branch: For checkpoint, the task branch the work is on
+        commit: For checkpoint, its last commit
+        files: For checkpoint, the files touched
+        next_step: For checkpoint, what comes next
         workspace: Target workspace (default: the session's)
     """
     from . import tasks_tool
@@ -1738,7 +1774,8 @@ def task_edit(
                                  blockers=blockers, actor=who, workspace=workspace)
     return tasks_tool.change(action, task, actor=who, workspace=workspace, title=title, description=description,
                              project=project, status=status, priority=priority, position=position,
-                             acceptance=acceptance, feature=feature, add=add, remove=remove, text=text)
+                             acceptance=acceptance, feature=feature, add=add, remove=remove, text=text,
+                             token=token, branch=branch, commit=commit, files=files, next_step=next_step)
 
 
 def _first_meaningful_line(text: str, max_len: int = 200) -> str:

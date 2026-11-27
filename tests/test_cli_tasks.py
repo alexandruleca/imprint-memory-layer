@@ -80,6 +80,8 @@ class CliTasksTests(unittest.TestCase):
                                          '--priority', 'P0', '--text', 'total', '--json').stdout)
         self.assertEqual([t['id'] for t in listed], [task])
         self.run_cli('unblock', task)
+        done = self.run_cli('release', task, ok=False)
+        self.assertIn('no claim to release', done.stderr)
         self.run_cli('cancel', task)
         self.assertEqual(json.loads(self.run_cli('show', task, '--json').stdout)['status'], 'cancelled')
         self.run_cli('delete', task, '--yes')

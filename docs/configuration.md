@@ -171,6 +171,9 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | **Recall (MCP tool)** | | |
 | `recall.llm` | `false` | Let the local model plan recall reads and answer from the evidence |
 | `recall.llm_timeout_sec` | `30` | Seconds one recall waits for the local model (planning and answering together) |
+| `tasks.lease_minutes` | `15` | Minutes an agent's claim on a Task lasts without its Imprint renewing it; then the Task is Stale and can be taken over. Env `IMPRINT_TASKS_LEASE_MINUTES` ([ADR 0210](adr/0210-claims-are-leases-held-by-the-agent-session.md)) |
+| `tasks.stalling_minutes` | `60` | Minutes without progress from its holder before a claimed Task is marked Stalling. Env `IMPRINT_TASKS_STALLING_MINUTES` ([ADR 0210](adr/0210-claims-are-leases-held-by-the-agent-session.md)) |
+| `tasks.stale_minutes` | `120` | Minutes without progress from its holder before a claimed Task is Stale and its claim released. Env `IMPRINT_TASKS_STALE_MINUTES` ([ADR 0210](adr/0210-claims-are-leases-held-by-the-agent-session.md)) |
 | `organize.background` | `false` | Organize new and changed memories when the queue is idle, after background tagging ([ADR 0132](adr/0132-organize-runs-in-the-idle-slot-after-background-tagging.md)) |
 | `organize.auto_move` | `true` | Move catch-all sources with strong evidence without review; weaker proposals still wait ([ADR 0133](adr/0133-strong-placements-apply-by-themselves.md)) |
 | **Upkeep** | | |

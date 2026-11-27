@@ -264,5 +264,168 @@ class DeleteTests(TasksTestCase):
         self.assertTrue(all('private' not in data for _, data in rows))
 
 
+
+CODEX = tasks.agent('session-2', name='quill', client='codex')
+T0 = 1_800_000_000.0
+
+
+def at(seconds):
+    return patch.object(tasks.time, 'time', return_value=T0 + seconds)
+
+
+def dead_pid():
+    import subprocess
+    import sys
+    child = subprocess.Popen([sys.executable, '-c', 'pass'])
+    child.wait()
+    return child.pid
+
+
+class ClaimTests(TasksTestCase):
+    def ready(self, **fields):
+        return make(acceptance=['It works'], status='ready', **fields)['id']
+
+    def test_claiming_takes_the_task_into_progress_and_returns_a_token(self):
+        task = self.ready()
+        with at(0):
+            claimed = tasks.claim(task, actor=AGENT, workspace='default')
+        self.assertRegex(claimed['token'], r'^[A-Za-z0-9_-]{20,}$')
+        state = claimed['task']
+        self.assertEqual(state['status'], 'in_progress')
+        self.assertEqual({k: state['holder'][k] for k in ('session', 'name', 'client', 'device', 'since')},
+                         {'session': 'session-1', 'name': 'grimforge', 'client': 'claude-code', 'device': 'device-a',
+                          'since': T0})
+        self.assertNotIn(claimed['token'], (self.data / 'tasks.sqlite3').read_bytes().decode('latin-1'))
+        again = tasks.claim(task, actor=AGENT, workspace='default')
+        self.assertIsNone(again['token'])
+        self.assertEqual(again['task']['holder']['session'], 'session-1')
+
+    def test_a_live_claim_is_not_taken_and_names_its_holder(self):
+        task = self.ready()
+        tasks.claim(task, actor=AGENT, workspace='default')
+        with self.assertRaisesRegex(PermissionError, r'held by grimforge \(claude-code\)'):
+            tasks.claim(task, actor=CODEX, workspace='default')
+
+    def test_the_claim_token_takes_the_claim_back_after_a_restart(self):
+        task = self.ready()
+        token = tasks.claim(task, actor=AGENT, workspace='default')['token']
+        resumed = tasks.agent('session-1b', name='grimforge', client='claude-code')
+        with self.assertRaisesRegex(PermissionError, 'held by'):
+            tasks.claim(task, actor=resumed, token='wrong-token-wrong-token', workspace='default')
+        state = tasks.claim(task, actor=resumed, token=token, workspace='default')['task']
+        self.assertEqual(state['holder']['session'], 'session-1b')
+
+    def test_a_holder_whose_process_ended_releases_its_claim_at_once(self):
+        task = self.ready()
+        tasks.claim(task, actor=AGENT, pid=dead_pid(), workspace='default')
+        state = tasks.get(task, workspace='default')
+        self.assertTrue(state['stale'])
+        self.assertIsNone(state['holder'])
+        self.assertEqual(state['previous_holder']['name'], 'grimforge')
+        taken = tasks.claim(task, actor=CODEX, workspace='default')['task']
+        self.assertEqual(taken['holder']['name'], 'quill')
+        self.assertFalse(taken['stale'])
+
+    def test_leases_run_out_unless_renewed(self):
+        task = self.ready()
+        with at(0):
+            tasks.claim(task, actor=AGENT, workspace='default')
+        with at(14 * 60):
+            self.assertFalse(tasks.get(task, workspace='default')['stale'])
+        with at(16 * 60):
+            self.assertTrue(tasks.get(task, workspace='default')['stale'])
+        with at(14 * 60):
+            self.assertEqual(tasks.renew('session-1'), 1)
+        with at(28 * 60):
+            self.assertFalse(tasks.get(task, workspace='default')['stale'])
+        with patch.dict(os.environ, {'IMPRINT_TASKS_LEASE_MINUTES': '30'}), at(16 * 60 + 14 * 60 + 60):
+            self.assertFalse(tasks.get(task, workspace='default')['stale'])
+
+    def test_a_holder_without_progress_stalls_then_goes_stale(self):
+        task = self.ready()
+        with at(0):
+            tasks.claim(task, actor=AGENT, workspace='default')
+        for minutes, stalling, stale in ((59, False, False), (61, True, False), (121, False, True)):
+            with at(minutes * 60):
+                tasks.renew('session-1')
+                state = tasks.get(task, workspace='default')
+            self.assertEqual((state['stalling'], state['stale']), (stalling, stale), minutes)
+        with at(121 * 60):
+            tasks.claim(task, actor=CODEX, workspace='default')
+        with at(150 * 60):
+            tasks.renew('session-2')
+            tasks.checkpoint(task, 'Wrote the parser.', branch='task/abc-parser', commit='1a2b3c4',
+                             files=['imprint/parser.py'], actor=CODEX, workspace='default')
+        with at(200 * 60):
+            tasks.renew('session-2')
+            state = tasks.get(task, workspace='default')
+        self.assertEqual((state['stalling'], state['stale']), (False, False))
+        self.assertEqual(state['last_checkpoint']['text'], 'Wrote the parser.')
+        self.assertEqual(state['last_checkpoint']['branch'], 'task/abc-parser')
+
+    def test_activity_reported_with_a_renewal_counts_as_progress(self):
+        task = self.ready()
+        with at(0):
+            tasks.claim(task, actor=AGENT, workspace='default')
+        with at(100 * 60):
+            tasks.renew('session-1', active_at=T0 + 99 * 60)
+            self.assertFalse(tasks.get(task, workspace='default')['stalling'])
+
+    def test_only_the_holder_records_checkpoints(self):
+        task = self.ready()
+        tasks.claim(task, actor=AGENT, workspace='default')
+        with self.assertRaisesRegex(PermissionError, 'claim'):
+            tasks.checkpoint(task, 'Not mine', actor=CODEX, workspace='default')
+        state = tasks.checkpoint(task, f'Used {GITHUB_TOKEN}', actor=AGENT, workspace='default')
+        self.assertNotIn(GITHUB_TOKEN, state['last_checkpoint']['text'])
+
+    def test_releasing_puts_work_in_progress_back_to_ready(self):
+        task = self.ready()
+        tasks.claim(task, actor=AGENT, workspace='default')
+        state = tasks.release(task, actor=AGENT, workspace='default')
+        self.assertEqual((state['status'], state['holder']), ('ready', None))
+        with self.assertRaisesRegex(PermissionError, 'not hold'):
+            tasks.release(task, actor=CODEX, workspace='default')
+
+    def test_the_session_that_did_the_work_does_not_mark_it_done(self):
+        task = self.ready()
+        tasks.claim(task, actor=AGENT, workspace='default')
+        with self.assertRaisesRegex(PermissionError, 'Review'):
+            tasks.move(task, 'done', actor=AGENT, workspace='default')
+        review = tasks.move(task, 'review', actor=AGENT, workspace='default')
+        self.assertEqual((review['status'], review['holder'], review['worked_by']), ('review', None, 'session-1'))
+        with self.assertRaisesRegex(PermissionError, 'another session'):
+            tasks.move(task, 'done', actor=AGENT, workspace='default')
+        self.assertEqual(tasks.move(task, 'done', actor=CODEX, workspace='default')['status'], 'done')
+        other = self.ready()
+        tasks.claim(other, actor=AGENT, workspace='default')
+        tasks.move(other, 'review', actor=AGENT, workspace='default')
+        self.assertEqual(tasks.move(other, 'done', workspace='default')['status'], 'done')
+
+    def test_tasks_for_the_user_or_already_ended_are_not_claimed(self):
+        mine = self.ready(assignees=['user'])
+        with self.assertRaisesRegex(PermissionError, 'assigned to the user'):
+            tasks.claim(mine, actor=AGENT, workspace='default')
+        ended = self.ready()
+        tasks.move(ended, 'cancelled', workspace='default')
+        with self.assertRaisesRegex(ValueError, 'Cancelled'):
+            tasks.claim(ended, actor=AGENT, workspace='default')
+
+    def test_of_two_claims_made_on_two_devices_the_earlier_wins_and_the_other_is_told(self):
+        task = self.ready()
+        with at(10):
+            tasks.claim(task, actor=AGENT, workspace='default')
+        [created] = [e for e in tasks.history(task, workspace='default') if e['kind'] == 'created']
+        remote = {'id': 'f' * 32, 'task': created['task'], 'kind': 'claimed', 'hlc': f'{int(T0 * 1000) + 5000:013d}.0000',
+                  'device': 'device-b', 'actor': 'agent', 'session': 'session-9', 'agent': 'quill', 'client': 'codex',
+                  'recorded_at': T0 + 5, 'data': {'token_hash': 'x' * 64}}
+        self.assertEqual(tasks.import_events([remote], workspace='default'), 1)
+        self.assertEqual(tasks.import_events([remote], workspace='default'), 0)
+        state = tasks.get(task, workspace='default')
+        self.assertEqual(state['holder']['name'], 'quill')
+        lost = tasks.lost_claims('session-1', workspace='default')
+        self.assertEqual([(l['task'], l['to']['name']) for l in lost], [(task, 'quill')])
+
+
 if __name__ == '__main__':
     unittest.main()

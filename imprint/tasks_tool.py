@@ -23,12 +23,60 @@ def status_ref(value: str) -> str:
     return status
 
 
+def session() -> str:
+    """The agent session this MCP server serves (ADR 0210): the client's own
+    conversation id where it passes one (Claude Code's), else this process."""
+    conversation = os.environ.get('CLAUDE_CODE_SESSION_ID') or os.environ.get('IMPRINT_CLIENT_SESSION')
+    if conversation:
+        return f'conversation:{conversation}'
+    from . import agent_activity
+    return f"process:{agent_activity.current().get('session') or os.getpid()}"
+
+
 def actor(client: str | None = None) -> dict:
     """The agent session this MCP server serves, as the actor of its changes."""
     from . import agent_activity
-    current = agent_activity.current()
-    session = current.get('session') or f'process-{os.getpid()}'
-    return tasks.agent(session, client=client or current.get('client'))
+    return tasks.agent(session(), client=client or agent_activity.current().get('client'))
+
+
+# ── The holder's Imprint keeps its claims alive ──────────────────
+
+_activity = {'at': None}
+
+
+def touch() -> None:
+    """The session just called Imprint: activity that counts as progress."""
+    _activity['at'] = time.time()
+
+
+def renew_now() -> int:
+    return tasks.renew(session(), active_at=_activity['at'])
+
+
+def start_renewing(interval: float = 60) -> None:
+    """Renew this session's leases now and then every ``interval`` seconds,
+    for as long as the process runs."""
+    import threading
+
+    def loop():
+        while True:
+            try:
+                renew_now()
+            except Exception:  # A busy or missing store must not end the renewals.
+                pass
+            time.sleep(interval)
+    threading.Thread(target=loop, name='imprint-task-leases', daemon=True).start()
+
+
+def notices(workspace: str | None = None) -> str:
+    """What this session should hear on its next reply: claims it lost."""
+    me = session()
+    lost = tasks.lost_claims(me, workspace=workspace)
+    told = set(tasks.take_unseen(me, [f"lost:{item['claim']}" for item in lost], workspace=workspace))
+    lines = [f"You lost your claim on {item['task']} ({item['title']}) to {_label(item['to'])}, "
+             'who claimed it first on another device. Stop working on it.'
+             for item in lost if f"lost:{item['claim']}" in told]
+    return '\n'.join(lines)
 
 
 def project(given: str = '', session_project: str | None = None) -> str:
@@ -58,6 +106,19 @@ def _when(seconds: float) -> str:
     return time.strftime('%Y-%m-%d %H:%M', time.localtime(seconds))
 
 
+def _label(holder: dict) -> str:
+    name = holder.get('name') or ''
+    client = holder.get('client') or ''
+    if name and client:
+        return f'{name} ({client})'
+    return name or client or 'an agent'
+
+
+def _ago(seconds: float) -> str:
+    minutes = max(0, int((time.time() - seconds) // 60))
+    return f'{minutes} min ago' if minutes < 120 else f'{minutes // 60} h ago'
+
+
 def line(state: dict) -> str:
     """One Task on one line: id, priority, title, project, tags, assignees and
     what holds it up."""
@@ -66,6 +127,10 @@ def line(state: dict) -> str:
         text += ' ' + ' '.join(f'#{tag}' for tag in state['tags'])
     if state.get('assignees'):
         text += ' → ' + ', '.join(state['assignees'])
+    if state.get('holder'):
+        text += f" [{'stalling, ' if state.get('stalling') else ''}held by {_label(state['holder'])}]"
+    elif state.get('stale'):
+        text += f" [stale: {_label(state['previous_holder'])} stopped]"
     if state.get('blocked'):
         text += ' [blocked]'
     if state.get('open_blockers'):
@@ -90,6 +155,26 @@ def detail(state: dict) -> str:
                                                 for b in state['blockers']))
     if state.get('blocked'):
         lines.append(f"Blocked: {state['blocked']['reason']} ({_who(state['blocked']['by'])})")
+    holder = state.get('holder')
+    if holder:
+        lines.append(f"Held by {_label(holder)} on {holder['device']} since {_when(holder['since'])}, "
+                     f"last progress {_ago(holder['progress_at'])}")
+        if state.get('stalling'):
+            lines.append('Stalling: no progress for a while; checkpoint, or release it if you stopped')
+    elif state.get('stale'):
+        lines.append(f"Stale: {_label(state['previous_holder'])} stopped working on it; "
+                     'take it over with task_edit(action="claim")')
+    checkpoint = state.get('last_checkpoint')
+    if checkpoint:
+        where = ' @ '.join(part for part in (checkpoint.get('branch'), checkpoint.get('commit')) if part)
+        lines.append(f"Last checkpoint ({_who(checkpoint['by'])}, {_when(checkpoint['at'])}"
+                     f"{', ' + where if where else ''}): {checkpoint['text']}")
+        if checkpoint.get('next'):
+            lines.append(f"Next: {checkpoint['next']}")
+        if checkpoint.get('files'):
+            lines.append('Files: ' + ', '.join(checkpoint['files'][:20]))
+    if state.get('worked_by') and state['status'] == 'review':
+        lines.append('Waiting for review by the user or another session')
     lines.append(f"Created by {_who(state['created_by'])}, {_when(state['created_at'])}")
     if state.get('ended_at'):
         lines.append(f"Ended {_when(state['ended_at'])}")
@@ -169,12 +254,26 @@ def create(*, title: str, project: str, description: str = '', status: str = '',
 
 def change(action: str, task: str, *, actor: dict, workspace: str = '', title=None, description=None,
            project=None, status='', priority=None, position=None, acceptance=None, feature=None,
-           add=None, remove=None, text='') -> str:
+           add=None, remove=None, text='', token='', branch='', commit='', files=None, next_step='') -> str:
     """Every task_edit action but create, on one existing Task."""
     if not task:
         raise ValueError('Name the task: task="T-…"')
     where = {'actor': actor, 'workspace': workspace or None}
-    if action == 'edit':
+    if action == 'claim':
+        claimed = tasks.claim(task, actor=actor, token=token or None, workspace=workspace or None)
+        state = claimed['task']
+        if not claimed['token']:
+            return f"You already hold {state['id']}.\n{detail(state)}"
+        return (f"Claimed {state['id']}. Your claim token: {claimed['token']}\n"
+                'Keep the token in this conversation, not on the Board; if your session restarts, take the '
+                f'claim back with task_edit(action="claim", task="{state["id"]}", token="…"). Record a '
+                'checkpoint at each step and at least every 30 minutes.\n' + detail(state))
+    if action == 'checkpoint':
+        state = tasks.checkpoint(task, text, branch=branch or None, commit=commit or None, files=files or (),
+                                 next_step=next_step or None, **where)
+    elif action == 'release':
+        state = tasks.release(task, status=status_ref(status) if status else None, **where)
+    elif action == 'edit':
         fields = {k: v for k, v in {'title': title, 'description': description, 'project': project,
                                     'priority': priority, 'acceptance': acceptance, 'position': position}.items()
                   if v is not None}

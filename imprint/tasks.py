@@ -18,7 +18,9 @@ Text is redacted before it is stored (ADR 0060).
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
 import secrets
 import sqlite3
@@ -67,6 +69,18 @@ CREATE TABLE IF NOT EXISTS tasks (
     state TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS tasks_by_id ON tasks (id);
+CREATE TABLE IF NOT EXISTS leases (
+    claim      TEXT PRIMARY KEY,
+    renewed_at REAL NOT NULL,
+    active_at  REAL,
+    pid        INTEGER,
+    device     TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS seen (
+    session TEXT NOT NULL,
+    key     TEXT NOT NULL,
+    PRIMARY KEY (session, key)
+);
 CREATE TABLE IF NOT EXISTS clock (
     one     INTEGER PRIMARY KEY CHECK (one = 1),
     wall    INTEGER NOT NULL,
@@ -237,6 +251,8 @@ def _created(state: dict | None, event: dict) -> dict:
         'acceptance': list(data.get('acceptance', [])), 'tags': list(data.get('tags', [])),
         'assignees': list(data.get('assignees', [])), 'feature': data.get('feature'),
         'blockers': list(data.get('blockers', [])), 'blocked': None,
+        'holder': None, 'previous_holder': None, 'worked_by': None, 'lost_claims': [],
+        'last_checkpoint': None, 'checkpoints': 0,
         'created_at': event['recorded_at'], 'created_hlc': event['hlc'], 'created_by': _who(event),
         'updated_at': event['recorded_at'], 'ended_at': None,
     }
@@ -259,8 +275,25 @@ def _appended(state: dict, event: dict) -> dict:
     return state
 
 
+def _short(holder: dict) -> dict:
+    return {key: holder[key] for key in ('session', 'name', 'client', 'device', 'since') if key in holder}
+
+
+def _end_claim(state: dict) -> None:
+    holder = state['holder']
+    if holder:
+        state['worked_by'] = holder['session']
+        state['previous_holder'] = _short(holder)
+        state['holder'] = None
+
+
 def _moved(state: dict, event: dict) -> dict:
     status = event['data']['status']
+    if status in ('review', 'done', 'cancelled'):
+        if state['holder']:
+            _end_claim(state)
+        elif status == 'review' and event['actor'] == 'agent':
+            state['worked_by'] = event['session']
     if status in ('done', 'cancelled') and state['status'] not in ('done', 'cancelled'):
         state['ended_at'] = event['recorded_at']
     elif status not in ('done', 'cancelled'):
@@ -305,7 +338,43 @@ def _unblocked(state: dict, event: dict) -> dict:
     return state
 
 
-_APPLY = {'created': _created, 'edited': _edited, 'appended': _appended, 'moved': _moved, 'tagged': _tagged,
+def _claimed(state: dict, event: dict) -> dict:
+    """A claim takes a free Task, or replaces the claim it names (a Stale
+    holder's, or its own after a restart). Any other claim lost: of two
+    made on two devices before they synced, the earlier one holds."""
+    data, holder = event['data'], state['holder']
+    if holder and data.get('replaces') != holder['claim']:
+        state['lost_claims'].append({'claim': event['id'], 'session': event['session'], 'name': event['agent'],
+                                     'client': event['client'], 'device': event['device'],
+                                     'at': event['recorded_at'], 'to': _short(holder)})
+        return state
+    if holder:
+        state['previous_holder'] = _short(holder)
+    state['holder'] = {'claim': event['id'], 'session': event['session'], 'name': event['agent'],
+                       'client': event['client'], 'device': event['device'], 'since': event['recorded_at'],
+                       'token_hash': data.get('token_hash'), 'progress_at': event['recorded_at']}
+    if state['status'] in ('backlog', 'ready'):
+        state['status'] = 'in_progress'
+    return state
+
+
+def _released(state: dict, event: dict) -> dict:
+    holder = state['holder']
+    if holder and holder['claim'] == event['data'].get('claim'):
+        state['previous_holder'] = _short(holder)
+        state['holder'] = None
+        if event['data'].get('status'):
+            state['status'] = event['data']['status']
+    return state
+
+
+def _checkpoint(state: dict, event: dict) -> dict:
+    state['last_checkpoint'] = {**event['data'], 'by': _who(event), 'at': event['recorded_at']}
+    state['checkpoints'] += 1
+    return state
+
+
+_APPLY = {'created': _created, 'claimed': _claimed, 'released': _released, 'checkpoint': _checkpoint, 'edited': _edited, 'appended': _appended, 'moved': _moved, 'tagged': _tagged,
           'assigned': _assigned, 'linked': _linked, 'blocked': _blocked, 'unblocked': _unblocked}
 
 
@@ -321,6 +390,9 @@ def _fold(events: list[dict]) -> dict:
             continue  # A kind from a newer release, or an event before its Task's creation arrived.
         state = apply(state, event)
         state['updated_at'] = max(state['updated_at'], event['recorded_at'])
+        holder = state['holder']
+        if holder and event['session'] == holder['session']:  # Anything the holder writes is progress.
+            holder['progress_at'] = max(holder['progress_at'], event['recorded_at'])
     if state is None:
         raise LookupError('task has no created event')
     return state
@@ -436,12 +508,52 @@ def _archived(state: dict, now: float) -> bool:
     return state['ended_at'] is not None and now - state['ended_at'] > ARCHIVE_DAYS * 86400
 
 
-class _View:
-    """Every Task of a store as read once: uids resolve to ids, and Tasks
-    look up their blockers and Features."""
+def _minutes(key: str) -> float:
+    from .config_schema import resolve
+    return float(resolve(key)[0]) * 60
 
-    def __init__(self, states: list[dict]):
+
+def _leases(conn: sqlite3.Connection | None) -> dict:
+    if conn is None:
+        return {}
+    return {row['claim']: dict(row) for row in conn.execute('SELECT * FROM leases')}
+
+
+def _view(conn: sqlite3.Connection | None) -> '_View':
+    return _View(_states(conn), _leases(conn))
+
+
+class _View:
+    """Every Task of a store as read once, at one moment: uids resolve to
+    ids, Tasks look up their blockers and Features, and each claim is live,
+    Stalling or Stale by its lease (ADR 0210)."""
+
+    def __init__(self, states: list[dict], leases: dict | None = None):
         self.by_uid = {state['uid']: state for state in states}
+        self.leases = leases or {}
+        self.now = time.time()
+        self.device = _device()
+        self.limits = None
+
+    def claim(self, state: dict) -> tuple[bool, bool]:
+        """(stalling, stale) for the Task's claim."""
+        holder = state.get('holder')
+        if not holder:
+            return False, False
+        if self.limits is None:
+            self.limits = (_minutes('tasks.lease_minutes'), _minutes('tasks.stalling_minutes'),
+                           _minutes('tasks.stale_minutes'))
+        lease_limit, stalling_limit, stale_limit = self.limits
+        lease = self.leases.get(holder['claim']) or {}
+        renewed = max(holder['since'], lease.get('renewed_at') or 0)
+        active = max(holder['progress_at'], lease.get('active_at') or 0)
+        if lease.get('device') == self.device and lease.get('pid'):
+            from .processes import is_alive
+            if not is_alive(lease['pid']):
+                return False, True  # Its process ended on this device: released at once.
+        if self.now - renewed > lease_limit or self.now - active > stale_limit:
+            return False, True
+        return self.now - active > stalling_limit, False
 
     def id(self, uid: str | None) -> str | None:
         state = self.by_uid.get(uid) if uid else None
@@ -456,13 +568,20 @@ class _View:
         shown['open_blockers'] = [self.id(uid) for uid in state['blockers']
                                   if uid in self.by_uid and self.by_uid[uid]['status'] != 'done']
         shown['tasks'] = sorted(s['id'] for s in self.by_uid.values() if s['feature'] == state['uid'])
+        stalling, stale = self.claim(state)
+        holder = state.get('holder')
+        shown['stalling'], shown['stale'] = stalling, stale
+        shown['holder'] = None if stale or not holder else {**_short(holder), 'progress_at': holder['progress_at']}
+        if stale:
+            shown['previous_holder'] = _short(holder)
+        shown.pop('lost_claims', None)
         return shown
 
 
 def get(task: str, workspace: str | None = None) -> dict:
     with _reading(workspace) as conn:
         uid = _uid(conn, task)
-        view = _View(_states(conn))
+        view = _view(conn)
     return view.public(view.by_uid[uid])
 
 
@@ -525,7 +644,7 @@ def _change(task: str, kind: str, data: dict, actor: dict | None, workspace: str
             check(conn, uid, _state(conn, uid))
         _append(conn, uid, kind, data, actor)
         _project(conn, uid)
-        view = _View(_states(conn))
+        view = _view(conn)
     return view.public(view.by_uid[uid])
 
 
@@ -584,7 +703,7 @@ def create(title: str, *, project: str, description: str = '', status: str = 'ba
         data['id'] = _draw_id(conn)
         _append(conn, uid, 'created', data, actor)
         _project(conn, uid)
-        view = _View(_states(conn))
+        view = _view(conn)
     return view.public(view.by_uid[uid])
 
 
@@ -627,6 +746,7 @@ def move(task: str, status: str, *, position: float | None = None, actor: dict |
          workspace: str | None = None) -> dict:
     """Move a Task to another status, and optionally to a position in it."""
     status = _status(status)
+    actor = _actor(actor)
     data = {'status': status}
     if position is not None:
         data['position'] = float(position)
@@ -634,6 +754,12 @@ def move(task: str, status: str, *, position: float | None = None, actor: dict |
     def check(conn, uid, state):
         if status == 'ready' and not state['acceptance']:
             raise ValueError('A task moves to ready only with at least one acceptance criterion')
+        if status == 'done' and actor['kind'] == 'agent':
+            if (state['holder'] or {}).get('session') == actor['session']:
+                raise PermissionError('Move it to Review first: another session or the user marks it Done')
+            if state['worked_by'] == actor['session']:
+                raise PermissionError('The session that did the work does not mark it Done: '
+                                      'another session or the user does')
     return _change(task, 'moved', data, actor, workspace, check)
 
 
@@ -678,7 +804,7 @@ def link(task: str, *, feature=_UNSET, add_blockers=(), remove_blockers=(), acto
             raise ValueError('Nothing to link: pass a feature or blockers')
         _append(conn, uid, 'linked', data, actor)
         _project(conn, uid)
-        view = _View(_states(conn))
+        view = _view(conn)
     return view.public(view.by_uid[uid])
 
 
@@ -707,3 +833,201 @@ def delete(task: str, *, actor: dict | None = None, workspace: str | None = None
         _append(conn, uid, 'deleted', {'id': state['id']}, actor)
         _project(conn, uid)
     return {'id': state['id'], 'deleted': True}
+
+
+# ── Claims (ADR 0210) ────────────────────────────────────────────
+
+def _hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _lease(conn: sqlite3.Connection, claim: str, now: float, pid: int | None, device: str,
+           active_at: float | None) -> None:
+    conn.execute('INSERT INTO leases (claim, renewed_at, active_at, pid, device) VALUES (?, ?, ?, ?, ?) '
+                 'ON CONFLICT (claim) DO UPDATE SET renewed_at = MAX(renewed_at, excluded.renewed_at), '
+                 'active_at = MAX(COALESCE(active_at, 0), COALESCE(excluded.active_at, 0)), '
+                 'pid = excluded.pid, device = excluded.device', (claim, now, active_at, pid, device))
+
+
+def _label(holder: dict) -> str:
+    name = holder.get('name') or holder.get('session')
+    return f"{name} ({holder['client']})" if holder.get('client') else name
+
+
+def claim(task: str, *, actor: dict, token: str | None = None, pid: int | None = None,
+          workspace: str | None = None) -> dict:
+    """Claim a Task for an agent session: ``{'task': state, 'token': token}``.
+
+    The token proves the claim is this agent's: presented by a resumed
+    conversation or a restarted server, it takes the claim back. A Task held
+    by a live session is refused; a Stale one is taken over. Claiming moves a
+    Backlog or Ready Task to In progress. Claiming a Task this session holds
+    returns it with no token."""
+    actor = _actor(actor)
+    if actor['kind'] != 'agent':
+        raise PermissionError('Agents claim tasks; assign it to "user" to take it on yourself')
+    with _writing(workspace) as conn:
+        uid = _uid(conn, task)
+        view = _view(conn)
+        state = view.by_uid[uid]
+        if state['status'] in ('done', 'cancelled'):
+            raise ValueError(f"{state['id']} is {state['status'].title()}: move it back before claiming it")
+        if 'user' in state['assignees']:
+            raise PermissionError(f"{state['id']} is assigned to the user: agents comment on it but do not claim it")
+        holder, replaces = state['holder'], None
+        if holder:
+            if holder['session'] == actor['session']:
+                return {'task': view.public(state), 'token': None}
+            _, stale = view.claim(state)
+            if token and _hash(token) == holder.get('token_hash'):
+                replaces = holder['claim']
+            elif stale:
+                replaces, token = holder['claim'], None
+            else:
+                since = time.strftime('%Y-%m-%d %H:%M', time.localtime(holder['since']))
+                raise PermissionError(f"{state['id']} is held by {_label(holder)} on {holder['device']} since "
+                                      f"{since}, and it is not stale")
+        else:
+            token = None
+        token = token or secrets.token_urlsafe(24)
+        data = {'token_hash': _hash(token)}
+        if replaces:
+            data['replaces'] = replaces
+        event = _append(conn, uid, 'claimed', data, actor)
+        _lease(conn, event['id'], event['recorded_at'], pid or os.getpid(), actor['device'], event['recorded_at'])
+        _project(conn, uid)
+        view = _view(conn)
+    return {'task': view.public(view.by_uid[uid]), 'token': token}
+
+
+def _held(conn: sqlite3.Connection, uid: str, actor: dict) -> dict:
+    view = _view(conn)
+    state = view.by_uid[uid]
+    _, stale = view.claim(state)
+    holder = state['holder']
+    if not holder or stale or holder['session'] != actor.get('session'):
+        raise PermissionError(f"You do not hold {state['id']}: claim it first")
+    return state
+
+
+def checkpoint(task: str, text: str, *, branch: str | None = None, commit: str | None = None, files=(),
+               next_step: str | None = None, actor: dict, workspace: str | None = None) -> dict:
+    """Record the holder's progress: what is done, what is next, and where
+    the work is (its task branch and last commit, the files touched)."""
+    actor = _actor(actor)
+    texts = _redacted([_text(text, 'checkpoint', TEXT_CHARS, required=True), _text(next_step, 'next step', TEXT_CHARS)])
+    data = {'text': texts[0]}
+    if texts[1]:
+        data['next'] = texts[1]
+    if branch:
+        data['branch'] = _text(branch, 'branch', TITLE_CHARS)
+    if commit:
+        data['commit'] = _text(commit, 'commit', 64)
+    if files:
+        data['files'] = [_text(f, 'file', 500) for f in list(files)[:200]]
+    with _writing(workspace) as conn:
+        uid = _uid(conn, task)
+        state = _held(conn, uid, actor)
+        event = _append(conn, uid, 'checkpoint', data, actor)
+        _lease(conn, state['holder']['claim'], event['recorded_at'], os.getpid(), actor['device'], event['recorded_at'])
+        _project(conn, uid)
+        view = _view(conn)
+    return view.public(view.by_uid[uid])
+
+
+def release(task: str, *, status: str | None = None, actor: dict | None = None,
+            workspace: str | None = None) -> dict:
+    """End a claim without finishing: its holder, or the user, lets it go.
+    Work in progress goes back to Ready (Backlog without criteria) unless a
+    status is given."""
+    actor = _actor(actor)
+    with _writing(workspace) as conn:
+        uid = _uid(conn, task)
+        state = _state(conn, uid) if actor['kind'] == 'user' else _held(conn, uid, actor)
+        if not state['holder']:
+            raise ValueError(f"{state['id']} has no claim to release")
+        if status is None and state['status'] == 'in_progress':
+            status = 'ready' if state['acceptance'] else 'backlog'
+        data = {'claim': state['holder']['claim']}
+        if status:
+            data['status'] = _status(status)
+        _append(conn, uid, 'released', data, actor)
+        _project(conn, uid)
+        view = _view(conn)
+    return view.public(view.by_uid[uid])
+
+
+def renew(session: str, *, pid: int | None = None, active_at: float | None = None) -> int:
+    """Renew the lease of every claim ``session`` holds, in every workspace
+    of this installation; ``active_at`` is the holder's latest Imprint
+    activity. The holder's Imprint server calls it in the background."""
+    renewed, now = 0, time.time()
+    for workspace in config.get_known_workspaces():
+        with _reading(workspace) as conn:
+            held = [s['holder']['claim'] for s in _states(conn) if (s.get('holder') or {}).get('session') == session]
+        if not held:
+            continue
+        with _writing(workspace) as conn:
+            for claim_id in held:
+                _lease(conn, claim_id, now, pid or os.getpid(), _device(), active_at)
+                renewed += 1
+    return renewed
+
+
+def lost_claims(session: str, workspace: str | None = None) -> list[dict]:
+    """The claims ``session`` made that another, earlier claim beat."""
+    with _reading(workspace) as conn:
+        states = _states(conn)
+    return [{'task': s['id'], 'title': s['title'], 'to': lost['to'], 'at': lost['at'], 'claim': lost['claim']}
+            for s in states for lost in s.get('lost_claims', []) if lost['session'] == session]
+
+
+# ── Merging events from another device (ADR 0209) ────────────────
+
+_EVENT_FIELDS = ('id', 'task', 'kind', 'data', 'hlc', 'device', 'actor', 'recorded_at')
+_HLC = re.compile(r'^(\d{13})\.(\d{4})$')
+
+
+def import_events(events: list[dict], workspace: str | None = None) -> int:
+    """Keep every event not yet held, recompute the Tasks they touch, and
+    move this store's clock past theirs. Returns how many were new."""
+    stored, touched = 0, set()
+    with _writing(workspace) as conn:
+        for event in events:
+            if not all(field in event for field in _EVENT_FIELDS) or not isinstance(event['data'], dict):
+                continue
+            clock = _HLC.match(str(event['hlc']))
+            if not clock or event['actor'] not in ('user', 'agent'):
+                continue
+            cursor = conn.execute(
+                'INSERT OR IGNORE INTO events (id, task, kind, data, hlc, device, actor, session, agent, client, recorded_at) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (str(event['id']), str(event['task']), str(event['kind']), json.dumps(event['data'], ensure_ascii=False),
+                 event['hlc'], str(event['device']), event['actor'], event.get('session'), event.get('agent'),
+                 event.get('client'), float(event['recorded_at'])))
+            if cursor.rowcount:
+                stored += 1
+                touched.add(str(event['task']))
+                wall, counter = int(clock.group(1)), int(clock.group(2))
+                row = conn.execute('SELECT wall, counter FROM clock').fetchone()
+                if row is None or (wall, counter) > (row['wall'], row['counter']):
+                    conn.execute('INSERT INTO clock (one, wall, counter) VALUES (1, ?, ?) ON CONFLICT (one) DO UPDATE '
+                                 'SET wall = excluded.wall, counter = excluded.counter', (wall, counter))
+        for uid in touched:
+            if conn.execute("SELECT 1 FROM events WHERE task = ? AND kind = 'deleted'", (uid,)).fetchone():
+                conn.execute("UPDATE events SET data = '{}' WHERE task = ? AND kind != 'deleted'", (uid,))
+            try:
+                _project(conn, uid)
+            except LookupError:
+                pass  # Its creation has not arrived yet.
+    return stored
+
+
+def take_unseen(session: str, keys: list[str], workspace: str | None = None) -> list[str]:
+    """The ``keys`` this session has not been told yet, now marked told."""
+    if not keys:
+        return []
+    with _writing(workspace) as conn:
+        new = [key for key in keys if conn.execute('INSERT OR IGNORE INTO seen (session, key) VALUES (?, ?)',
+                                                   (session, key)).rowcount]
+    return new

@@ -2,6 +2,7 @@
 tasks tool and change it with task_edit."""
 import asyncio
 import os
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -121,6 +122,60 @@ class TasksToolTests(unittest.TestCase):
         tools, _ = self.call()
         actions = tools['task_edit'].inputSchema['properties']['action']['enum']
         self.assertNotIn('delete', actions)
+
+
+    def as_session(self, conversation, *calls):
+        with patch.dict(os.environ, {'CLAUDE_CODE_SESSION_ID': conversation}):
+            return self.call(*calls)[1]
+
+    def test_an_agent_claims_checkpoints_and_releases_through_the_tools(self):
+        task = tasks.create('Parser', project='imprint', acceptance=['Parses'], status='ready',
+                            workspace='default')['id']
+        [(failed, claimed), (_, board)] = self.as_session('conv-1', ('task_edit', {'action': 'claim', 'task': task}),
+                                                         ('tasks', {}))
+        self.assertFalse(failed, claimed)
+        self.assertIn(f'Claimed {task}', claimed)
+        token = re.search(r'claim token: (\S+)', claimed).group(1)
+        self.assertIn('In progress (1)', board)
+        self.assertIn('[held by claude-code', board)
+        [(failed, refused)] = self.as_session('conv-2', ('task_edit', {'action': 'claim', 'task': task}))
+        self.assertTrue(failed)
+        self.assertIn('is held by', refused)
+        [(_, noted), (_, got)] = self.as_session(
+            'conv-1', ('task_edit', {'action': 'checkpoint', 'task': task, 'text': 'Tokenizer done.',
+                                     'next_step': 'Write the grammar.', 'branch': f'task/{task[2:]}-parser',
+                                     'commit': 'abc1234', 'files': ['parser.py']}),
+            ('tasks', {'action': 'get', 'task': task}))
+        for text in ('Held by claude-code', 'Last checkpoint', 'Tokenizer done.', 'Next: Write the grammar.',
+                     f'task/{task[2:]}-parser @ abc1234'):
+            self.assertIn(text, got)
+        [(failed, resumed)] = self.as_session('conv-3', ('task_edit', {'action': 'claim', 'task': task, 'token': token}))
+        self.assertFalse(failed, resumed)
+        [(_, released)] = self.as_session('conv-3', ('task_edit', {'action': 'release', 'task': task}))
+        self.assertIn('Status: Ready', released)
+
+    def test_a_lost_claim_is_told_once_on_the_next_reply(self):
+        task = tasks.create('Race', project='imprint', acceptance=['x'], status='ready', workspace='default')['id']
+        self.as_session('conv-1', ('task_edit', {'action': 'claim', 'task': task}))
+        [created] = tasks.history(task, workspace='default')[:1]
+        # Stamped with the creation's clock and the highest id: after the creation, before the local claim.
+        tasks.import_events([{'id': 'f' * 32, 'task': created['task'], 'kind': 'claimed', 'hlc': created['hlc'],
+                              'device': 'device-b', 'actor': 'agent', 'session': 'conversation:far', 'agent': 'quill',
+                              'client': 'codex', 'recorded_at': 1.0, 'data': {'token_hash': 'x' * 64}}],
+                            workspace='default')
+        [(_, first), (_, second)] = self.as_session('conv-1', ('tasks', {}), ('tasks', {}))
+        self.assertIn(f'You lost your claim on {task}', first)
+        self.assertIn('quill (codex)', first)
+        self.assertNotIn('lost your claim', second)
+
+    def test_the_server_renews_its_sessions_leases_with_its_latest_activity(self):
+        from imprint import tasks_tool
+        task = tasks.create('Lease', project='imprint', acceptance=['x'], status='ready', workspace='default')['id']
+        self.as_session('conv-1', ('task_edit', {'action': 'claim', 'task': task}))
+        with patch.dict(os.environ, {'CLAUDE_CODE_SESSION_ID': 'conv-1'}):
+            self.assertEqual(tasks_tool.renew_now(), 1)
+        with patch.dict(os.environ, {'CLAUDE_CODE_SESSION_ID': 'conv-other'}):
+            self.assertEqual(tasks_tool.renew_now(), 0)
 
 
 if __name__ == '__main__':

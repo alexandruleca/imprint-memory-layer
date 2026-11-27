@@ -384,6 +384,19 @@ HELP: dict[str, dict[str, str]] = {
         "help": "Brings what is already stored up to date by itself whenever the dashboard's queue is idle, after background tagging and Organize: memories synced from paired devices get back the date they were first stored, and large data files this computer indexed are kept whole, as ingest now stores them, without a refresh. It works a piece at a time at low priority, rests between pieces, steps aside whenever another job waits, and takes at most ten minutes of each idle run. A file in a WSL distribution waits until that distribution runs. imprint upkeep does the same in the foreground. On by default.",
         "example": "false: on a laptop running on battery, to leave the work to the next imprint upkeep or refresh.",
     },
+    # ── The Board ────────────────────────────────────────────────────────
+    "tasks.lease_minutes": {
+        "help": "How long an agent's claim on a Task lasts without its Imprint renewing it. The holder's Imprint renews its claims every minute while the agent's session runs, so a claim runs out only when that session or its computer is gone; the Task is then Stale and another agent can take it over. A session that ends on this computer releases its claims at once. 15 minutes by default.",
+        "example": "30: when paired devices often sleep for a while and you would rather their agents keep their Tasks.",
+    },
+    "tasks.stalling_minutes": {
+        "help": "How long a claimed Task can go without progress from its holder (a checkpoint, another change to the Task, or any Imprint call) before the Board marks it Stalling and tells its holder. Nothing is released yet. 60 minutes by default.",
+        "example": "30: to hear sooner when an agent stops making progress.",
+    },
+    "tasks.stale_minutes": {
+        "help": "How long a claimed Task can go without progress from its holder before its claim is released and the Task is Stale, even while the holder's session still runs, so another agent can take it over from its last checkpoint. A session left waiting for your input loses its claim after this long. 120 minutes by default.",
+        "example": "240: when agents work on long tasks between checkpoints and you do not want them taken over.",
+    },
     "organize.auto_move": {
         "help": "Lets Organize move a source by itself when the evidence is strong: the source names exactly one project's registered folder, or one distinctive project name (such as checkout-service) at least twice and no other. Those moves are listed on the Organize page with an undo. Weaker proposals, including every one that rests on the local model's reading, wait for your review. On by default; off sends every proposal to review.",
         "example": "false: to review every move yourself before anything changes project.",

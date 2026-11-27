@@ -397,6 +397,14 @@ SETTINGS: list[Setting] = [
     Setting("organize.auto_move",  "IMPRINT_ORGANIZE_AUTO_MOVE",  True,  bool,
             "Move sources with strong evidence without review; weaker proposals still wait"),
 
+    # ── The Board (ADRs 0210, 0211) ───────────────────────────
+    Setting("tasks.lease_minutes",    "IMPRINT_TASKS_LEASE_MINUTES",    15,  int,
+            "Minutes a claim lasts without its holder's Imprint renewing it; then the Task is Stale"),
+    Setting("tasks.stalling_minutes", "IMPRINT_TASKS_STALLING_MINUTES", 60,  int,
+            "Minutes without progress from its holder before a claimed Task is Stalling"),
+    Setting("tasks.stale_minutes",    "IMPRINT_TASKS_STALE_MINUTES",    120, int,
+            "Minutes without progress from its holder before a claimed Task is Stale and its claim released"),
+
     # ── Upkeep (ADR 0201) ─────────────────────────────────────
     # The idle slot's last step: what is stored, brought up to the current
     # form piece by piece (synced memories' dates, data files kept whole).

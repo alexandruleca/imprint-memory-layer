@@ -14,7 +14,7 @@ Usage:
     python -m imprint.cli_tasks tag|assign TASK [--add X]... [--remove X]...
     python -m imprint.cli_tasks link TASK [--feature F | --no-feature] [--blocker B]... [--unblocker B]...
     python -m imprint.cli_tasks block TASK REASON
-    python -m imprint.cli_tasks unblock|cancel TASK
+    python -m imprint.cli_tasks unblock|cancel|release TASK
     python -m imprint.cli_tasks delete TASK --yes
 
 FILTERS: --project P --feature F --tag T --status S --priority P --assignee A --text T.
@@ -56,7 +56,8 @@ def _parser() -> argparse.ArgumentParser:
     listing = commands.add_parser('list', parents=[common, filtered], help='Tasks matching filters')
     listing.add_argument('--archived', action='store_true', help='Include Tasks that ended over 14 days ago')
     for name, help_text in (('show', 'One Task'), ('history', "One Task's changes"),
-                            ('unblock', 'Clear the Blocked mark'), ('cancel', 'Move it to Cancelled')):
+                            ('unblock', 'Clear the Blocked mark'), ('cancel', 'Move it to Cancelled'),
+                            ('release', "End an agent's claim on it")):
         commands.add_parser(name, parents=[common], help=help_text).add_argument('task')
     create = commands.add_parser('create', parents=[common], help='Put a new Task on the Board')
     create.add_argument('title')
@@ -167,6 +168,8 @@ def _run(args, workspace: str | None, as_json: bool) -> None:
         state = tasks.link(args.task, **links, **user)
     elif command == 'block':
         state = tasks.block(args.task, args.reason, **user)
+    elif command == 'release':
+        state = tasks.release(args.task, **user)
     else:  # unblock
         state = tasks.unblock(args.task, **user)
     _print(state, as_json, tasks_tool.detail(state))
