@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from . import sessions
 from .actors import _who
 from .store import _events, _reading, _uid, _writing
@@ -29,8 +31,9 @@ def set_autonomy(value: str, workspace: str | None = None) -> str:
     if value not in AUTONOMY:
         raise ValueError('autonomy is off, stale or ready')
     with _writing(workspace) as conn:
-        conn.execute("INSERT INTO settings (key, value) VALUES ('autonomy', ?) "
-                     'ON CONFLICT (key) DO UPDATE SET value = excluded.value', (value,))
+        conn.execute("INSERT INTO settings (key, value, updated_at) VALUES ('autonomy', ?, ?) "
+                     'ON CONFLICT (key) DO UPDATE SET value = excluded.value, '
+                     'updated_at = MAX(excluded.updated_at, updated_at + 0.001)', (value, time.time()))
     return value
 
 

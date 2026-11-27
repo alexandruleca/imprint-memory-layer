@@ -29,13 +29,13 @@ WAIT = 600
 # Records the sender's Privacy Filter goes over between checks for a
 # stopped session (ADR 0122): bounds how long a cancelled sync waits for it.
 FILTER_SLICE = 25
-DATASETS = ('memories', 'facts', 'sources', 'core', 'placements', 'organize', 'backlog', 'registry', 'recordings')
+DATASETS = ('memories', 'facts', 'sources', 'core', 'placements', 'organize', 'backlog', 'registry', 'recordings', 'tasks')
 # Datasets a device receives only when its handshake offers each: core
 # memories (ADR 0129), placement rules and Organize's proposals (ADR 0134),
 # the memories that wait for LLM tagging (ADR 0138), skills and personas
-# (ADR 0168), and meeting recordings, offered only when sync.recordings is on
-# (ADR 0177).
-EXTRAS = ('core', 'placements', 'organize', 'backlog', 'registry', 'recordings')
+# (ADR 0168), meeting recordings, offered only when sync.recordings is on
+# (ADR 0177), and the workspace's Board of Tasks (ADR 0209).
+EXTRAS = ('core', 'placements', 'organize', 'backlog', 'registry', 'recordings', 'tasks')
 # Skills and personas go in streams of at most this many bytes of files.
 REGISTRY_CHUNK_BYTES = 4 * 1024 * 1024
 
@@ -114,10 +114,11 @@ def manifest(workspace: str) -> dict[str, dict[str, float]]:
     sources = {_source_key(meta): float(meta['updated_at']) for meta in source_snapshots.list_metadata(workspace)}
     # Core memories, skills and personas belong to no workspace: every
     # paired workspace carries them.
-    from . import core_memories, organize, placement_sync, recording_sync, registry
+    from . import core_memories, organize, placement_sync, recording_sync, registry, tasks
     return {'memories': memories, 'facts': facts, 'sources': sources, 'core': core_memories.manifest(),
             'placements': placement_sync.manifest(workspace), 'organize': organize.manifest(workspace),
-            'backlog': backlog, 'registry': registry.manifest(), 'recordings': recording_sync.manifest()}
+            'backlog': backlog, 'registry': registry.manifest(), 'recordings': recording_sync.manifest(),
+            'tasks': tasks.sync_manifest(workspace)}
 
 
 def digest(local: dict) -> str:
@@ -256,6 +257,13 @@ def export_chunks(workspace: str, keys: dict[str, list[str]], stop: threading.Ev
             first['datasets']['recordings'] = len(data) // 4 * 3 - data[-2:].count('=') if data else 0
             stream[0] = json.dumps(first, separators=(',', ':'))
             yield stream
+
+    # The Board (ADR 0209): events first, oldest first, then leases, settings and read marks.
+    if keys.get('tasks'):
+        from . import tasks
+        records = tasks.sync_export(keys['tasks'], workspace)
+        for start in range(0, len(records), CHUNK_RECORDS):
+            yield _stream(tasks=records[start:start + CHUNK_RECORDS])
 
     if keys.get('registry'):
         from . import registry

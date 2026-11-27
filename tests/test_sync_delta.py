@@ -29,11 +29,11 @@ class WantedTests(unittest.TestCase):
                   'facts': {'f2': 0.0}, 'sources': {'s1': 10.0}}
         self.assertEqual(sync_delta.wanted(local, remote),
                          {'memories': ['new', 'retagged'], 'facts': ['f1'], 'sources': [], 'core': [],
-                          'placements': [], 'organize': [], 'backlog': [], 'registry': [], 'recordings': []})
+                          'placements': [], 'organize': [], 'backlog': [], 'registry': [], 'recordings': [], 'tasks': []})
         # The other side then lacks nothing newer than this one holds: no ping-pong.
         self.assertEqual(sync_delta.wanted(remote, local), {'memories': ['older'], 'facts': [], 'sources': [], 'core': [],
                                                             'placements': [], 'organize': [], 'backlog': [],
-                                                            'registry': [], 'recordings': []})
+                                                            'registry': [], 'recordings': [], 'tasks': []})
 
     def test_digest_ignores_order_and_follows_versions(self):
         a = {'memories': {'x': 1.0, 'y': 2.0}, 'facts': {}, 'sources': {}}
@@ -48,13 +48,14 @@ class ManifestCodingTests(unittest.TestCase):
         local = {'memories': {'m' * 16: 1.5}, 'facts': {'["s","p","o",0]': 0.0}, 'sources': {'["p","s"]': 9.0},
                  'core': {'c' * 32: 2.0}, 'placements': {'["Desktop","Desktop/a.md"]': 3.0},
                  'organize': {'["Desktop","Desktop/a.md"]': 4.0}, 'backlog': {'m' * 16: 0.0},
-                 'registry': {'r' * 32: 5.0}, 'recordings': {'d' * 32: 6.0, 'd' * 32 + '#audio': 1024.0}}
+                 'registry': {'r' * 32: 5.0}, 'recordings': {'d' * 32: 6.0, 'd' * 32 + '#audio': 1024.0},
+                 'tasks': {'e:' + 'e' * 32: 0.0, 'l:' + 'f' * 32: 7.0}}
         self.assertEqual(sync_delta.decode(sync_delta.encode(local)), local)
-        # An older device's manifest has no core memories, rules, proposals, backlog, skills or recordings.
+        # An older device's manifest has no core memories, rules, proposals, backlog, skills, recordings or Board.
         older = {key: value for key, value in local.items() if key not in sync_delta.EXTRAS}
         self.assertEqual(sync_delta.decode(sync_delta.encode(older)),
                          {**older, 'core': {}, 'placements': {}, 'organize': {}, 'backlog': {}, 'registry': {},
-                          'recordings': {}})
+                          'recordings': {}, 'tasks': {}})
 
     def test_malformed_or_oversized_manifests_are_refused(self):
         for data in (None, 'not base64!', sync_delta.encode({'memories': {'x': 'new'}}),
@@ -149,7 +150,8 @@ class ManifestTests(unittest.TestCase):
              patch('imprint.placement_sync.manifest', return_value={'["o", ""]': 5.0}), \
              patch('imprint.organize.manifest', return_value={'["o", "s"]': 6.0}), \
              patch('imprint.registry.manifest', return_value={'r' * 32: 8.0}), \
-             patch('imprint.recording_sync.manifest', return_value={'d' * 32: 9.0}):
+             patch('imprint.recording_sync.manifest', return_value={'d' * 32: 9.0}), \
+             patch('imprint.tasks.sync_manifest', return_value={'e:' + 'e' * 32: 0.0}):
             local = sync_delta.manifest('ws')
         self.assertEqual(local, {'memories': {'m1': 7.5, 'm2': 0.0, 'm3': 2.0},
                                  'facts': {'["a", "knows", "b", 1]': 0.0},
@@ -159,7 +161,7 @@ class ManifestTests(unittest.TestCase):
                                  'organize': {'["o", "s"]': 6.0},
                                  'backlog': {'m2': 0.0},
                                  'registry': {'r' * 32: 8.0},
-                                 'recordings': {'d' * 32: 9.0}})
+                                 'recordings': {'d' * 32: 9.0}, 'tasks': {'e:' + 'e' * 32: 0.0}})
 
 
 if __name__ == '__main__':

@@ -73,8 +73,9 @@ CREATE TABLE IF NOT EXISTS names (
 );
 CREATE INDEX IF NOT EXISTS names_by_lower ON names (lower);
 CREATE TABLE IF NOT EXISTS settings (
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at REAL NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS clock (
     one     INTEGER PRIMARY KEY CHECK (one = 1),
@@ -101,6 +102,9 @@ def _open(path: Path) -> sqlite3.Connection:
     conn.execute('PRAGMA journal_mode=WAL')
     conn.execute('PRAGMA busy_timeout=10000')
     conn.executescript(_SCHEMA)
+    # A store made before settings synced (ADR 0209) gains their change time.
+    if 'updated_at' not in {row['name'] for row in conn.execute('PRAGMA table_info(settings)')}:
+        conn.execute('ALTER TABLE settings ADD COLUMN updated_at REAL NOT NULL DEFAULT 0')
     return conn
 
 

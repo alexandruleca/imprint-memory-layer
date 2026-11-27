@@ -33,7 +33,7 @@ from .claims import claim, checkpoint, release, renew, lost_claims, take_unseen
 from .names import RESERVED_NAMES, choose_name, name_of, ensure_name
 from .comments import comment, inbox, user_inbox, mark_user_read
 from .work import AUTONOMY, autonomy, set_autonomy, next_task, frontier, handoff
-from .merge import import_events
+from .merge import import_events, sync_export, sync_import, sync_manifest
 from . import sessions
 
-__all__ = ['CLIENTS', 'USER', 'agent', 'client_id', 'device_name', 'label', 'STATUS_LABELS', 'status_ref', 'sessions', 'STATUSES', 'PRIORITIES', 'ID_ALPHABET', 'ID_LENGTH', 'task_ref', 'ASSIGNEES', 'CRITERIA', 'TAGS', 'ARCHIVE_DAYS', 'get', 'listing', 'board', 'history', 'create', 'edit', 'append', 'move', 'tag', 'assign', 'link', 'block', 'unblock', 'delete', 'claim', 'checkpoint', 'release', 'renew', 'lost_claims', 'take_unseen', 'RESERVED_NAMES', 'choose_name', 'name_of', 'ensure_name', 'comment', 'inbox', 'user_inbox', 'mark_user_read', 'AUTONOMY', 'autonomy', 'set_autonomy', 'next_task', 'frontier', 'handoff', 'import_events']
+__all__ = ['CLIENTS', 'USER', 'agent', 'client_id', 'device_name', 'label', 'STATUS_LABELS', 'status_ref', 'sessions', 'STATUSES', 'PRIORITIES', 'ID_ALPHABET', 'ID_LENGTH', 'task_ref', 'ASSIGNEES', 'CRITERIA', 'TAGS', 'ARCHIVE_DAYS', 'get', 'listing', 'board', 'history', 'create', 'edit', 'append', 'move', 'tag', 'assign', 'link', 'block', 'unblock', 'delete', 'claim', 'checkpoint', 'release', 'renew', 'lost_claims', 'take_unseen', 'RESERVED_NAMES', 'choose_name', 'name_of', 'ensure_name', 'comment', 'inbox', 'user_inbox', 'mark_user_read', 'AUTONOMY', 'autonomy', 'set_autonomy', 'next_task', 'frontier', 'handoff', 'import_events', 'sync_export', 'sync_import', 'sync_manifest']
