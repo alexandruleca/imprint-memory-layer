@@ -556,9 +556,18 @@ def read(action: str, *, task: str = '', archived: bool = False, workspace: str 
         if given.get('feature'):
             feature = tasks.get(given['feature'], workspace=workspace)
             return frontier_text(feature, tasks.frontier(given['feature'], workspace=workspace))
-        where = project(given.get('project') or '', session_project)
+        # Unasked work comes from the session's own project alone (ADR 0211), whatever project is named.
+        try:
+            where = project('', session_project)
+        except ValueError:
+            return ('This session runs in no project folder, so there is nothing to take unasked. '
+                    'Ask the user, or look at tasks(action="board").')
         found = tasks.next_task(project=where, client=tasks.client_id(client), device=tasks.device_name(), workspace=workspace)
-        return next_text(found, where, tasks.autonomy(workspace))
+        text = next_text(found, where, tasks.autonomy(workspace))
+        named = (given.get('project') or '').strip()
+        if named and named != where:
+            text = f"Unasked work comes only from this session's project, {where}, not {named}.\n{text}"
+        return text
     found = filters(**given)
     if action == 'board':
         return board_text(tasks.board(workspace=workspace, **found), found.get('project'))

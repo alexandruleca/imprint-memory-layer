@@ -97,6 +97,7 @@ def start_session(directory) -> dict:
     import sqlite3
     from . import workspace_policy as policy
     _session.clear()
+    _session['directory'] = None if directory is None else str(directory)
     try:
         resolution = policy.resolve(directory, session=True)
     except (OSError, ValueError, sqlite3.Error) as error:
@@ -106,6 +107,17 @@ def start_session(directory) -> dict:
     os.environ['IMPRINT_WORKSPACE'] = resolution['workspace']
     _session.update(resolution, notice=policy.notice(resolution))
     return _session
+
+
+def _board_project() -> str | None:
+    """The session's project as the Board names projects: derived from the
+    session's folder, as `imprint tasks` and the session-start lines derive
+    it (ADR 0211), never that folder's path. A WSL client's folder is taken
+    as the client sees it, as its hooks do, not as the bridge's
+    \\\\wsl.localhost path."""
+    from .cli_conversations import derive_project
+    from .wsl_paths import client_path
+    return derive_project(client_path(_session.get('directory') or '')) or None
 
 
 class _SessionNotice(Middleware):
@@ -1691,7 +1703,8 @@ def tasks(
     Args:
         action: "board" (Tasks by status), "list" (Tasks matching the filters), "get" (one Task),
                 "history" (one Task's changes), "next" (the standalone Task you may take unasked
-                in your project; with feature, that Feature's frontier, taken when the user asks), "handoff" (where a Task's work
+                in this session's project, whatever project is named; with feature, that Feature's
+                frontier, taken when the user asks), "handoff" (where a Task's work
                 stands, to take it over), "inbox" (unread comments addressed to you) or "progress"
                 (how far each project and Feature is, and how long is left)
         task: The Task for get, history and handoff, e.g. "T-7f3kq"
@@ -1709,7 +1722,7 @@ def tasks(
     from . import tasks_tool
     return tasks_tool.read(action, task=task, archived=archived, workspace=workspace, project=project,
                            feature=feature, tag=tag, status=status, priority=priority, assignee=assignee, holder=holder,
-                           text=text, session_project=_session.get('project'), client=_calling_client(ctx))
+                           text=text, session_project=_board_project(), client=_calling_client(ctx))
 
 
 @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False})
@@ -1784,7 +1797,7 @@ def task_edit(
     if action == "name":
         return tasks_tool.choose_name(name, actor=who, workspace=workspace)
     if action == "create":
-        return tasks_tool.create(title=title or "", project=tasks_tool.project(project or "", _session.get('project')),
+        return tasks_tool.create(title=title or "", project=tasks_tool.project(project or "", _board_project()),
                                  description=description or "", status=status, priority=priority or "",
                                  acceptance=acceptance, tags=tags, assignees=assignees, feature=feature or "",
                                  blockers=blockers, actor=who, workspace=workspace)

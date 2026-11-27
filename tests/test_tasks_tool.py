@@ -22,7 +22,9 @@ class TasksToolTests(unittest.TestCase):
         for patcher in (patch.object(config, 'get_data_dir', return_value=self.data),
                         patch.object(tasks.actors, '_device', return_value='device-a'),
                         patch.dict(os.environ, {'IMPRINT_WORKSPACE': ''}),
-                        patch.dict(server._session, {'project': 'imprint'})):
+                        # As start_session leaves it: the folder's path, whose name the Board uses.
+                        patch.dict(server._session, {'directory': '/home/u/code/imprint',
+                                                     'project': '/home/u/code/imprint'})):
             patcher.start()
             self.addCleanup(patcher.stop)
 
@@ -63,10 +65,28 @@ class TasksToolTests(unittest.TestCase):
         self.call(('task_edit', {'action': 'create', 'title': 'Here'}),
                   ('task_edit', {'action': 'create', 'title': 'There', 'project': 'website'}))
         self.assertEqual(sorted(t['project'] for t in tasks.listing(workspace='default')), ['imprint', 'website'])
-        with patch.dict(self.server._session, {'project': None}), patch('os.getcwd', return_value='/'):
-            _, [(failed, text)] = self.call(('task_edit', {'action': 'create', 'title': 'Nowhere'}))
+        with patch.dict(self.server._session, {'directory': None, 'project': None}), patch('os.getcwd', return_value='/'):
+            _, [(failed, text), (_, unasked)] = self.call(('task_edit', {'action': 'create', 'title': 'Nowhere'}),
+                                                          ('tasks', {'action': 'next'}))
         self.assertTrue(failed)
         self.assertIn('project', text)
+        self.assertIn('no project folder, so there is nothing to take unasked', unasked)
+
+    def test_a_wsl_session_names_its_project_as_its_hooks_do(self):
+        # The bridge runs the server on Windows, in the \\wsl.localhost path of the client's folder.
+        with patch('imprint.wsl_paths.sys.platform', 'win32'), patch.dict(os.environ, {'IMPRINT_WSL_DISTRO': 'Ubuntu'}), \
+                patch.dict(self.server._session, {'directory': r'\\wsl.localhost\Ubuntu\home\u\code\shop-app'}):
+            self.assertEqual(self.server._board_project(), 'shop-app')
+
+    def test_unasked_work_comes_only_from_the_sessions_project(self):
+        mine = tasks.create('Mine', project='imprint', acceptance=['x'], status='ready', priority='P3',
+                            workspace='default')['id']
+        tasks.create('Elsewhere', project='website', acceptance=['x'], status='ready', priority='P0', workspace='default')
+        [(_, offered), (_, named)] = self.as_session('conv-1', ('tasks', {'action': 'next'}),
+                                                     ('tasks', {'action': 'next', 'project': 'website'}))
+        self.assertIn(f'Take {mine} next', offered)
+        self.assertIn(f'Take {mine} next', named)
+        self.assertIn("Unasked work comes only from this session's project, imprint, not website.", named)
 
     def test_the_creating_agent_is_recorded_with_its_client(self):
         self.call(('task_edit', {'action': 'create', 'title': 'From Codex'}), client='codex')
