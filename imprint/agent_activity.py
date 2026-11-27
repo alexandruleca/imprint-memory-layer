@@ -31,6 +31,7 @@ ERROR_CHARS = 300
 
 _conn: sqlite3.Connection | None = None
 _session_id: str | None = None
+_client: str | None = None
 
 
 def _db_path() -> Path:
@@ -117,9 +118,17 @@ def start_session(directory: str | None, workspace: str | None) -> str:
 
 
 def name_client(name: str | None, version: str | None) -> None:
+    global _client
+    _client = (name or "")[:120] or None
     if _session_id:
         _write("UPDATE agent_sessions SET client = ?, client_version = ?, last_seen = ? WHERE id = ?",
                ((name or "")[:120] or None, (version or "")[:60] or None, time.time(), _session_id))
+
+
+def current() -> dict:
+    """This process's session id (None before start_session) and the client
+    that named itself in the handshake."""
+    return {"session": _session_id, "client": _client}
 
 
 def summarize_arguments(arguments: dict | None) -> str:

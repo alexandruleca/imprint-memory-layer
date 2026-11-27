@@ -4,7 +4,7 @@ import sys
 from typing import Annotated, Literal
 from pydantic import AliasChoices, Field
 
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
 from fastmcp.server.middleware import Middleware
 from fastmcp.tools import ToolResult
 from mcp.types import TextContent
@@ -1631,6 +1631,78 @@ def skill_edit(
     if action == "create":
         return skills_tool.create(kind or "skill", name, description, instructions, files)
     return skills_tool.edit(name, kind, description, instructions, files, state)
+
+
+# ── The Board (ADRs 0208-0212) ────────────────────────────────────────────
+
+def _calling_client(ctx: Context | None) -> str | None:
+    """The client of this connection, as it named itself."""
+    try:
+        info = _client_info(getattr(getattr(ctx, 'session', None), 'client_params', None))
+        return getattr(info, 'name', None)
+    except Exception:
+        return None
+
+
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False})
+def tasks(
+    action: Literal["board", "list", "get"] = "board",
+    task: str = "",
+    project: str = "",
+    status: str = "",
+    workspace: str = "",
+) -> str:
+    """The workspace's Board: Tasks that agents and the user track work with,
+    shared by every client and paired device. Read it before starting work
+    that may already be tracked.
+
+    Args:
+        action: "board" (Tasks by status), "list" (Tasks matching the filters) or "get" (one Task)
+        task: The Task for get, e.g. "T-7f3kq"
+        project: Only this project's Tasks
+        status: For list, only this status (Backlog, Ready, In progress, Review, Done, Cancelled)
+        workspace: Target workspace (default: the session's)
+    """
+    from . import tasks_tool
+    return tasks_tool.read(action, task=task, project=project, status=status, workspace=workspace)
+
+
+@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False})
+def task_edit(
+    action: Literal["create"],
+    title: str = "",
+    description: str = "",
+    project: str = "",
+    status: str = "",
+    priority: str = "",
+    acceptance: list[str] | None = None,
+    tags: list[str] | None = None,
+    assignees: list[str] | None = None,
+    workspace: str = "",
+    ctx: Context | None = None,
+) -> str:
+    """Change the workspace's Board. Create a Task for work you cannot finish
+    in this session (a follow-up, a defect outside your scope) or when the
+    user asks; it goes to Backlog unless it has acceptance criteria and you
+    pass status "Ready".
+
+    Args:
+        action: "create"
+        title: The Task's title
+        description: What and why, in Markdown
+        project: The project it belongs to (default: this session's)
+        status: For create, "Backlog" (default) or "Ready" (needs acceptance criteria)
+        priority: P0 (most urgent) to P3; default P2
+        acceptance: Acceptance criteria, one per item
+        tags: Free-form tags for grouping and filtering
+        assignees: Who it is for: "user", a client ("codex"), a device, or "client@device"
+        workspace: Target workspace (default: the session's)
+    """
+    from . import tasks_tool
+    who = tasks_tool.actor(_calling_client(ctx))
+    return tasks_tool.create(title=title, project=tasks_tool.project(project, _session.get('project')),
+                             description=description, status=status, priority=priority, acceptance=acceptance,
+                             tags=tags, assignees=assignees, actor=who, workspace=workspace)
 
 
 def _first_meaningful_line(text: str, max_len: int = 200) -> str:

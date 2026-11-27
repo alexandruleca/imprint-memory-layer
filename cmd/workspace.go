@@ -227,14 +227,16 @@ except Exception as e:
 		}
 	}
 
-	// Delete SQLite DB files
-	for _, suffix := range []string{"", "-shm", "-wal"} {
-		path := filepath.Join(dataDir, fmt.Sprintf("imprint_graph_%s.sqlite3%s", name, suffix))
-		if platform.FileExists(path) {
-			if err := os.Remove(path); err != nil {
-				output.Warn("failed to remove " + path + ": " + err.Error())
-			} else {
-				output.Success("removed " + filepath.Base(path))
+	// Delete SQLite DB files: facts and the Board
+	for _, dbBase := range workspaceDatabases(name) {
+		for _, suffix := range []string{"", "-shm", "-wal"} {
+			path := filepath.Join(dataDir, dbBase+suffix)
+			if platform.FileExists(path) {
+				if err := os.Remove(path); err != nil {
+					output.Warn("failed to remove " + path + ": " + err.Error())
+				} else {
+					output.Success("removed " + filepath.Base(path))
+				}
 			}
 		}
 	}

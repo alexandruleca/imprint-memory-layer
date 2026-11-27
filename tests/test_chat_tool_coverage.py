@@ -12,8 +12,9 @@ from imprint import chat, server
 
 # Tools that change state or this session, or plan with their own model:
 # chat offers its own write tools and recall would nest a model in a model.
+# The Board's tools act as an agent session (ADR 0210), which chat is not.
 NOT_FOR_CHAT = {"store", "delete", "purge_sources", "kg_edit", "ingest_url", "ingest_content",
-                "use_workspace", "device_context", "recall", "skill_edit"}
+                "use_workspace", "device_context", "recall", "skill_edit", "tasks", "task_edit"}
 
 
 class CoverageTests(unittest.TestCase):

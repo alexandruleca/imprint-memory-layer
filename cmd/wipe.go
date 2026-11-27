@@ -68,11 +68,12 @@ func wipeSingleWorkspace(projectDir, dataDir, workspace string, force bool) {
 	fmt.Println()
 	output.Warn(fmt.Sprintf("this will permanently delete workspace '%s' data:", workspace))
 	fmt.Printf("    collection: %s\n", coll)
+	for _, dbBase := range workspaceDatabases(workspace) {
+		fmt.Printf("    %s/%s\n", dataDir, dbBase)
+	}
 	if workspace == "default" {
-		fmt.Printf("    %s/imprint_graph.sqlite3\n", dataDir)
 		fmt.Printf("    %s/wal.jsonl\n", dataDir)
 	} else {
-		fmt.Printf("    %s/imprint_graph_%s.sqlite3\n", dataDir, workspace)
 		fmt.Printf("    %s/wal_%s.jsonl\n", dataDir, workspace)
 	}
 	fmt.Println()
@@ -124,20 +125,16 @@ except Exception as e:
 		}
 	}
 
-	// Delete SQLite DB files
-	var dbBase string
-	if workspace == "default" {
-		dbBase = "imprint_graph.sqlite3"
-	} else {
-		dbBase = fmt.Sprintf("imprint_graph_%s.sqlite3", workspace)
-	}
-	for _, suffix := range []string{"", "-shm", "-wal"} {
-		path := filepath.Join(dataDir, dbBase+suffix)
-		if platform.FileExists(path) {
-			if err := os.Remove(path); err != nil {
-				output.Warn("failed to remove " + filepath.Base(path) + ": " + err.Error())
-			} else {
-				output.Success("removed " + filepath.Base(path))
+	// Delete SQLite DB files: facts and the Board
+	for _, dbBase := range workspaceDatabases(workspace) {
+		for _, suffix := range []string{"", "-shm", "-wal"} {
+			path := filepath.Join(dataDir, dbBase+suffix)
+			if platform.FileExists(path) {
+				if err := os.Remove(path); err != nil {
+					output.Warn("failed to remove " + filepath.Base(path) + ": " + err.Error())
+				} else {
+					output.Success("removed " + filepath.Base(path))
+				}
 			}
 		}
 	}
