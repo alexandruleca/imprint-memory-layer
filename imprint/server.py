@@ -138,7 +138,7 @@ class _BoardNotice(Middleware):
         try:
             from . import tasks_tool
             tasks_tool.touch()
-            notice = tasks_tool.notices()
+            notice = tasks_tool.notices(client=_calling_client(context.fastmcp_context))
         except Exception:  # The Board must not cost the agent its result.
             return result
         if not notice or not isinstance(result, ToolResult):
@@ -1670,7 +1670,7 @@ def _calling_client(ctx: Context | None) -> str | None:
 
 @mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False})
 def tasks(
-    action: Literal["board", "list", "get", "history", "next", "handoff"] = "board",
+    action: Literal["board", "list", "get", "history", "next", "handoff", "inbox"] = "board",
     task: str = "",
     project: str = "",
     feature: str = "",
@@ -1690,8 +1690,8 @@ def tasks(
     Args:
         action: "board" (Tasks by status), "list" (Tasks matching the filters), "get" (one Task),
                 "history" (one Task's changes), "next" (the Task you may take unasked in your
-                project; with feature, that Feature's frontier) or "handoff" (where a Task's work
-                stands, to take it over)
+                project; with feature, that Feature's frontier), "handoff" (where a Task's work
+                stands, to take it over) or "inbox" (unread comments addressed to you)
         task: The Task for get, history and handoff, e.g. "T-7f3kq"
         project: Only this project's Tasks
         feature: Only the Tasks of this Feature (a Task id)
@@ -1712,7 +1712,7 @@ def tasks(
 @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False})
 def task_edit(
     action: Literal["create", "edit", "append", "move", "tag", "assign", "link", "block", "unblock", "cancel",
-                    "claim", "checkpoint", "release", "name"],
+                    "claim", "checkpoint", "release", "name", "comment"],
     task: str = "",
     title: str | None = None,
     description: str | None = None,
@@ -1734,6 +1734,7 @@ def task_edit(
     files: list[str] | None = None,
     next_step: str = "",
     name: str = "",
+    to: list[str] | None = None,
     workspace: str = "",
     ctx: Context | None = None,
 ) -> str:
@@ -1748,7 +1749,8 @@ def task_edit(
                 "link" (feature, and blockers to add/remove), "block" (text is the reason),
                 "unblock" or "cancel"; "claim" (take it to work on), "checkpoint" (record
                 progress while you hold it) or "release" (let it go unfinished); "name" (choose
-                the name you go by on the Board, before your first claim or comment)
+                the name you go by on the Board, before your first claim or comment); "comment"
+                (text, optionally to someone)
         task: The Task to change, e.g. "T-7f3kq"
         title: The title
         description: What and why, in Markdown (edit replaces it; append adds to it)
@@ -1770,6 +1772,8 @@ def task_edit(
         files: For checkpoint, the files touched
         next_step: For checkpoint, what comes next
         name: For name, 2 to 24 letters, digits and hyphens that others will know you by
+        to: For comment, whom it is for: "user", "holder", an agent's name, a client ("codex"),
+            "@device" or "client@device"; @name in the text addresses too; none means the holder
         workspace: Target workspace (default: the session's)
     """
     from . import tasks_tool
@@ -1784,7 +1788,7 @@ def task_edit(
     return tasks_tool.change(action, task, actor=who, workspace=workspace, title=title, description=description,
                              project=project, status=status, priority=priority, position=position,
                              acceptance=acceptance, feature=feature, add=add, remove=remove, text=text,
-                             token=token, branch=branch, commit=commit, files=files, next_step=next_step)
+                             token=token, branch=branch, commit=commit, files=files, next_step=next_step, to=to)
 
 
 def _first_meaningful_line(text: str, max_len: int = 200) -> str:

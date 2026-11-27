@@ -53,7 +53,15 @@ def session_context(payload):
         return f"{REMINDER} Imprint could not resolve this directory's workspace: {error}"
     told = policy.notice(resolution) or (
         f"This session's Imprint workspace is '{resolution['workspace']}' ({policy.describe(resolution)}).")
-    return f'{REMINDER} {told}'
+    board = ''
+    try:  # The project's Board (ADRs 0211, 0212); it must never cost the session its reminder.
+        from imprint import tasks_tool
+        session = payload.get('session_id') or payload.get('conversation_id')
+        board = tasks_tool.session_start(_cwd(payload), resolution['workspace'],
+                                         session if isinstance(session, str) else None, resolution.get('project'))
+    except Exception:
+        board = ''
+    return f'{REMINDER} {told}' + (f'\n\n{board}' if board else '')
 
 
 def main():

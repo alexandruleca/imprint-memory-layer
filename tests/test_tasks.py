@@ -346,6 +346,17 @@ class ClaimTests(TasksTestCase):
         with patch.dict(os.environ, {'IMPRINT_TASKS_LEASE_MINUTES': '30'}), at(16 * 60 + 14 * 60 + 60):
             self.assertFalse(tasks.get(task, workspace='default')['stale'])
 
+    def test_the_board_and_lists_read_claims_by_their_leases_too(self):
+        task = self.ready()
+        with at(0):
+            tasks.claim(task, actor=AGENT, workspace='default')
+        with at(20 * 60):
+            tasks.renew('session-1')
+            [listed] = tasks.listing(workspace='default')
+            [on_board] = tasks.board(workspace='default')['columns']['in_progress']
+        self.assertEqual((listed['stale'], on_board['stale']), (False, False))
+        self.assertEqual(on_board['holder']['name'], 'grimforge')
+
     def test_a_holder_without_progress_stalls_then_goes_stale(self):
         task = self.ready()
         with at(0):
@@ -578,6 +589,63 @@ class NextTests(TasksTestCase):
         self.assertEqual(handoff['files'], ['b.py', 'a.py'])
         self.assertEqual([c['text'] for c in handoff['checkpoints']], ['Tokenizer done.', 'Grammar half done.'])
         self.assertEqual(handoff['conversation'], 'conversation/5c1d2e3f')
+
+
+
+class CommentTests(TasksTestCase):
+    def inbox(self, session, name=None, client=None, device='bedrock', mark=True):
+        return [c['text'] for c in tasks.inbox(session, name=name, client=client, device=device, mark=mark,
+                                               workspace='default')]
+
+    def test_comments_are_kept_on_the_task_with_who_wrote_them_and_to_whom(self):
+        task = make()['id']
+        state = tasks.comment(task, f'@quill please rotate {GITHUB_TOKEN}', to=['user'], actor=AGENT,
+                              workspace='default')
+        [comment] = state['comments']
+        self.assertEqual(comment['by']['name'], 'grimforge')
+        self.assertEqual(comment['to'], ['user', 'quill'])
+        self.assertNotIn(GITHUB_TOKEN, comment['text'])
+        with self.assertRaisesRegex(ValueError, 'comment'):
+            tasks.comment(task, '  ', actor=AGENT, workspace='default')
+
+    def test_comments_reach_the_sessions_they_are_addressed_to_once(self):
+        task = make()['id']
+        tasks.comment(task, 'For the Codex agents', to=['codex'], workspace='default')
+        tasks.comment(task, 'For anyone on bedrock', to=['@bedrock'], workspace='default')
+        tasks.comment(task, 'For Codex on studio', to=['codex@studio'], workspace='default')
+        tasks.comment(task, 'Hey @Quill, look', workspace='default')
+        self.assertEqual(self.inbox('s2', name='quill', client='codex'),
+                         ['For the Codex agents', 'For anyone on bedrock', 'Hey @Quill, look'])
+        self.assertEqual(self.inbox('s2', name='quill', client='codex'), [])
+        self.assertEqual(self.inbox('s3', client='codex', device='studio'), ['For the Codex agents', 'For Codex on studio'])
+
+    def test_a_comment_to_the_holder_reaches_whoever_holds_the_task_then(self):
+        task = make(acceptance=['x'], status='ready')['id']
+        tasks.comment(task, 'Whoever takes this: mind the cache', to=['holder'], workspace='default')
+        tasks.comment(task, 'No address goes to the holder too', workspace='default')
+        self.assertEqual(self.inbox('s1', name='grimforge', mark=False), [])
+        tasks.claim(task, actor=tasks.agent('s1', name='grimforge'), pid=dead_pid(), workspace='default')
+        tasks.claim(task, actor=tasks.agent('s2', name='quill'), workspace='default')
+        self.assertEqual(self.inbox('s2', name='quill'),
+                         ['Whoever takes this: mind the cache', 'No address goes to the holder too'])
+
+    def test_an_agent_is_not_told_of_its_own_comments(self):
+        task = make()['id']
+        tasks.comment(task, 'Note to self and @grimforge', actor=AGENT, workspace='default')
+        self.assertEqual(self.inbox('session-1', name='grimforge'), [])
+
+    def test_the_users_inbox_holds_comments_agents_addressed_to_the_user(self):
+        task = make()['id']
+        tasks.comment(task, 'Which API key should I use?', to=['user'], actor=AGENT, workspace='default')
+        tasks.comment(task, 'Not for you', to=['codex'], actor=AGENT, workspace='default')
+        [comment] = tasks.user_inbox(workspace='default')
+        self.assertEqual((comment['text'], comment['task']), ('Which API key should I use?', task))
+        self.assertEqual(tasks.user_inbox(workspace='default'), [])
+
+    def test_names_that_are_clients_or_addresses_are_refused(self):
+        for reserved in ('codex', 'Claude-Code', 'user', 'holder'):
+            with self.subTest(name=reserved), self.assertRaisesRegex(ValueError, 'reserved'):
+                tasks.choose_name('s1', reserved, workspace='default')
 
 
 if __name__ == '__main__':

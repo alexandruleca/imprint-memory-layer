@@ -16,6 +16,8 @@ Usage:
     python -m imprint.cli_tasks next [--project P] [--feature F] [--client C] [--device D]
     python -m imprint.cli_tasks handoff TASK
     python -m imprint.cli_tasks autonomy [off|stale|ready]
+    python -m imprint.cli_tasks comment TASK TEXT [--to A]...
+    python -m imprint.cli_tasks inbox
     python -m imprint.cli_tasks block TASK REASON
     python -m imprint.cli_tasks unblock|cancel|release TASK
     python -m imprint.cli_tasks delete TASK --yes
@@ -105,6 +107,12 @@ def _parser() -> argparse.ArgumentParser:
     commands.add_parser('handoff', parents=[common], help="Where a Task's work stands").add_argument('task')
     autonomy = commands.add_parser('autonomy', parents=[common], help='What agents take unasked here')
     autonomy.add_argument('value', nargs='?', choices=tasks.AUTONOMY)
+    comment = commands.add_parser('comment', parents=[common], help='Comment on it')
+    comment.add_argument('task')
+    comment.add_argument('text')
+    comment.add_argument('--to', action='append', default=[], help='Address it (repeatable): a name, a client, '
+                         '"@device", "client@device" or "holder"')
+    commands.add_parser('inbox', parents=[common], help='Unread comments agents addressed to you')
     block = commands.add_parser('block', parents=[common], help='Mark it Blocked')
     block.add_argument('task')
     block.add_argument('reason')
@@ -154,6 +162,10 @@ def _run(args, workspace: str | None, as_json: bool) -> None:
         handoff = tasks.handoff(args.task, workspace=workspace)
         _print(handoff, as_json, tasks_tool.handoff_text(handoff))
         return
+    if command == 'inbox':
+        items = tasks.user_inbox(workspace=workspace)
+        _print(items, as_json, tasks_tool.inbox_text(items))
+        return
     if command == 'autonomy':
         value = tasks.set_autonomy(args.value, workspace=workspace) if args.value else tasks.autonomy(workspace)
         _print({'autonomy': value}, as_json, f'Agents take unasked here: {value}')
@@ -198,6 +210,8 @@ def _run(args, workspace: str | None, as_json: bool) -> None:
         state = tasks.link(args.task, **links, **user)
     elif command == 'block':
         state = tasks.block(args.task, args.reason, **user)
+    elif command == 'comment':
+        state = tasks.comment(args.task, args.text, to=args.to, **user)
     elif command == 'release':
         state = tasks.release(args.task, **user)
     else:  # unblock

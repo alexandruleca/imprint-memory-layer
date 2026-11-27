@@ -4,6 +4,7 @@ import asyncio
 import os
 import re
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -223,6 +224,41 @@ class TasksToolTests(unittest.TestCase):
         [(_, frontier)] = self.as_session('conv-1', ('tasks', {'action': 'next', 'feature': feature}))
         self.assertIn(f'Frontier of {feature}', frontier)
         self.assertIn(first, frontier)
+
+
+    def test_comments_reach_agents_as_a_notice_once_and_through_the_inbox(self):
+        task = tasks.create('Notice me', project='imprint', workspace='default')['id']
+        tasks.comment(task, 'Codex: the build is red on main', to=['codex'], workspace='default')
+        tools, [(_, first), (_, second), (_, inbox)] = self.call(('tasks', {}), ('tasks', {}),
+                                                                 ('tasks', {'action': 'inbox'}), client='codex')
+        self.assertIn(f'New comment on {task}', first)
+        self.assertIn('the build is red on main', first)
+        self.assertNotIn('New comment', second)
+        self.assertIn('the build is red on main', inbox)
+        _, [(_, again)] = self.call(('tasks', {'action': 'inbox'}), client='codex')
+        self.assertIn('No unread comments', again)
+        _, [(_, other)] = self.call(('tasks', {}), client='claude-code')
+        self.assertNotIn('New comment', other)
+
+    def test_an_agent_comments_and_addresses_others(self):
+        task = tasks.create('Talk', project='imprint', workspace='default')['id']
+        [(failed, said)] = self.as_session('conv-1', ('task_edit', {'action': 'comment', 'task': task,
+                                                                    'text': 'Done with my part', 'to': ['user']}))
+        self.assertFalse(failed, said)
+        self.assertIn('Done with my part', said)
+        [comment] = tasks.user_inbox(workspace='default')
+        self.assertTrue(comment['by']['name'].startswith('claude-code-'))
+
+    def test_a_stalling_holder_is_told_once(self):
+        task = tasks.create('Slow', project='imprint', acceptance=['x'], status='ready', workspace='default')['id']
+        self.as_session('conv-1', ('task_edit', {'action': 'claim', 'task': task}))
+        later = time.time() + 61 * 60
+        with patch.object(tasks.time, 'time', return_value=later), patch.object(time, 'time', return_value=later):
+            tasks.renew('conversation:conv-1')
+            [(_, first), (_, second)] = self.as_session('conv-1', ('tasks', {'action': 'get', 'task': task}),
+                                                        ('tasks', {}))
+        self.assertIn(f'{task} has had no progress from you', first)
+        self.assertNotIn('no progress from you', second)
 
 
 if __name__ == '__main__':

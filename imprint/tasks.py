@@ -268,7 +268,7 @@ def _created(state: dict | None, event: dict) -> dict:
         'assignees': list(data.get('assignees', [])), 'feature': data.get('feature'),
         'blockers': list(data.get('blockers', [])), 'blocked': None,
         'holder': None, 'previous_holder': None, 'worked_by': None, 'lost_claims': [],
-        'last_checkpoint': None, 'checkpoints': 0,
+        'last_checkpoint': None, 'checkpoints': 0, 'comments': [], 'comment_count': 0,
         'created_at': event['recorded_at'], 'created_hlc': event['hlc'], 'created_by': _who(event),
         'updated_at': event['recorded_at'], 'ended_at': None,
     }
@@ -390,7 +390,18 @@ def _checkpoint(state: dict, event: dict) -> dict:
     return state
 
 
-_APPLY = {'created': _created, 'claimed': _claimed, 'released': _released, 'checkpoint': _checkpoint, 'edited': _edited, 'appended': _appended, 'moved': _moved, 'tagged': _tagged,
+COMMENTS_KEPT = 20
+
+
+def _commented(state: dict, event: dict) -> dict:
+    comment = {'id': event['id'], 'text': event['data']['text'], 'to': list(event['data'].get('to', [])),
+               'by': _who(event), 'at': event['recorded_at']}
+    state['comments'] = (state['comments'] + [comment])[-COMMENTS_KEPT:]
+    state['comment_count'] += 1
+    return state
+
+
+_APPLY = {'created': _created, 'comment': _commented, 'claimed': _claimed, 'released': _released, 'checkpoint': _checkpoint, 'edited': _edited, 'appended': _appended, 'moved': _moved, 'tagged': _tagged,
           'assigned': _assigned, 'linked': _linked, 'blocked': _blocked, 'unblocked': _unblocked}
 
 
@@ -614,9 +625,9 @@ def listing(*, project: str | None = None, feature: str | None = None, tag: str 
     Done and Cancelled Tasks that ended more than 14 days ago are left out
     unless ``archived``."""
     with _reading(workspace) as conn:
-        states = _states(conn)
+        view = _view(conn)
         feature_uid = _uid(conn, feature) if feature else None
-    view, now = _View(states), time.time()
+    states, now = list(view.by_uid.values()), view.now
     status = _status(status) if status else None
     priority = _priority(priority) if priority else None
     tag = tag.strip().lower() if tag else None
@@ -1057,6 +1068,9 @@ def take_unseen(session: str, keys: list[str], workspace: str | None = None) -> 
 # ── Agent names (ADR 0216) ───────────────────────────────────────
 
 _NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9-]{1,23}$')
+# Words that address someone else in a comment (ADR 0212) cannot be names.
+RESERVED_NAMES = {'user', 'holder', 'everyone', 'claude-code', 'claude', 'claude-desktop', 'codex', 'cursor',
+                  'copilot', 'cline', 'opencode', 'openclaw', 'chatgpt', 'gemini'}
 
 
 def _name(conn: sqlite3.Connection, session: str, name: str, client: str | None, pid: int | None,
@@ -1090,6 +1104,8 @@ def choose_name(session: str, name: str, *, client: str | None = None, pid: int 
     name = (name or '').strip()
     if not _NAME.match(name):
         raise ValueError('A name is 2 to 24 letters, digits and hyphens, starting with a letter or digit')
+    if name.lower() in RESERVED_NAMES:
+        raise ValueError(f'{name} is reserved: it addresses a client or role in comments; choose another')
     with _writing(workspace) as conn:
         taken = _taken(conn, session)
         if name.lower() in taken:
@@ -1114,7 +1130,7 @@ def ensure_name(session: str, *, client: str | None = None, pid: int | None = No
         if row:
             return row['name']
         taken = _taken(conn, session)
-        prefix = re.sub(r'[^a-z0-9-]', '', (client or 'agent').lower())[:19] or 'agent'
+        prefix = re.sub(r'[^a-z0-9-]', '', (client or 'agent').lower())[:19].strip('-') or 'agent'
         while True:
             name = f"{prefix}-{''.join(secrets.choice(ID_ALPHABET) for _ in range(4))}"
             if name not in taken:
@@ -1226,3 +1242,101 @@ def handoff(task: str, workspace: str | None = None) -> dict:
     return {'task': shown, 'previous_holder': previous, 'last_checkpoint': last, 'checkpoints': checkpoints[-10:],
             'branch': (last or {}).get('branch'), 'commit': (last or {}).get('commit'), 'files': files[:100],
             'conversation': _conversation(previous)}
+
+
+
+# ── Comments (ADR 0212) ──────────────────────────────────────────
+# An address is "user", "holder", a bare word (an agent's name, a client or
+# a device), "@device" or "client@device". A comment with no address goes to
+# the Task's holder. Who holds a Task is decided when the comment is read,
+# so a comment to the holder reaches the next holder after a takeover.
+
+_MENTION = re.compile(r'(?<![\w@])@([A-Za-z0-9][A-Za-z0-9._-]*(?:@[A-Za-z0-9][A-Za-z0-9._-]*)?)')
+_ADDRESS = re.compile(r'^(?:@?[a-z0-9][a-z0-9._-]{0,63}|[a-z0-9][a-z0-9._-]{0,63}@[a-z0-9][a-z0-9._-]{0,63})$')
+INBOX = 20
+
+
+def _addresses(values, text: str) -> list[str]:
+    found = []
+    for value in [*(values or []), *(m.rstrip('.') for m in _MENTION.findall(text))]:
+        address = str(value or '').strip().lower()
+        if not _ADDRESS.match(address):
+            raise ValueError(f'{value!r} is not an address: use "user", "holder", a name, a client, '
+                             '"@device" or "client@device"')
+        if address not in found:
+            found.append(address)
+    return found[:ASSIGNEES]
+
+
+def comment(task: str, text: str, *, to=(), actor: dict | None = None, workspace: str | None = None) -> dict:
+    """Comment on a Task, optionally addressed; ``@name`` in the text
+    addresses too."""
+    text = _redacted([_text(text, 'comment', TEXT_CHARS, required=True)])[0]
+    return _change(task, 'comment', {'text': text, 'to': _addresses(to, text)}, actor, workspace)
+
+
+def _addressed(to: list[str], holder: dict | None, session: str, name: str | None, client: str | None,
+               device: str | None) -> bool:
+    name, client, device = (name or '').lower(), (client or '').lower(), (device or '').lower()
+    is_holder = bool(holder) and holder['session'] == session
+    if not to:
+        return is_holder
+    for address in to:
+        if address == 'holder' and is_holder:
+            return True
+        if address.startswith('@') and device and address[1:] == device:
+            return True
+        if '@' in address[1:] and client and device and address == f'{client}@{device}':
+            return True
+        if address in {a for a in (name, client, device) if a} and address not in ('user', 'holder'):
+            return True
+    return False
+
+
+def _comment_rows(conn: sqlite3.Connection, view: _View) -> list[tuple[dict, dict]]:
+    """(comment event, its Task's state) for every comment, oldest first."""
+    rows = conn.execute("SELECT * FROM events WHERE kind = 'comment' ORDER BY hlc, id")
+    return [(event, view.by_uid[event['task']]) for event in map(_event, rows) if event['task'] in view.by_uid]
+
+
+def _inbox_item(event: dict, state: dict) -> dict:
+    return {'id': event['id'], 'task': state['id'], 'title': state['title'], 'text': event['data'].get('text', ''),
+            'to': event['data'].get('to', []), 'by': _who(event), 'at': event['recorded_at']}
+
+
+def inbox(session: str, *, name: str | None = None, client: str | None = None, device: str | None = None,
+          mark: bool = True, workspace: str | None = None) -> list[dict]:
+    """Unread comments addressed to this session, oldest first (at most the
+    20 newest); ``mark`` marks them read."""
+    with _reading(workspace) as conn:
+        if conn is None:
+            return []
+        view = _view(conn)
+        read = {row['key'] for row in conn.execute('SELECT key FROM seen WHERE session = ?', (session,))}
+        found = []
+        for event, state in _comment_rows(conn, view):
+            if event.get('session') == session or f"read:{event['id']}" in read:
+                continue
+            _, stale = view.claim(state)
+            holder = None if stale else state['holder']
+            if _addressed(event['data'].get('to', []), holder, session, name, client, device):
+                found.append(_inbox_item(event, state))
+    found = found[-INBOX:]
+    if mark and found:
+        take_unseen(session, [f"read:{item['id']}" for item in found], workspace=workspace)
+    return found
+
+
+def user_inbox(*, mark: bool = True, workspace: str | None = None) -> list[dict]:
+    """Unread comments agents addressed to the user, oldest first."""
+    with _reading(workspace) as conn:
+        if conn is None:
+            return []
+        view = _view(conn)
+        read = {row['key'] for row in conn.execute("SELECT key FROM seen WHERE session = 'user'")}
+        found = [_inbox_item(event, state) for event, state in _comment_rows(conn, view)
+                 if event['actor'] == 'agent' and 'user' in event['data'].get('to', [])
+                 and f"read:{event['id']}" not in read][-INBOX:]
+    if mark and found:
+        take_unseen('user', [f"read:{item['id']}" for item in found], workspace=workspace)
+    return found

@@ -101,17 +101,6 @@ def start_renewing(interval: float = 60) -> None:
     threading.Thread(target=loop, name='imprint-task-leases', daemon=True).start()
 
 
-def notices(workspace: str | None = None) -> str:
-    """What this session should hear on its next reply: claims it lost."""
-    me = session()
-    lost = tasks.lost_claims(me, workspace=workspace)
-    told = set(tasks.take_unseen(me, [f"lost:{item['claim']}" for item in lost], workspace=workspace))
-    lines = [f"You lost your claim on {item['task']} ({item['title']}) to {_label(item['to'])}, "
-             'who claimed it first on another device. Stop working on it.'
-             for item in lost if f"lost:{item['claim']}" in told]
-    return '\n'.join(lines)
-
-
 def project(given: str = '', session_project: str | None = None) -> str:
     """The project a new Task belongs to: the one named, else the session's."""
     if given.strip():
@@ -123,6 +112,97 @@ def project(given: str = '', session_project: str | None = None) -> str:
     if not found:
         raise ValueError('No project found for this directory: name the project')
     return found
+
+
+NOTICE_COMMENTS = 3
+NOTICE_CHARS = 300
+
+
+def notices(workspace: str | None = None, client: str | None = None) -> str:
+    """What this session should hear on its next reply, each thing once:
+    claims it lost, new comments addressed to it, and its claims that are
+    Stalling."""
+    me = actor(client, workspace or '')
+    workspace = workspace or None
+    lines = []
+    lost = tasks.lost_claims(me['session'], workspace=workspace)
+    told = set(tasks.take_unseen(me['session'], [f"lost:{item['claim']}" for item in lost], workspace=workspace))
+    lines += [f"You lost your claim on {item['task']} ({item['title']}) to {_label(item['to'])}, "
+              'who claimed it first on another device. Stop working on it.'
+              for item in lost if f"lost:{item['claim']}" in told]
+    unread = tasks.inbox(me['session'], name=me.get('name'), client=me.get('client'), device=_device_name(),
+                         mark=False, workspace=workspace)
+    told = set(tasks.take_unseen(me['session'], [f"notified:{item['id']}" for item in unread], workspace=workspace))
+    fresh = [item for item in unread if f"notified:{item['id']}" in told]
+    for item in fresh[:NOTICE_COMMENTS]:
+        text = item['text'] if len(item['text']) <= NOTICE_CHARS else item['text'][:NOTICE_CHARS] + '…'
+        lines.append(f"New comment on {item['task']} ({item['title']}) from {_who(item['by'])}: {text}")
+    if len(fresh) > NOTICE_COMMENTS:
+        lines.append(f'And {len(fresh) - NOTICE_COMMENTS} more: tasks(action="inbox").')
+    held = [state for state in tasks.listing(workspace=workspace)
+            if (state.get('holder') or {}).get('session') == me['session'] and state.get('stalling')]
+    keys = {f"stalling:{state['id']}:{int(state['holder']['progress_at'])}": state for state in held}
+    for key in tasks.take_unseen(me['session'], list(keys), workspace=workspace):
+        state = keys[key]
+        lines.append(f"{state['id']} has had no progress from you for a while: record a checkpoint with "
+                     f'task_edit(action="checkpoint", task="{state["id"]}", text="…"), or release it if you stopped.')
+    return '\n'.join(lines)
+
+
+def inbox_text(items: list[dict]) -> str:
+    if not items:
+        return 'No unread comments.'
+    return '\n'.join(f"{item['task']} ({item['title']}), {_when(item['at'])}, from {_who(item['by'])}"
+                     f"{' to ' + ', '.join(item['to']) if item['to'] else ''}: {item['text']}" for item in items)
+
+
+SESSION_START_LINES = 6
+
+
+def session_start(cwd: str, workspace: str, conversation: str | None, project_name: str | None = None) -> str:
+    """The Board's part of the session-start context: the project's Ready
+    and Stale Tasks, the session's unread comments, its name, and what it
+    may take unasked. Nothing when the project has no Tasks."""
+    if not config_path_exists(workspace):
+        return ''
+    if not project_name:
+        from .cli_conversations import derive_project
+        project_name = derive_project(cwd) if cwd else ''
+    if not project_name:
+        return ''
+    states = tasks.listing(project=project_name, workspace=workspace)
+    if not states:
+        return ''
+    open_ones = [s for s in states if s['status'] == 'ready' or s.get('stale')]
+    counts = {label: sum(1 for s in states if test(s)) for label, test in (
+        ('Ready', lambda s: s['status'] == 'ready'), ('Stale', lambda s: s.get('stale')),
+        ('in progress', lambda s: s['status'] == 'in_progress' and not s.get('stale')),
+        ('in review', lambda s: s['status'] == 'review'))}
+    summary = ', '.join(f'{n} {label}' for label, n in counts.items() if n) or 'nothing open'
+    lines = [f"Imprint Board, workspace {workspace}, project {project_name}: {summary}."]
+    lines += [f'- {line(state)}' for state in open_ones[:SESSION_START_LINES]]
+    me = f'conversation:{conversation}' if conversation else None
+    name = tasks.name_of(me, workspace=workspace) if me else None
+    if me:
+        unread = tasks.inbox(me, name=name, mark=False, workspace=workspace)
+        if unread:
+            lines.append(f"You have {len(unread)} unread comment{'s' if len(unread) != 1 else ''}: tasks(action=\"inbox\").")
+    lines.append(f'You are {name} on this Board.' if name else
+                 'Choose the name you go by on the Board with task_edit(action="name", name="…") before your '
+                 'first claim or comment.')
+    mode = tasks.autonomy(workspace)
+    if mode != 'off' and open_ones:
+        lines.append(f'When you have finished what you were asked, you may take the next Task: tasks(action="next") '
+                     f'(autonomy: {mode}).')
+    return '\n'.join(lines)
+
+
+def config_path_exists(workspace: str) -> bool:
+    from . import config
+    try:
+        return config.tasks_db_path(workspace).exists()
+    except ValueError:
+        return False
 
 
 # ── Wording ──────────────────────────────────────────────────────
@@ -216,6 +296,12 @@ def detail(state: dict) -> str:
         lines.extend(f'- {criterion}' for criterion in state['acceptance'])
     if state.get('description'):
         lines.extend(['Description:', state['description']])
+    comments = state.get('comments') or []
+    if comments:
+        more = state.get('comment_count', len(comments)) - len(comments[-5:])
+        lines.append(f"Comments{f' (last 5 of {len(comments[-5:]) + more})' if more > 0 else ''}:")
+        lines.extend(f"- {_when(c['at'])} {_who(c['by'])}{' to ' + ', '.join(c['to']) if c['to'] else ''}: {c['text']}"
+                     for c in comments[-5:])
     return '\n'.join(lines)
 
 
@@ -316,6 +402,10 @@ def handoff_text(handoff: dict) -> str:
 def read(action: str, *, task: str = '', archived: bool = False, workspace: str = '', session_project: str | None = None,
          client: str | None = None, **given) -> str:
     workspace = workspace or None
+    if action == 'inbox':
+        me = actor(client, workspace or '')
+        return inbox_text(tasks.inbox(me['session'], name=me.get('name'), client=me.get('client'),
+                                      device=_device_name(), workspace=workspace))
     if action == 'next':
         if given.get('feature'):
             feature = tasks.get(given['feature'], workspace=workspace)
@@ -351,7 +441,7 @@ def create(*, title: str, project: str, description: str = '', status: str = '',
 
 def change(action: str, task: str, *, actor: dict, workspace: str = '', title=None, description=None,
            project=None, status='', priority=None, position=None, acceptance=None, feature=None,
-           add=None, remove=None, text='', token='', branch='', commit='', files=None, next_step='') -> str:
+           add=None, remove=None, text='', token='', branch='', commit='', files=None, next_step='', to=None) -> str:
     """Every task_edit action but create, on one existing Task."""
     if not task:
         raise ValueError('Name the task: task="T-…"')
@@ -366,6 +456,10 @@ def change(action: str, task: str, *, actor: dict, workspace: str = '', title=No
                 'Keep the token in this conversation, not on the Board; if your session restarts, take the '
                 f'claim back with task_edit(action="claim", task="{state["id"]}", token="…"). Record a '
                 'checkpoint at each step and at least every 30 minutes.\n' + detail(state))
+    if action == 'comment':
+        actor, told = _named(actor, workspace)
+        state = tasks.comment(task, text, to=to or (), **{**where, 'actor': actor})
+        return told + detail(state)
     if action == 'checkpoint':
         state = tasks.checkpoint(task, text, branch=branch or None, commit=commit or None, files=files or (),
                                  next_step=next_step or None, **where)
