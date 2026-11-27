@@ -1690,8 +1690,8 @@ def tasks(
 
     Args:
         action: "board" (Tasks by status), "list" (Tasks matching the filters), "get" (one Task),
-                "history" (one Task's changes), "next" (the Task you may take unasked in your
-                project; with feature, that Feature's frontier), "handoff" (where a Task's work
+                "history" (one Task's changes), "next" (the standalone Task you may take unasked
+                in your project; with feature, that Feature's frontier, taken when the user asks), "handoff" (where a Task's work
                 stands, to take it over), "inbox" (unread comments addressed to you) or "progress"
                 (how far each project and Feature is, and how long is left)
         task: The Task for get, history and handoff, e.g. "T-7f3kq"

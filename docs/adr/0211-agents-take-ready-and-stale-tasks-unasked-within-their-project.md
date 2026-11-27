@@ -3,8 +3,9 @@ title: ADR 0211 — Agents take Ready and Stale Tasks unasked, within their proj
 description: Besides taking Tasks when asked, an agent may claim one Ready or Stale Task on its own once it has finished what it was asked, if the Task is in its current project, unblocked, and not assigned to the user or to another client or device; a workspace setting turns this down, and Imprint does not start agents itself.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-27
+- Amended by: [ADR 0219](0219-agents-take-only-standalone-tasks-unasked.md) — which Tasks an agent takes unasked: only standalone ones, never a Feature or a Feature's Task
 - Related: [ADR 0208](0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md) (the Board), [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) (claims and staleness), [ADR 0212](0212-agents-talk-through-comments-on-tasks.md) (what agents are told at session start)
 
 ## Context

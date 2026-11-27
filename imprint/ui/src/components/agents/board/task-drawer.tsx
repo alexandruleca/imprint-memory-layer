@@ -132,7 +132,9 @@ export function TaskDrawer({ taskId, options, now, simple, onChanged, onClose }:
         <Section title="Assignees">
           <Chips values={task.assignees} label="assignee" onAdd={(v) => act("assignees", { add: [v] })} onRemove={(v) => act("assignees", { remove: [v] })} />
           <p className="text-xs text-muted-foreground">
-            {task.assignees.length ? "Only these take it unasked." : "None: any agent may take it."} &quot;user&quot; is you; also a client (codex), a device (@laptop) or both (codex@laptop).
+            {task.feature ? "Agents take it when you ask for its Feature, never unasked."
+              : task.tasks.length ? "Agents work this Feature's tasks when you ask for it, never unasked."
+              : task.assignees.length ? "Only these take it unasked." : "None: any agent may take it."} &quot;user&quot; is you; also a client (codex), a device (@laptop) or both (codex@laptop).
           </p>
         </Section>
         {(task.open_blockers.length > 0 || task.blockers.length > 0 || task.tasks.length > 0) && (

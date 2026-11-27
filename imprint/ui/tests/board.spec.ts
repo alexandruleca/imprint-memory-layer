@@ -245,6 +245,26 @@ test('Done and Cancelled unfold, and stay unfolded after a reload', async ({ pag
   await expect(page.locator('li[data-task="T-ffff6"]')).toHaveCount(0);
 });
 
+test("the drawer says a Feature and its Tasks are taken only when asked (ADR 0219)", async ({ page }) => {
+  await base(page, { mode: 'advanced', tutorials: false });
+  await mockBoard(page, [
+    ...board(),
+    task({ id: 'T-feat1', title: 'Checkout redesign', tasks: ['T-part1'], progress: { done: 0, total: 1 } }),
+    task({ id: 'T-part1', title: 'Cart page', status: 'ready', acceptance: ['x'], feature: 'T-feat1', feature_title: 'Checkout redesign' }),
+  ]);
+  const hints: [string, RegExp, string][] = [
+    ['T-aaaa1', /Fix the tax rounding/, 'None: any agent may take it.'],
+    ['T-part1', /Cart page/, 'Agents take it when you ask for its Feature, never unasked.'],
+    ['T-feat1', /Checkout redesign/, "Agents work this Feature's tasks when you ask for it, never unasked."],
+  ];
+  for (const [id, title, hint] of hints) {
+    await page.goto(`/agents/?task=${id}#board`);
+    await expect(page.getByRole('dialog', { name: title }).getByText(hint)).toBeVisible();
+  }
+  await page.goto('/agents/#board');
+  await expect(page.getByRole('combobox', { name: /Agents take unasked/ })).toContainText('Standalone Ready and Stale tasks');
+});
+
 test("a Feature's card shows its progress, and Progress says how long is left", async ({ page }) => {
   await base(page, { mode: 'advanced', tutorials: false });
   await mockBoard(page, [...board(), task({ id: 'T-feat1', title: 'Checkout redesign', tasks: ['T-aaaa1', 'T-bbbb2'], progress: { done: 1, total: 2 } })]);

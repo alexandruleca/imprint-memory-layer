@@ -1,4 +1,4 @@
-"""Finding work (ADR 0211): what an agent may take unasked, a Feature's frontier, and a handoff."""
+"""Finding work (ADRs 0211, 0219): what an agent may take unasked, a Feature's frontier, and a handoff."""
 
 from __future__ import annotations
 
@@ -58,18 +58,27 @@ def _takeable(view: _View, state: dict, *, ready: bool) -> bool:
     return ready and not state['holder'] and state['status'] == 'ready'
 
 
+def _standalone(view: _View, state: dict, features: set[str]) -> bool:
+    """Neither a Feature (a Task other Tasks belong to) nor a Task of one
+    (ADR 0219); a Task whose Feature was deleted stands alone again."""
+    return state['uid'] not in features and state['feature'] not in view.by_uid
+
+
 def next_task(*, project: str, client: str | None = None, device: str | None = None,
               workspace: str | None = None) -> dict | None:
     """The Task an agent of ``client`` on ``device`` working in ``project``
-    may take unasked, if any: highest priority, then position, then oldest."""
+    may take unasked, if any: a standalone one, highest priority, then
+    position, then oldest. A Feature's Tasks are taken when asked, through
+    its frontier."""
     mode = autonomy(workspace)
     if mode == 'off':
         return None
     with _reading(workspace) as conn:
         view = _view(conn)
+    features = {s['feature'] for s in view.by_uid.values() if s['feature']}
     found = [s for s in view.by_uid.values()
-             if s['project'] == project and _for_agent(s['assignees'], client, device)
-             and _takeable(view, s, ready=mode == 'ready')]
+             if s['project'] == project and _standalone(view, s, features)
+             and _for_agent(s['assignees'], client, device) and _takeable(view, s, ready=mode == 'ready')]
     return view.public(min(found, key=_order)) if found else None
 
 

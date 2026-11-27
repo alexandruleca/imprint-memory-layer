@@ -224,6 +224,9 @@ class TasksToolTests(unittest.TestCase):
         [(_, frontier)] = self.as_session('conv-1', ('tasks', {'action': 'next', 'feature': feature}))
         self.assertIn(f'Frontier of {feature}', frontier)
         self.assertIn(first, frontier)
+        [(_, unasked)] = self.as_session('conv-1', ('tasks', {'action': 'next'}))
+        self.assertIn('Nothing on the Board for you to take', unasked)
+        self.assertIn("A Feature's Tasks are taken only when the user asks", unasked)
 
 
     def test_comments_reach_agents_as_a_notice_once_and_through_the_inbox(self):

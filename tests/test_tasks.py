@@ -562,6 +562,18 @@ class NextTests(TasksTestCase):
             tasks.set_autonomy('always', workspace='default')
         del ready
 
+    def test_only_standalone_tasks_are_taken_unasked(self):
+        feature = self.ready('Checkout', priority='P0')
+        child = self.ready('Cart page', feature=feature, priority='P0')
+        stale_child = self.ready('Payment page', feature=feature, priority='P0')
+        tasks.claim(stale_child, actor=AGENT, pid=dead_pid(), workspace='default')
+        self.assertIsNone(self.pick())
+        loose = self.ready('Fix the footer', priority='P3')
+        self.assertEqual(self.pick(), loose)
+        self.assertEqual([t['id'] for t in tasks.frontier(feature, workspace='default')], [child, stale_child])
+        tasks.delete(feature, workspace='default')
+        self.assertIn(self.pick(), (child, stale_child))
+
     def test_a_features_frontier_is_its_open_unblocked_unclaimed_tasks_in_order(self):
         feature = make('Checkout', project='shop')['id']
         first = self.ready('First', feature=feature, priority='P1')

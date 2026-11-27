@@ -463,6 +463,7 @@ def frontier_text(feature: dict, states: list[dict]) -> str:
 def next_text(state: dict | None, project: str, mode: str) -> str:
     if state is None:
         return (f'Nothing on the Board for you to take unasked in project {project} (autonomy: {mode}). '
+                "A Feature's Tasks are taken only when the user asks for that Feature. "
                 'Ask the user, or look at tasks(action="board").')
     task = state['id']
     start_from = (f'start from its handoff: tasks(action="handoff", task="{task}")' if state.get('stale')

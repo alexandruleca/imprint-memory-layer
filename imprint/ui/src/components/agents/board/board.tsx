@@ -33,7 +33,7 @@ const VIEW_KEY = "imprint.board.view";
 const EMPTY_VIEW: View = { filters: {}, group: "none", unfolded: [] };
 /** Ended columns start folded: they need the least attention and take the most room. */
 const FOLDABLE: TaskStatus[] = ["done", "cancelled"];
-const AUTONOMY_LABELS: Record<Autonomy, string> = { ready: "Ready and Stale tasks", stale: "Only Stale tasks", off: "Nothing" };
+const AUTONOMY_LABELS: Record<Autonomy, string> = { ready: "Standalone Ready and Stale tasks", stale: "Only standalone Stale tasks", off: "Nothing" };
 const FILTER_NAMES: Record<string, string> = { project: "Project", feature: "Feature", tag: "Tag", priority: "Priority", assignee: "Assignee", holder: "Agent" };
 
 /** What needs the user, or is stuck: each one a way to look at only those Tasks. */

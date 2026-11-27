@@ -25,7 +25,7 @@ The Task is finished when it is in Review and its last checkpoint accounts for e
 
 Once you have finished what you were asked, or during a run the user started to work the Board, take one Task at a time:
 
-1. `tasks(action="next")` offers the Task you may take: Ready or Stale, in your project, unblocked, and unassigned or assigned to your client or device. The workspace's autonomy (`off`, `stale` or `ready`) decides what it offers; when it offers nothing, report that and stop.
+1. `tasks(action="next")` offers the Task you may take: Ready or Stale, in your project, standalone (neither a Feature nor one of a Feature's Tasks), unblocked, and unassigned or assigned to your client or device. The workspace's autonomy (`off`, `stale` or `ready`) decides what it offers; when it offers nothing, report that and stop. Take a Feature's Tasks only when the user asks for that Feature: `tasks(action="next", feature="T-…")` lists the ones open to take, in order.
 2. Claim it, and say so in your reply and in a comment on the Task.
 3. For a Stale Task, start from `tasks(action="handoff", task="T-…")`: the last checkpoint, the branch and commit, the files touched, and the previous holder's conversation, which `read_source` opens when Imprint has learned it.
 4. Work it as in [Working a Task](#working-a-task).
