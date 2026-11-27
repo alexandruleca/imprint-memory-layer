@@ -6,6 +6,7 @@ import { Heartbeat } from "@/components/heartbeat";
 import { JobToasts } from "@/components/job-toasts";
 import { ReminderAlerts } from "@/components/reminder-alerts";
 import { BoardAlerts } from "@/components/board-alerts";
+import { SearchFirstAlerts } from "@/components/agents/search-first";
 import { RecorderBridge } from "@/components/recorder-bridge";
 import { RootApprovalDialog } from "@/components/root-approval-dialog";
 import { Toaster } from "@/components/ui/sonner";
@@ -42,7 +43,7 @@ export default function RootLayout({
       </head>
       <body className="h-full bg-background text-foreground flex">
         <TooltipProvider>
-          <DashboardShell overlays={<><Heartbeat /><RootApprovalDialog /><JobToasts /><ReminderAlerts /><BoardAlerts /><RecorderBridge /><Tours /><Toaster /></>}>{children}</DashboardShell>
+          <DashboardShell overlays={<><Heartbeat /><RootApprovalDialog /><JobToasts /><ReminderAlerts /><BoardAlerts /><SearchFirstAlerts /><RecorderBridge /><Tours /><Toaster /></>}>{children}</DashboardShell>
         </TooltipProvider>
       </body>
     </html>

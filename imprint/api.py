@@ -1468,6 +1468,16 @@ def api_agents(limit: int = 50, before: str | None = None, client: str | None = 
     return {**page, "clients": agent_activity.client_totals()}
 
 
+@app.get("/api/agents/search-first")
+def api_agents_search_first():
+    """For each client that got the short rules block (ADR 0214): its
+    sessions and the share that searched Imprint first, before and after,
+    and the decision once upkeep made it."""
+    from . import search_first
+    return {"clients": search_first.comparison(), "min_sessions": search_first.MIN_SESSIONS,
+            "max_drop": search_first.MAX_DROP}
+
+
 @app.post("/api/agents/{session_id}/name")
 async def api_agent_name(session_id: str, request: Request):
     """Rename an agent session on its workspace's Board (ADR 0216)."""

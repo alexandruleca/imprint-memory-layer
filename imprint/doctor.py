@@ -92,6 +92,14 @@ def report(project_dir: Path, probe_mcp: bool = False) -> dict:
     running = qdrant_runner.is_running()
     checks.append({'name': 'qdrant', 'status': 'ok' if running else 'not-running',
                    'detail': 'Ready' if running else 'Not started; search can start the local daemon.', 'action': ''})
+    try:  # Whether agents still search first with the short rules block (ADR 0214).
+        from . import search_first
+        for row in search_first.comparison():
+            checks.append({'name': 'search-first:' + row['client'], 'status': 'ok',
+                           'detail': search_first.describe(row), 'action': ''})
+    except Exception as error:  # noqa: BLE001 - diagnostics report, never stop
+        check('search-first', False, f'Unreadable: {type(error).__name__}: {error}',
+              'Check data/instructions.json and data/agent_activity.sqlite3.')
     if probe_mcp:
         async def probe():
             from fastmcp import Client

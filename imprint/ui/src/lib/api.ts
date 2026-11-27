@@ -1214,6 +1214,16 @@ export function getAgents({ limit = 50, before, client, q }: { limit?: number; b
   if (q) qs.set("q", q);
   return fetchAPI<AgentsPage>(`/api/agents?${qs}`);
 }
+/** Sessions of a client and how many searched Imprint first (ADR 0214). */
+export type SearchFirstCounts = { sessions: number; search_first: number; share: number | null };
+export type SearchFirstClient = {
+  client: string; short_since: number; decide_at: number; before: SearchFirstCounts; after: SearchFirstCounts;
+  decision: { outcome: "restored" | "kept" | "too_few"; at: number; before: number | null; after: number | null } | null;
+};
+/** Each client that got the short rules block, compared before and after. */
+export type SearchFirst = { clients: SearchFirstClient[]; min_sessions: number; max_drop: number };
+export const getSearchFirst = () => fetchAPI<SearchFirst>("/api/agents/search-first");
+
 // ── The Board (ADRs 0208-0216) ─────────────────────────────────
 
 export const TASK_STATUSES = ["backlog", "ready", "in_progress", "review", "done", "cancelled"] as const;

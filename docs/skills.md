@@ -82,6 +82,14 @@ Load the `imprint` skill for how to use it, and `imprint-tasks` to track work.
 
 Cline and the desktop apps load no skills, so they keep the full block. A client named in `instructions.full_rules` (comma-separated: `claude-code`, `codex`, `cursor`, `copilot`, `opencode`) gets the full block too, from the next time setup or `imprint connect` runs for it. The time each client first got the short block is kept in `data/instructions.json`.
 
+**Kept only while agents still search first.** For each client, Imprint compares the share of its agent sessions whose first Imprint call is `search` over the 14 days before and the 14 days after it first got the short block, from the calls the Agents page records on this device; a session that never called Imprint does not count. Upkeep decides once per client, 14 days after the switch:
+
+- With at least 10 sessions on each side and a drop of more than 10 points, the client joins `instructions.full_rules`, a queued `connect` rewrites its rules with the full block, and the dashboard says so once.
+- With a smaller drop, or a rise, the short block stays.
+- With too few sessions after the switch, the window after grows until it has 10, for up to 6 weeks; with too few before the switch, or still too few after 6 weeks, the short block stays.
+
+The window before is counted on upkeep's first pass after the switch and kept in `data/instructions.json`, because the Agents page forgets sessions after 30 days. The Agents page (**Searching first**, on the Sessions tab) and `imprint doctor` (`search-first:<client>`) show each client's before, after and decision.
+
 ## Rules for an item
 
 - `name`: lower-case letters, digits and hyphens, at most 64 characters. It names the skill's folder or the persona's file.

@@ -16,6 +16,7 @@ import { clientName, folderName, plural, sessionLength, whenInGroup } from "@/co
 import { LoadMore } from "@/components/agents/load-more";
 import { BoardView } from "@/components/agents/board/board";
 import { SessionDetails } from "@/components/agents/session-details";
+import { SearchFirstPanel } from "@/components/agents/search-first";
 import { StatusDot } from "@/components/agents/status";
 import { getAgents, type AgentClient, type AgentSession, type AgentsPage } from "@/lib/api";
 import { useUiMode } from "@/lib/ui-mode";
@@ -228,6 +229,8 @@ function SessionsView() {
                 </ul>
               </section>
             )}
+
+            {!filtered && <SearchFirstPanel />}
 
             <section aria-labelledby="agents-history" className="space-y-2">
               <h2 id="agents-history" className="flex items-baseline justify-between gap-2 text-sm font-semibold">
