@@ -3,8 +3,9 @@ title: ADR 0210 — Claims are leases held by the agent session
 description: An agent takes a Task by claiming it; the claim belongs to the agent session and its Imprint server renews the lease while the session lives, a Task turns Stalling after 60 minutes without progress, and it turns Stale, its claim released, when renewals stop for 15 minutes or progress stops for 120.
 ---
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-27
+- Scope: On one device. The WSL bridge does not forward `CLAUDE_CODE_SESSION_ID` yet, so sessions served across it are held by their process.
 - Related: [ADR 0208](0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md) (the Board), [ADR 0209](0209-a-tasks-history-is-a-log-of-events-that-devices-merge-by-union.md) (the log that orders claims), [ADR 0117](0117-the-dashboard-shows-each-agent-session-and-its-calls.md) (agent sessions), [ADR 0211](0211-agents-take-ready-and-stale-tasks-unasked-within-their-project.md) (who may take a Stale Task)
 
 ## Context
@@ -18,11 +19,11 @@ The owner asked that agents "detect stale issues or stalling issues etc and be a
 
 ## Decision
 
-**Who holds a claim.** A claim belongs to the agent session: the client's own conversation id where the client reports one (Claude Code's `CLAUDE_CODE_SESSION_ID`, which the WSL bridge will also forward), otherwise the Imprint server process. Claiming returns a claim token. The agent records it in its checkpoints, and a resumed conversation or a restarted server takes its claim back with it.
+**Who holds a claim.** A claim belongs to the agent session: the client's own conversation id where the client reports one (Claude Code's `CLAUDE_CODE_SESSION_ID`, which the WSL bridge will also forward), otherwise the Imprint server process. Claiming returns a claim token. The agent keeps it in its conversation, not on the Board, where checkpoints sync and anyone could read it, and a resumed conversation or a restarted server takes its claim back with it. The session is `conversation:<id>` for a client conversation, else `process:<the server's agent session>`.
 
 **Renewal.** The holder's Imprint server renews the lease of each of its claims in the background while its process runs; the agent does nothing to keep a claim besides recording checkpoints. On the holder's own device, a holder whose process has ended releases its claims at once.
 
-**Stalling and Stale.** A claimed Task is *Stalling* after 60 minutes without a checkpoint or other Imprint activity from its holder: the Board marks it and the holder gets a comment. It is *Stale* when renewals stop for 15 minutes (`tasks.lease_minutes`: the process or its device is gone) or when there has been no progress for 120 minutes (`tasks.stale_minutes`). A Stale Task's claim is released, and the next agent takes it over from its handoff: the last checkpoint, the task branch and its last commit, the files touched, and a link to the previous holder's conversation as Imprint learned it.
+**Stalling and Stale.** A claimed Task is *Stalling* after 60 minutes without a checkpoint or other Imprint activity from its holder: the Board marks it and the holder is told once, in the notice on its next Imprint reply ([ADR 0212](0212-agents-talk-through-comments-on-tasks.md)). It is *Stale* when renewals stop for 15 minutes (`tasks.lease_minutes`: the process or its device is gone) or when there has been no progress for 120 minutes (`tasks.stale_minutes`). A Stale Task's claim is released, and the next agent takes it over from its handoff: the last checkpoint, the task branch and its last commit, the files touched, and a link to the previous holder's conversation as Imprint learned it.
 
 **Concurrent claims.** Two agents on different devices can claim one Task within a sync interval. The earlier claim in the log's order ([ADR 0209](0209-a-tasks-history-is-a-log-of-events-that-devices-merge-by-union.md)) wins, and the other agent learns on its next Imprint call that it lost the claim and to whom. The built-in skill tells agents to check their claim again before long work.
 
@@ -51,4 +52,7 @@ The owner asked that agents "detect stale issues or stalling issues etc and be a
 
 ## Validation
 
-Proposed: nothing is implemented and nothing was executed. The `CLAUDE_CODE_SESSION_ID` observation was one Claude Code version on one Linux machine.
+- `tests/test_tasks.py`: claim and token, refusal of a live claim, token takeover, release at once when the holder's process has ended, lease expiry and renewal, Stalling and Stale by progress, renewals carrying activity, checkpoints by the holder only, release to Ready, the Review and Done rule, claims refused for the user's and ended Tasks, the earlier of two claims winning, and the Board reading claims with their leases.
+- `tests/test_tasks_tool.py`: claim, checkpoint, token takeover and release through the tools; a lost claim told once; the server renewing its own session's leases.
+- Linux (WSL Ubuntu, Python 3.12 venv): the full suite, 1,495 tests, passed on 2026-11-27.
+- Windows 11 (the installed runtime's Python 3.13, from a native copy of the repository): `tests.test_tasks`, `test_tasks_tool`, `test_cli_tasks`, `test_hooks`, `test_agent_activity`, `test_config_help`, `test_chat_tool_coverage`, `test_adr_records` and `test_docs_tables`, 121 tests, passed.

@@ -3,7 +3,7 @@ title: ADR 0211 — Agents take Ready and Stale Tasks unasked, within their proj
 description: Besides taking Tasks when asked, an agent may claim one Ready or Stale Task on its own once it has finished what it was asked, if the Task is in its current project, unblocked, and not assigned to the user or to another client or device; a workspace setting turns this down, and Imprint does not start agents itself.
 ---
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-27
 - Related: [ADR 0208](0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md) (the Board), [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) (claims and staleness), [ADR 0212](0212-agents-talk-through-comments-on-tasks.md) (what agents are told at session start)
 
@@ -56,4 +56,7 @@ It holds one Task at a time, takes the highest priority first, then the top posi
 
 ## Validation
 
-Proposed: nothing is implemented and nothing was executed.
+- `tests/test_tasks.py`: `next_task` offering only Ready or Stale, unblocked, unclaimed Tasks of the agent's project and for it; assignee matching by client, device or both; priority, position and age; autonomy per workspace; a Feature's frontier; the handoff of a Stale Task.
+- `tests/test_tasks_tool.py` and `tests/test_cli_tasks.py`: `next`, `handoff` and `autonomy` through the tools and the CLI.
+- Linux (WSL Ubuntu, Python 3.12 venv): the full suite, 1,495 tests, passed on 2026-11-27.
+- Windows 11 (the installed runtime's Python 3.13, from a native copy of the repository): `tests.test_tasks`, `test_tasks_tool`, `test_cli_tasks`, `test_hooks`, `test_agent_activity`, `test_config_help`, `test_chat_tool_coverage`, `test_adr_records` and `test_docs_tables`, 121 tests, passed.

@@ -261,5 +261,26 @@ class TasksToolTests(unittest.TestCase):
         self.assertNotIn('no progress from you', second)
 
 
+class SkillExamplesTests(unittest.TestCase):
+    """The built-in imprint-tasks skill teaches calls the tools accept."""
+
+    def test_every_example_call_names_a_real_action_and_real_arguments(self):
+        import asyncio
+        from imprint import registry, server
+        tools = {tool.name: tool for tool in asyncio.run(server.mcp.list_tools())}
+        folder = registry.BUILTINS / 'imprint-tasks'
+        text = '\n'.join(path.read_text(encoding='utf-8') for path in folder.glob('*.md'))
+        calls = re.findall(r'\b(tasks|task_edit)\(([^()`]*)\)', text)
+        self.assertGreater(len(calls), 20)
+        for name, arguments in calls:
+            schema = tools[name].parameters['properties']
+            with self.subTest(call=f'{name}({arguments})'):
+                for keyword in re.findall(r'(\w+)=', arguments):
+                    self.assertIn(keyword, schema)
+                action = re.search(r'action="(\w+)"', arguments)
+                if action:
+                    self.assertIn(action.group(1), schema['action']['enum'])
+
+
 if __name__ == '__main__':
     unittest.main()

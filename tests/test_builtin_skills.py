@@ -436,7 +436,7 @@ class ShippedBuiltinTests(unittest.TestCase):
                 valid = registry.validate('skill', files)
                 self.assertEqual(valid['name'], folder.name)
         tasks = registry.validate('skill', {'SKILL.md': (registry.BUILTINS / 'imprint-tasks' / 'SKILL.md').read_text()})
-        self.assertIn('task board', tasks['description'])
+        self.assertIn('Board of Tasks', tasks['description'])
 
     def test_the_release_archive_keeps_the_built_ins(self):
         patterns = [line.strip() for line in (ROOT / '.releaseignore').read_text().splitlines()

@@ -3,7 +3,7 @@ title: ADR 0215 — The Board is the issue tracker of the planning skills
 description: The built-in imprint-tasks skill carries an issue-tracker description that a repository adopts through the planning skills' "Other" tracker option, mapping their triage states, sub-issues, blocking edges, assignment, closing and frontier query onto the Board, so the user's own skills work against it without being forked.
 ---
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-27
 - Related: [ADR 0208](0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md) (the Board), [ADR 0209](0209-a-tasks-history-is-a-log-of-events-that-devices-merge-by-union.md) (appending), [ADR 0213](0213-built-in-skills-ship-with-each-release-and-a-fork-replaces-them.md) (built-in skills)
 
@@ -53,4 +53,6 @@ Every operation is available through the `tasks` and `task_edit` tools and the `
 
 ## Validation
 
-Proposed: nothing is implemented and nothing was executed.
+- The description and mapping ship in `imprint/builtin_skills/imprint-tasks/issue-tracker.md`, reached from the skill's `SKILL.md`.
+- `tests/test_tasks_tool.py`: every `tasks(...)` and `task_edit(...)` example in the skill's files names an action and arguments the shipped tools accept; a mutation that adds a wrong argument and a wrong action fails it.
+- Not run: a planning skill (`to-tickets`, `wayfinder`) publishing to the Board in a repository set up through `setup-matt-pocock-skills`.

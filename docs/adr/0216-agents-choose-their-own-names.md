@@ -3,7 +3,7 @@ title: ADR 0216 — Agents choose their own names
 description: Each agent session chooses a short name for itself before it first claims or comments on a Task; the name is unique among the workspace's live sessions, stays with the session across a resume, is shown wherever the agent acts and addresses it in comments, and Imprint gives a fallback to an agent that does not choose.
 ---
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-27
 - Related: [ADR 0117](0117-the-dashboard-shows-each-agent-session-and-its-calls.md) (agent sessions on the Agents page), [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) (agent sessions hold claims), [ADR 0212](0212-agents-talk-through-comments-on-tasks.md) (addressed comments)
 
@@ -42,4 +42,7 @@ On 2026-11-27, while the Board was being designed, the owner asked: "let's also 
 
 ## Validation
 
-Proposed: nothing is implemented and nothing was executed.
+- `tests/test_tasks.py`: valid and refused names, a live session's name refused with a suggestion, a dead session's name free again, a claim holder's name from another device taken, the fallback given once, events keeping the name of their time, and a token takeover keeping the name.
+- `tests/test_tasks_tool.py`: naming, the refused name and the fallback told on a claim, through the tools. The Agents page's name and Rename control were type-checked and linted, not exercised in a browser.
+- Linux (WSL Ubuntu, Python 3.12 venv): the full suite, 1,495 tests, passed on 2026-11-27.
+- Windows 11 (the installed runtime's Python 3.13, from a native copy of the repository): `tests.test_tasks`, `test_tasks_tool`, `test_cli_tasks`, `test_hooks`, `test_agent_activity`, `test_config_help`, `test_chat_tool_coverage`, `test_adr_records` and `test_docs_tables`, 121 tests, passed.

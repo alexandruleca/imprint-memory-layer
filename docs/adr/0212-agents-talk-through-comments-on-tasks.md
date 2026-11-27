@@ -3,8 +3,9 @@ title: ADR 0212 — Agents talk through comments on Tasks
 description: Messages between agents, clients and the user are comments on Tasks, addressed to a client, a device or the holder; they reach a running agent as a notice on any Imprint tool reply, at session start, and in Claude Code on every prompt through a new UserPromptSubmit hook that stays only while it adds less than 100 ms.
 ---
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-27
+- Scope: The notice on tool replies, the inbox and the session-start context. The Claude Code UserPromptSubmit hook and the dashboard's notifications are not built yet.
 - Related: [ADR 0208](0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md) (the Board), [ADR 0003](0003-local-mcp-and-portable-hooks.md) (portable hooks), [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) (holders)
 
 ## Context
@@ -46,4 +47,7 @@ Comments addressed to the user, and Tasks reaching Review, show the dashboard's 
 
 ## Validation
 
-Proposed: nothing is implemented and nothing was executed.
+- `tests/test_tasks.py`: comments kept with their author and addresses, mentions, delivery by name, client, device, client on device and holder (the holder when read), no notice of one's own comments, the user's inbox, and reserved names.
+- `tests/test_tasks_tool.py`: a comment told once as a notice to the addressed client and then read in the inbox; a Stalling holder told once. `tests/test_hooks.py`: the session-start context with the project's Board, unread comments and the session's name, within its size.
+- Linux (WSL Ubuntu, Python 3.12 venv): the full suite, 1,495 tests, passed on 2026-11-27.
+- Windows 11 (the installed runtime's Python 3.13, from a native copy of the repository): `tests.test_tasks`, `test_tasks_tool`, `test_cli_tasks`, `test_hooks`, `test_agent_activity`, `test_config_help`, `test_chat_tool_coverage`, `test_adr_records` and `test_docs_tables`, 121 tests, passed.

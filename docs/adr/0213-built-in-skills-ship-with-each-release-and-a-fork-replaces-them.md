@@ -3,8 +3,9 @@ title: ADR 0213 — Built-in skills ship with each release, and a fork replaces 
 description: Imprint ships its own skills read-only with each release and never syncs them; the user edits one by forking it into an ordinary skill of the same name that replaces the built-in on every device, and the Skills page says when a release changes a forked built-in.
 ---
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-27
+- Scope: Only `imprint-tasks` ships; the `imprint` skill comes with [ADR 0214](0214-the-rules-block-shrinks-to-a-stub-once-agents-keep-searching-first.md).
 - Related: [ADR 0168](0168-skills-and-personas-are-kept-once-and-synced-to-paired-devices.md) (the registry), [ADR 0169](0169-skills-and-personas-are-written-into-the-folders-clients-read.md) (client folders), [ADR 0170](0170-skills-and-personas-reach-every-mcp-client-through-imprints-server.md) (skills through MCP), [ADR 0214](0214-the-rules-block-shrinks-to-a-stub-once-agents-keep-searching-first.md) (the `imprint` skill)
 
 ## Context
@@ -22,6 +23,8 @@ The owner asked for "skills for this that come built into imprint for using the 
 **Forks.** Forking a built-in creates an ordinary user skill with the same name and the built-in's files. While the fork is active it holds the name, so clients get the fork and not the built-in, and it syncs to paired devices like the user's other skills. A user skill that already has a built-in's name is treated as its fork.
 
 **Release changes.** When a release changes a built-in that the user has forked, the Skills page says so, shows the difference, and offers **Reset to built-in**, which removes the fork. Nothing is merged automatically.
+
+An edit made to a built-in in a client's folder becomes its fork, as an edit to any item comes back to the registry ([ADR 0169](0169-skills-and-personas-are-written-into-the-folders-clients-read.md)).
 
 **Disabling.** A built-in can be disabled without forking it. The choice is recorded as a registry record of its own, which syncs, so it holds on every device.
 
@@ -45,4 +48,6 @@ The owner asked for "skills for this that come built into imprint for using the 
 
 ## Validation
 
-Proposed: nothing is implemented and nothing was executed.
+- `tests/test_builtin_skills.py` (21 tests): built-ins listed read-only with an id the same on every device and written into the clients' folders; edits and removal refused with the way to fork; fork and reset through the registry and `imprint skills fork|reset`; a user skill or a client-folder edit with a built-in's name counted as its fork; the release-change notice and its diff; the disable marker synced newest-first and skipped by older devices; built-ins never exported; every shipped built-in valid and named after its folder; the release archive keeping them.
+- The other registry, registry-files, skills, sync and API test modules (930 tests on the branch before it joined `dev`), and Playwright `skills.spec.ts`, `tours.spec.ts` and `page-tours.spec.ts` (54 tests, including forking a built-in and the release-change notice), on Linux. The Skills page was checked in light and dark from screenshots.
+- Linux (WSL Ubuntu, Python 3.12 venv): the full suite passed on `dev` with the Board and built-ins together, 2026-11-27.

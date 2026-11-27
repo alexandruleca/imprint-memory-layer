@@ -3,8 +3,9 @@ title: ADR 0208 — Agents track work as Tasks on a Board in each workspace
 description: Agents and the user track work as Tasks on one Board per workspace, with fixed statuses, kept by Imprint itself rather than mirrored to an external tracker such as GitHub Issues.
 ---
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-27
+- Scope: The Board, its tools and `imprint tasks`. The dashboard's Board tab is not built yet, and Tasks are not yet synced to paired devices ([ADR 0209](0209-a-tasks-history-is-a-log-of-events-that-devices-merge-by-union.md)).
 - Related: [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) (projects name their workspace), [ADR 0117](0117-the-dashboard-shows-each-agent-session-and-its-calls.md) (the Agents page), [ADR 0168](0168-skills-and-personas-are-kept-once-and-synced-to-paired-devices.md) (installation-wide data, the contrast), [ADR 0209](0209-a-tasks-history-is-a-log-of-events-that-devices-merge-by-union.md) (how Tasks sync), [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) (claims), [ADR 0211](0211-agents-take-ready-and-stale-tasks-unasked-within-their-project.md) (taking work unasked), [ADR 0212](0212-agents-talk-through-comments-on-tasks.md) (comments), [ADR 0215](0215-the-board-is-the-issue-tracker-of-the-planning-skills.md) (the Board as the skills' tracker)
 
 ## Context
@@ -64,4 +65,7 @@ On 2026-11-27 the owner asked for "a task system kanban style that can be used b
 
 ## Validation
 
-Proposed: nothing is implemented and nothing was executed.
+- `tests/test_tasks.py`: creation, ids and their collisions, workspace isolation and unknown workspaces, redaction, edits, appends, moves, the Ready rule, Features and blockers (nesting and cycles refused), tags, assignees, the Blocked mark, filters, archiving after 14 days, and the user-only deletion that leaves a tombstone.
+- `tests/test_tasks_tool.py`: the `tasks` and `task_edit` tools through an in-process MCP client, including that agents have no delete. `tests/test_cli_tasks.py`: every `imprint tasks` command as a subprocess.
+- Linux (WSL Ubuntu, Python 3.12 venv): the full suite, 1,495 tests, passed on 2026-11-27.
+- Windows 11 (the installed runtime's Python 3.13, from a native copy of the repository): `tests.test_tasks`, `test_tasks_tool`, `test_cli_tasks`, `test_hooks`, `test_agent_activity`, `test_config_help`, `test_chat_tool_coverage`, `test_adr_records` and `test_docs_tables`, 121 tests, passed.
