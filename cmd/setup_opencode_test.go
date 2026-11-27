@@ -73,7 +73,7 @@ func TestSetupOpenCodeRegistersServerInstructionsAndPlugin(t *testing.T) {
 	if list := data["instructions"].([]any); !slices.Equal(list, []any{"mine.md", rule}) {
 		t.Fatalf("instructions = %v", list)
 	}
-	if content, _ := os.ReadFile(rule); string(content) != instructions.OpenCodeRule || strings.Contains(string(content), "mcp__imprint__") {
+	if content, _ := os.ReadFile(rule); string(content) != instructions.Rule("opencode", false) || strings.Contains(string(content), "mcp__imprint__") {
 		t.Fatalf("rule = %q", content)
 	}
 	plugin, _ := os.ReadFile(platform.OpenCodePluginPath())

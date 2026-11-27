@@ -69,6 +69,19 @@ Imprint ships **built-in skills** with each release, in `imprint/builtin_skills/
 - **Reset to built-in.** `imprint skills reset NAME`, or **Reset to built-in** on the Skills page, removes the fork here and on every paired device, so the built-in returns.
 - **Disable without forking.** `imprint skills disable NAME`, or **Disable** on the Skills page, takes a built-in out of your clients. The choice is a registry record of its own, under the built-in's id, which is the same on every device, so it syncs and the newest choice wins. A built-in cannot be removed.
 
+## The short rules block
+
+Clients that load skills get a short Imprint block in their global instructions file instead of the whole guidance, which now lives in the `imprint` skill ([ADR 0214](adr/0214-the-rules-block-shrinks-to-a-stub-once-agents-keep-searching-first.md)). Setup writes it for Claude Code (`~/.claude/CLAUDE.md`), Codex (`~/.codex/AGENTS.md`), Cursor (`imprint.mdc`), Copilot (`copilot-instructions.md`) and OpenCode (`imprint.md`), natively and in WSL profiles:
+
+```markdown
+# Imprint Memory
+Imprint is connected: it holds this project's past work, decisions and its Board of Tasks.
+Search it first with Imprint's search tool, before reading files or guessing.
+Load the `imprint` skill for how to use it, and `imprint-tasks` to track work.
+```
+
+Cline and the desktop apps load no skills, so they keep the full block. A client named in `instructions.full_rules` (comma-separated: `claude-code`, `codex`, `cursor`, `copilot`, `opencode`) gets the full block too, from the next time setup or `imprint connect` runs for it. The time each client first got the short block is kept in `data/instructions.json`.
+
 ## Rules for an item
 
 - `name`: lower-case letters, digits and hyphens, at most 64 characters. It names the skill's folder or the persona's file.

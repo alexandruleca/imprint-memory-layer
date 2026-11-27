@@ -77,7 +77,7 @@ func TestSetupCopilotWritesTheCopilotHome(t *testing.T) {
 		t.Fatalf("mcp-config.json = %v", data)
 	}
 	if rules := string(files["copilot-instructions.md"]); !strings.HasPrefix(rules, "Answer in British English.\n") ||
-		!strings.Contains(rules, instructions.MarkerStart+"\n"+instructions.CopilotRule+instructions.MarkerEnd) {
+		!strings.Contains(rules, instructions.MarkerStart+"\n"+instructions.Rule("copilot", false)+instructions.MarkerEnd) {
 		t.Fatalf("instructions = %q", rules)
 	}
 	hp := hooks.Paths{ProjectDir: project, VenvPython: runtimePaths.VenvPython, DataDir: runtimePaths.DataDir}

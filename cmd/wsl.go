@@ -495,6 +495,9 @@ func applyWSLProfile(p wslProfile, bp backendPaths, target string, local func(st
 	if err != nil {
 		return err
 	}
+	if rule := rulesFor(target, bp.DataDir); rule != "" {
+		layout.rule = rule
+	}
 	if layout.permission {
 		if _, err := jsonutil.EnsurePermission(local(layout.hooks), "mcp__imprint__*"); err != nil {
 			return err

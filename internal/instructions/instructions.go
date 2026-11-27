@@ -61,6 +61,40 @@ const CodexRule = ImprintBase
 // frontmatter.
 const CopilotRule = ImprintBase
 
+// ShortBase is the always-on block for clients that load skills (ADR
+// 0214): the full guidance is in the built-in imprint skill, so the block
+// only keeps "search first" in every session and names the skills.
+const ShortBase = `# Imprint Memory
+Imprint is connected: it holds this project's past work, decisions and its Board of Tasks.
+Search it first with Imprint's search tool, before reading files or guessing.
+Load the ` + "`imprint`" + ` skill for how to use it, and ` + "`imprint-tasks`" + ` to track work.
+`
+
+// rules holds each client's full block and, for a client that loads
+// skills, its short one.
+var rules = map[string][2]string{
+	"claude-code": {ClaudeCodeCLAUDE, "# Global Instructions\n\n" + ShortBase},
+	"codex":       {CodexRule, ShortBase},
+	"cursor":      {CursorRule, "---\ndescription: Imprint MCP — check memory first before reading files\nalwaysApply: true\n---\n\n" + ShortBase},
+	"copilot":     {CopilotRule, ShortBase},
+	"opencode":    {OpenCodeRule, ShortBase},
+	"cline":       {ClineRule, ""},
+}
+
+// LoadsSkills reports whether client reads skills, and so gets the short
+// block unless the user asks for the full one.
+func LoadsSkills(client string) bool { return rules[client][1] != "" }
+
+// Rule is client's rules block: the full one, or the short one when it
+// loads skills and full is false. "" for a client without a rules file.
+func Rule(client string, full bool) string {
+	pair := rules[client]
+	if full || pair[1] == "" {
+		return pair[0]
+	}
+	return pair[1]
+}
+
 // DesktopProfileSnippet is the short, paste-friendly version for clients
 // that don't honor the MCP handshake “instructions“ field — typically the
 // consumer desktop apps (Claude Desktop "Styles", ChatGPT Desktop "Custom

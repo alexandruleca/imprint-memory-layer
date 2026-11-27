@@ -809,7 +809,7 @@ func SetupClaudeCode(backend func() backendPaths) {
 	setupHooks(settingsPath, bp)
 
 	output.Info("Checking global CLAUDE.md...")
-	setupGlobalClaudeMD()
+	setupGlobalClaudeMD(bp.DataDir)
 
 	output.Header("═══ Imprint → Claude Code setup complete ═══")
 	venvPythonVer, _ := runner.RunCapture(bp.VenvPython, "--version")
@@ -1169,7 +1169,7 @@ func gitBashFound() bool {
 // ~/.claude/CLAUDE.md, preserving any other user-authored content. The
 // section is bracketed with marker comments so re-running setup replaces
 // only the managed block instead of clobbering the file.
-func setupGlobalClaudeMD() {
+func setupGlobalClaudeMD(dataDir string) {
 	claudeDir := filepath.Join(platform.HomeDir(), ".claude")
 	claudeMD := filepath.Join(claudeDir, "CLAUDE.md")
 
@@ -1177,7 +1177,7 @@ func setupGlobalClaudeMD() {
 		os.MkdirAll(claudeDir, 0755)
 	}
 
-	managed := instructions.MarkerStart + "\n" + instructions.ClaudeCodeCLAUDE + instructions.MarkerEnd + "\n"
+	managed := instructions.MarkerStart + "\n" + rulesFor("claude-code", dataDir) + instructions.MarkerEnd + "\n"
 
 	existing := ""
 	if data, err := os.ReadFile(claudeMD); err == nil {

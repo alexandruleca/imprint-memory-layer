@@ -47,7 +47,7 @@ func SetupCopilot(backend func() backendPaths) {
 
 	rules := filepath.Join(home, "copilot-instructions.md")
 	output.Info("Checking Copilot instructions...")
-	if changed, err := mergeManagedRule(rules, instructions.CopilotRule); err != nil {
+	if changed, err := mergeManagedRule(rules, rulesFor("copilot", bp.DataDir)); err != nil {
 		output.Fail("Could not write " + rules + ": " + err.Error())
 	} else if changed {
 		output.Success("Wrote Copilot instructions to " + rules)

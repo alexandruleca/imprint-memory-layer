@@ -408,6 +408,13 @@ SETTINGS: list[Setting] = [
             "What agents take unasked: off, stale (Stale Tasks only) or ready (Ready and Stale); a workspace can choose its own",
             choices=(Choice("ready", "Ready and Stale"), Choice("stale", "Stale only"), Choice("off", "Off"))),
 
+    # ── Client rules (ADR 0214) ───────────────────────────────
+    # Setup gives clients that load skills a short rules block pointing to
+    # the imprint skill; these clients get the full block anyway. Upkeep
+    # adds a client whose agents stopped searching first.
+    Setting("instructions.full_rules", "IMPRINT_INSTRUCTIONS_FULL_RULES", "", str,
+            "Comma-separated clients that get the full Imprint rules block instead of the short one (claude-code, codex, cursor, copilot, opencode)"),
+
     # ── Upkeep (ADR 0201) ─────────────────────────────────────
     # The idle slot's last step: what is stored, brought up to the current
     # form piece by piece (synced memories' dates, data files kept whole).
