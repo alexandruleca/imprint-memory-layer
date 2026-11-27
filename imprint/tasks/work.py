@@ -70,6 +70,28 @@ def dispatching(workspace: str | None = None) -> list[dict]:
     return sorted(found, key=lambda d: d['name'].lower())
 
 
+DISPATCH_SESSION = 'dispatch:'
+
+
+def dispatched_sessions(workspace: str | None = None) -> set[str]:
+    """The Board sessions of Dispatched sessions (ADR 0220), from the
+    workspace's history: the Dispatcher's own claims (``dispatch:<run>``)
+    and every claim that took one of them over with its token. A takeover
+    of a Stale claim without the token is another agent's, not one."""
+    with _reading(workspace) as conn:
+        rows = conn.execute("SELECT id, session, data FROM events WHERE kind = 'claimed' ORDER BY hlc, id").fetchall() \
+            if conn else []
+    tokens, sessions = {}, set()
+    for row in rows:
+        data = json.loads(row['data'])
+        session = row['session'] or ''
+        replaced = data.get('replaces')
+        if session.startswith(DISPATCH_SESSION) or (replaced in tokens and data.get('token_hash') == tokens[replaced]):
+            tokens[row['id']] = data.get('token_hash')
+            sessions.add(session)
+    return sessions
+
+
 def _for_agent(assignees: list[str], client: str | None, device: str | None) -> bool:
     """Whether an agent of ``client`` on ``device`` may take it unasked."""
     if 'user' in assignees:

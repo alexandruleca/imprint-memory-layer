@@ -99,9 +99,10 @@ def inbox(session: str, *, name: str | None = None, client: str | None = None, d
 
 
 def user_inbox(*, mark: bool = True, workspace: str | None = None) -> list[dict]:
-    """Unread comments agents addressed to the user, oldest first."""
-    return _unread('user', lambda event, state, view: event['actor'] == 'agent' and 'user' in event['data'].get('to', []),
-                   mark, workspace)
+    """Unread comments agents, or Imprint itself (the Dispatcher, ADR 0220),
+    addressed to the user, oldest first."""
+    return _unread('user', lambda event, state, view: event['actor'] in ('agent', 'system')
+                   and 'user' in event['data'].get('to', []), mark, workspace)
 
 
 def mark_user_read(ids: list[str], workspace: str | None = None) -> int:

@@ -413,6 +413,10 @@ SETTINGS: list[Setting] = [
             "Dispatched sessions that may run at once on this device, across workspaces"),
     Setting("dispatch.session_minutes",     "IMPRINT_DISPATCH_SESSION_MINUTES",     60, int,
             "Minutes a Dispatched session may run before the Dispatcher stops it"),
+    Setting("dispatch.daily_limit",         "IMPRINT_DISPATCH_DAILY_LIMIT",         10, int,
+            "Dispatched sessions the Dispatcher starts a day on this device"),
+    Setting("dispatch.failure_limit",       "IMPRINT_DISPATCH_FAILURE_LIMIT",       3,  int,
+            "Failed Dispatched sessions in a row after which the Dispatcher switches itself off; 0 never"),
     Setting("dispatch.claude_code.command", "IMPRINT_DISPATCH_CLAUDE_CODE_COMMAND", "", str,
             "Claude Code's binary for Dispatched sessions when it is not on PATH"),
 

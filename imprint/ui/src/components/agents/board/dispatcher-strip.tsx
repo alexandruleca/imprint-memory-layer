@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 const OUTCOMES: Record<string, { label: string; tone: string }> = {
   review: { label: "reached Review", tone: "text-emerald-700 dark:text-emerald-300" },
   failed: { label: "failed", tone: "text-destructive" },
+  stopped: { label: "stopped", tone: "text-muted-foreground" },
   refused: { label: "not started", tone: "text-muted-foreground" },
 };
 
@@ -86,7 +87,11 @@ export function DispatcherStrip({ now, onOpen }: { now: Date; onOpen: (task: str
         </div>
       ))}
 
-      {data.on && data.running.length === 0 && (
+      {data.on && data.held && (
+        <p className="text-xs text-amber-700 dark:text-amber-300">Starting nothing now: {data.held}.</p>
+      )}
+
+      {data.on && !data.held && data.running.length === 0 && (
         <p className="text-xs text-muted-foreground">
           {data.next.length > 0
             ? <>Next: <Button variant="link" size="sm" className="h-auto px-0 text-xs font-mono" onClick={() => onOpen(data.next[0].id)}>{data.next[0].id}</Button> {data.next[0].title}</>

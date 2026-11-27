@@ -64,6 +64,13 @@ def switch(workspace: str, enabled: bool) -> bool:
     return bool(enabled)
 
 
+def last_switched_on() -> float:
+    """When a workspace's Dispatcher on this device was last switched on; 0 when never."""
+    with closing(_connect()) as conn:
+        row = conn.execute('SELECT MAX(changed_at) AS at FROM switches WHERE enabled = 1').fetchone()
+    return float(row['at'] or 0)
+
+
 def switched_on_workspaces() -> list[str]:
     with closing(_connect()) as conn:
         return [row['workspace'] for row in conn.execute('SELECT workspace FROM switches WHERE enabled = 1 '
@@ -92,6 +99,12 @@ def get(run_id: str) -> dict | None:
     with closing(_connect()) as conn:
         row = conn.execute('SELECT * FROM runs WHERE id = ?', (run_id,)).fetchone()
     return dict(row) if row else None
+
+
+def runs_of(task: str) -> list[dict]:
+    """Every run this device started on ``task``, newest first."""
+    with closing(_connect()) as conn:
+        return [dict(row) for row in conn.execute('SELECT * FROM runs WHERE task = ? ORDER BY started_at DESC', (task,))]
 
 
 def unfinished() -> list[dict]:

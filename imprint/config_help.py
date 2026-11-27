@@ -410,6 +410,14 @@ HELP: dict[str, dict[str, str]] = {
         "help": "How long one Dispatched session, an agent session Imprint's Dispatcher started for a Task without you, may run. A session still running then is stopped, its claim released with the end of its log, and the run counts as failed. 60 minutes by default.",
         "example": "120: when your Tasks are large and sessions need longer to reach Review.",
     },
+    "dispatch.daily_limit": {
+        "help": "How many Dispatched sessions the Dispatcher starts on this device in one day, counted from midnight, including ones started with imprint tasks dispatch run (which this limit never refuses). Once reached, the Board's strip says so and more start the next day. 10 by default.",
+        "example": "4: to keep the Dispatcher's use of your clients' plans small.",
+    },
+    "dispatch.failure_limit": {
+        "help": "How many Dispatched sessions may fail in a row (end without reaching Review, crash, or run past their time limit) before the Dispatcher switches itself off on this device and tells you in a comment. Sessions you stop do not count. 3 by default; 0 never switches it off.",
+        "example": "1: to look at the very first failure before anything else runs.",
+    },
     "dispatch.claude_code.command": {
         "help": "The Claude Code binary the Dispatcher starts for Dispatched sessions, when claude is not on the PATH of the system the project lives on. Empty by default: the Dispatcher looks for claude on PATH.",
         "example": "/home/me/.local/bin/claude: when Claude Code is installed outside PATH.",

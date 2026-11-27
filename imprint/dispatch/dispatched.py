@@ -223,27 +223,30 @@ class Session:
         from ..config_schema import resolve
         self.run, self.proc, self.pid = run, proc, run['pid']
         self.limit = 60 * float(minutes if minutes is not None else resolve('dispatch.session_minutes')[0])
-        self.renewed, self.reason = time.monotonic(), None
+        self.renewed, self.reason, self.stopped = time.monotonic(), None, False
 
     def running(self) -> bool:
         return self.proc.poll() is None if self.proc else processes.is_alive(self.pid)
 
-    def stop(self, reason: str) -> None:
-        self.reason = self.reason or reason
+    def stop(self, reason: str, *, stopped: bool = True) -> None:
+        """End the session: ``stopped`` (by the person or the server's
+        shutdown) unless it is a failure, such as its time limit."""
+        if not self.reason:
+            self.reason, self.stopped = reason, stopped
         kill(self.pid, self.proc)
 
     def step(self) -> dict | None:
         """None while the session runs; the run's record once it has ended."""
         if self.running():
             if time.time() - self.run['started_at'] > self.limit:
-                self.stop(f'ran past its {self.limit / 60:g}-minute limit and was stopped')
+                self.stop(f'ran past its {self.limit / 60:g}-minute limit and was stopped', stopped=False)
             elif time.monotonic() - self.renewed >= RENEW_EVERY:
                 tasks.renew(self.run['session'], pid=self.pid)
                 self.renewed = time.monotonic()
             if self.running():
                 return None
         code = self.proc.wait() if self.proc else None  # An adopted session's exit code is not known.
-        return finish(self.run['id'], code, reason=self.reason)
+        return finish(self.run['id'], code, reason=self.reason, stopped=self.stopped)
 
 
 def watch(run: dict, proc: subprocess.Popen, *, minutes: float | None = None) -> dict:
@@ -253,7 +256,7 @@ def watch(run: dict, proc: subprocess.Popen, *, minutes: float | None = None) ->
         while (ended := session.step()) is None:
             time.sleep(POLL)
     except KeyboardInterrupt:
-        session.stop('was stopped by the person')
+        session.stop('was stopped by the person')  # a stop, not a failure
         ended = session.step()
     return ended
 
@@ -271,19 +274,22 @@ def request_stop(run_id: str, reason: str = 'was stopped by the person') -> dict
     return store.get(run_id)
 
 
-def finish(run_id: str, exit_code: int | None, *, reason: str | None = None) -> dict:
+def finish(run_id: str, exit_code: int | None, *, reason: str | None = None, stopped: bool = False) -> dict:
     """Record how the run ended. A worker whose Task is in Review succeeded;
-    any other end releases the claim this run holds, with a comment."""
+    any other end releases the claim this run holds, with a comment. A
+    session stopped by the person or the server's shutdown is ``stopped``,
+    any other end ``failed`` (ADR 0220)."""
     run = store.get(run_id)
     if run['ended_at'] is not None:
         return run  # Already recorded, by whoever saw it end first.
     workspace, task = run['workspace'], run['task']
-    reason = reason or run.get('stop_reason')
+    if run.get('stop_reason'):
+        reason, stopped = run['stop_reason'], True
     state = tasks.get(task, workspace=workspace)
     if not reason and run['role'] == 'work' and state['status'] == 'review':
         outcome, detail = 'review', 'moved the Task to Review'
     else:
-        outcome = 'failed'
+        outcome = 'stopped' if stopped else 'failed'
         detail = reason or (f'ended (exit code {exit_code}) without moving the Task to Review'
                             if run['role'] == 'work' else f'ended (exit code {exit_code})')
         # A holder whose process ended is Stale at once, and the Board shows it as the previous holder.
@@ -301,7 +307,11 @@ def finish(run_id: str, exit_code: int | None, *, reason: str | None = None) -> 
             text += f'\n\nThe end of its log:\n\n{tail}'
         tasks.comment(task, text, actor=SYSTEM, workspace=workspace)
     store.update(run_id, ended_at=time.time(), exit_code=exit_code, outcome=outcome, detail=detail)
-    return store.get(run_id)
+    ended = store.get(run_id)
+    if outcome == 'failed':
+        from . import guards
+        guards.after_failure(ended)
+    return ended
 
 
 def run(task: str, *, workspace: str | None = None, client: str = 'claude-code', minutes: float | None = None,

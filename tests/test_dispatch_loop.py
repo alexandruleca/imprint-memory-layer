@@ -130,7 +130,7 @@ class StoppingTests(LoopCase):
                 self.assertEqual(cli_tasks.main(['dispatch', 'stop', run['id']]), 0)
             self.settle()
         ended = store.get(run['id'])
-        self.assertEqual((ended['outcome'], ended['detail']), ('failed', 'was stopped by the person'))
+        self.assertEqual((ended['outcome'], ended['detail']), ('stopped', 'was stopped by the person'))
         self.assertIsNone(tasks.get(self.task)['holder'])
         self.assertIn('was stopped by the person', [e for e in tasks.history(self.task) if e['kind'] == 'comment'][-1]['data']['text'])
 

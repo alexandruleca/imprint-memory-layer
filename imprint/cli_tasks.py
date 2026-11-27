@@ -151,6 +151,8 @@ def _dispatch_status_text(status: dict) -> str:
     lines = [f"Dispatcher for {status['workspace']} on this device: {'on' if status['on'] else 'off'}"
              f"{'' if status['server'] or not status['on'] else ' (the dashboard server is not running: nothing is dispatched until it is)'}",
              f"Agents take unasked here: {status['autonomy']}"]
+    if status['on'] and status['held']:
+        lines.append(f"Starting nothing now: {status['held']}")
     if status['devices']:
         lines.append('Also on: ' + ', '.join(d['name'] for d in status['devices']))
     lines.append('Running:' if status['running'] else 'Running: none')

@@ -70,7 +70,7 @@ class StripTests(DispatchApiCase):
         self.assertEqual(shown['running'], [])
         recent = shown['recent'][0]
         self.assertEqual((recent['task'], recent['client'], recent['outcome'], recent['detail']),
-                         (self.task, 'claude-code', 'failed', 'was stopped by the person'))
+                         (self.task, 'claude-code', 'stopped', 'was stopped by the person'))
         self.assertIsNotNone(recent['ended_at'])
 
     def test_stopping_an_unknown_session_is_not_found(self):

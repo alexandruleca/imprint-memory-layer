@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from .. import tasks
 from ..device import current
-from . import folders, loop, store
+from . import folders, guards, loop, store
 
 
 def switch(workspace: str, on: bool) -> bool:
@@ -31,6 +31,7 @@ def status(workspace: str, *, projects: bool = True) -> dict:
     found = {
         'workspace': workspace, 'on': store.switched_on(workspace), 'server': loop.server_running(),
         'autonomy': tasks.autonomy(workspace), 'running': loop.running_runs(), 'recent': store.recent(8),
+        'held': guards.held(),
         'next': [{'id': s['id'], 'title': s['title'], 'project': s['project']} for s in loop.candidates(workspace)][:5],
         'devices': [d for d in tasks.dispatching(workspace) if d['on'] and d['device'] != here],
     }

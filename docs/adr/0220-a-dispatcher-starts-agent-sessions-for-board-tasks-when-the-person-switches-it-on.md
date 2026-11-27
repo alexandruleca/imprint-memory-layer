@@ -35,7 +35,7 @@ Within each group it follows the Board's order: priority, position, then age. A 
 
 - **Projects.** The Dispatcher works across every project that has a folder on this device. The folder comes from `project_roots`, else from the folder of the most recent agent session in that project, and it must be a git repository. A project without a folder is skipped, and the Board offers to set one.
 - **Origin.** Tasks created on any paired device are taken.
-- **Its own Tasks.** It never takes a Task that a Dispatched session created or moved to Ready. Tasks that Dispatched sessions create go into Backlog, so dispatched work cannot feed itself. Tasks created by the person, or by an agent working with the person, are taken as usual.
+- **Its own Tasks.** It never takes a Task that a Dispatched session created, or moved to Ready from Backlog. Tasks that Dispatched sessions create go into Backlog, so dispatched work cannot feed itself. A Task a review sends back to Ready is taken again ([ADR 0221](0221-dispatched-sessions-review-tasks-in-review-with-another-client.md)), and Tasks created by the person, or by an agent working with the person, are taken as usual. A Dispatched session is recognised from the Board's history: the Dispatcher's claim, made as `dispatch:<run>`, and each claim that took it over with its token.
 
 **How a session gets its Task.** The Dispatcher claims the Task itself, confirming the claim across devices ([ADR 0224](0224-a-dispatched-session-starts-only-after-its-claim-has-reached-the-paired-devices.md)), then starts the client with the child's pid on the lease. A crashed session therefore makes the Task Stale at once. The prompt hands the session the claim token, and the session takes the claim over on its first Imprint call. The prompt also carries:
 
@@ -53,7 +53,7 @@ Within each group it follows the Board's order: priority, position, then age. A 
 | `dispatch.daily_limit` | 10 | Sessions started a day |
 | `dispatch.failure_limit` | 3 | Failures in a row after which the Dispatcher switches itself off |
 
-**Failures.** A worker fails when it ends (exit, crash or time limit) without moving its Task to Review. A reviewer fails when it ends without moving its Task to Done or Ready. A failure releases the claim, with a comment holding the end of the session's log. A Task whose Dispatched sessions fail twice is assigned to the user with a comment.
+**Failures.** A worker fails when it ends (exit, crash or time limit) without moving its Task to Review; a session the person or the server's shutdown stopped is *stopped*, not failed. A reviewer fails when it ends without moving its Task to Done or Ready. A failure releases the claim, with a comment holding the end of the session's log. A Task whose Dispatched sessions fail twice is assigned to the user with a comment.
 
 **Stopping.** Switching the Dispatcher off stops new sessions; running ones finish. Each running session has a Stop action that ends its process group (SIGTERM, then SIGKILL after 3 seconds), releases the claim and comments on the Task.
 
@@ -73,7 +73,7 @@ Each session's output is kept under `data/dispatch/`. Its conversation is learne
 - **A switch synced across devices.** One click would start agents on every paired device, with their own clients and usage.
 - **Agents switching the Dispatcher on through an MCP tool.** An agent could then start more agents.
 - **Dispatching a Feature's Tasks.** [ADR 0219](0219-agents-take-only-standalone-tasks-unasked.md) keeps a Feature's order the person's call, and the Dispatcher follows it in its first version.
-- **Taking Tasks that Dispatched sessions put in Ready.** Dispatched work would feed itself until the daily limit stopped it.
+- **Taking Tasks that Dispatched sessions put in Ready from Backlog.** Dispatched work would feed itself until the daily limit stopped it.
 
 ## Consequences
 

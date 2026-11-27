@@ -21,7 +21,7 @@ import threading
 import time
 
 from .. import config, processes, tasks
-from . import dispatched, folders, store
+from . import dispatched, folders, guards, store
 
 PASS_SECONDS = 30.0
 POLL_SECONDS = 2.0
@@ -50,9 +50,13 @@ def running_runs() -> list[dict]:
 def candidates(workspace: str) -> list[dict]:
     """The Tasks the Dispatcher would take in ``workspace``, in order: Ready
     and standalone, open to an agent of its client on this device, as the
-    workspace's autonomy allows."""
-    found = tasks.takeable(client=CLIENT, device=tasks.device_name(), workspace=workspace)
-    return [state for state in found if state['status'] == 'ready' and not state['stale']]
+    workspace's autonomy allows, and not readied by a Dispatched session."""
+    found = [state for state in tasks.takeable(client=CLIENT, device=tasks.device_name(), workspace=workspace)
+             if state['status'] == 'ready' and not state['stale']]
+    if not found:
+        return []
+    dispatched = tasks.dispatched_sessions(workspace)
+    return [state for state in found if not guards.readied_by_dispatched(state['id'], workspace, dispatched)]
 
 
 class Dispatcher:
@@ -122,13 +126,17 @@ class Dispatcher:
 
     def watch(self) -> None:
         for run_id, session in list(self.sessions.items()):
-            if session.step() is not None:
-                del self.sessions[run_id]
+            ended = session.step()
+            if ended is None:
+                continue
+            del self.sessions[run_id]
+            if ended['outcome'] == 'failed':
+                guards.switch_off_after_failures(ended)
 
     def dispatch(self) -> dict | None:
         """Start one Dispatched session when there is room and work: the
         started run, or None."""
-        if len(running_runs()) >= max(0, int(_setting('dispatch.concurrency'))):
+        if len(running_runs()) >= max(0, int(_setting('dispatch.concurrency'))) or guards.held():
             return None
         self.skipped = {}
         for workspace in store.switched_on_workspaces():
