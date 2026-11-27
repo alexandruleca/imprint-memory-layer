@@ -100,6 +100,8 @@ class WslStartTests(DispatchCase):
         real_popen = subprocess.Popen
 
         def popen(argv, **options):
+            if argv[0] != 'wsl.exe':
+                return real_popen(argv, **options)  # taskkill, which stopping uses on Windows
             started.update(argv=argv, env=options['env'], cwd=options['cwd'])
             return real_popen([sys.executable, '-c', 'import sys, time; sys.stdin.read(); time.sleep(30)'],
                               **{**options, 'cwd': None})

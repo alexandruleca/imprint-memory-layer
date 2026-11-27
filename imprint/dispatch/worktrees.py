@@ -116,6 +116,8 @@ def prepare(folder: dict, task_id: str, title: str, *, start: str | None = None)
     # The folder a worktree's commits are written to: the repository's own git folder.
     where = wsl_native(folder, path)
     git_dir = git.run(where, 'rev-parse', '--path-format=absolute', '--git-common-dir')
+    if not folder.get('distro'):
+        git_dir = os.path.normpath(git_dir)  # Windows git answers with forward slashes; clients get the native form
     return {'path': path, 'cwd': cwd, 'branch': branch, 'base': base, 'base_commit': start or folder['commit'],
             'git_dir': git_dir, 'created': created}
 

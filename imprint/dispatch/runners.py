@@ -75,7 +75,7 @@ class Runner:
         found = []
         for root in (Path.home() / '.vscode' / 'extensions', Path.home() / '.vscode-server' / 'extensions'):
             for pattern, inside in self.bundles:
-                found += [os.path.join(folder, inside) for folder in glob.glob(str(root / pattern))]
+                found += [os.path.normpath(os.path.join(folder, inside)) for folder in glob.glob(str(root / pattern))]
         return sorted((path for path in found if os.path.isfile(path)), key=_version_key, reverse=True)
 
 
