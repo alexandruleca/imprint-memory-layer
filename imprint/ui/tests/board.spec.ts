@@ -178,10 +178,15 @@ test("the drawer shows a Task and sends a comment to its holder's agent", async 
   expect(asked.find(a => a.path === '/api/tasks/T-cccc3/comment')?.body).toEqual({ text: 'Use the new retry policy', to: ['grimforge'] });
 });
 
-test('simple mode shows the Board without history and lease details', async ({ page }) => {
+test('simple mode lists the Board as Tasks, without sessions, history and lease details', async ({ page }) => {
   await base(page, { mode: 'simple', tutorials: false });
   await mockBoard(page, board());
-  await page.goto('/agents/?task=T-cccc3#board');
+  await page.goto('/agents/');
+  await expect(page.getByRole('navigation', { name: 'Pages' }).getByRole('link', { name: 'Tasks' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('heading', { name: 'Tasks', level: 1 })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Sessions' })).toHaveCount(0);
+  await expect(page.getByRole('note')).toHaveCount(0);
+  await page.goto('/agents/?task=T-cccc3');
   const drawer = page.getByRole('dialog', { name: /Upload retries/ });
   await expect(drawer.getByText('grimforge (Claude Code)')).toBeVisible();
   await expect(drawer.getByText(/last progress/)).toHaveCount(0);

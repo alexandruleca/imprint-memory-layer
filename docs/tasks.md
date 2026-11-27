@@ -63,7 +63,7 @@ A comment addressed to an agent reaches it:
 
 ## On the dashboard
 
-The Agents page's **Board** tab (`/agents/#board`) shows the same Board: drag cards between statuses, filter and group them, open a Task to change it or comment, and see which agent works on what and what is stuck. Comments agents address to you, and Tasks reaching Review, show a toast on any page and, in the desktop app, a native notification. See [the dashboard](dashboard.md#agents).
+The Agents page's **Board** tab (`/agents/#board`), called **Tasks** in the simple dashboard, shows the same Board: drag cards between statuses, filter and group them, open a Task to change it or comment, and see which agent works on what and what is stuck. Comments agents address to you, and Tasks reaching Review, show a toast on any page and, in the desktop app, a native notification. See [the dashboard](dashboard.md#agents).
 
 ## From the terminal
 

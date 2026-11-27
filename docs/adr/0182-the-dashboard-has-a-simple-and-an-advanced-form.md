@@ -3,8 +3,9 @@ title: ADR 0182 — The dashboard has a simple and an advanced form
 description: One dashboard is shown two ways, chosen per device by the ui.mode setting; the simple form lists eleven pages under plain names, trims the shared pages and offers settings as plain choices over the same keys, and nothing is disabled in either.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-11
+- Amended by: [ADR 0217](0217-the-simple-dashboard-lists-the-board-as-tasks.md) — the simple dashboard's page list (Tasks is a twelfth page)
 - Related: [ADR 0183](0183-each-page-has-a-short-tutorial-that-can-be-skipped.md) (tutorials), [ADR 0154](0154-the-dashboard-and-desktop-app-follow-a-light-dark-or-system-theme.md) (the theme, a per-browser choice), [ADR 0130](0130-reorganization-is-proposed-by-a-background-job-and-reviewed.md) and [ADR 0143](0143-agents-receive-generalised-guidelines-core-memories-are-kept-as-records.md) (the decisions Home's inbox makes), [ADR 0089](0089-one-progress-record-for-the-running-job.md) (the running job on every page), [dashboard](../dashboard.md#simple-and-advanced), [configuration](../configuration.md)
 
 ## Context

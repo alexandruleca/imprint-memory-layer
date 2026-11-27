@@ -128,7 +128,7 @@ const ADVANCED_NAV: { title?: string; items: NavItem[] }[] = [
 
 // Simple (ADR 0182): the pages with a simple name, in three short runs that
 // never collapse. Chat comes before Search there: asking is the usual start.
-const SIMPLE_ORDER = ["/", "/chat", "/search", "/voice", "/recordings", "/reminders", "/projects", "/core", "/skills", "/sync", "/settings"];
+const SIMPLE_ORDER = ["/", "/chat", "/search", "/voice", "/recordings", "/reminders", "/agents", "/projects", "/core", "/skills", "/sync", "/settings"];
 const SIMPLE_PAGES = SIMPLE_ORDER.map((href) => PAGES.find((page) => page.href === href)!);
 const SIMPLE_NAV: { title?: string; plain?: boolean; items: NavItem[] }[] = [
   { items: items(SIMPLE_PAGES.filter((page) => page.simpleGroup === "everyday"), true) },

@@ -5,7 +5,7 @@ import { base } from './ui-fixtures';
 // The simple and the advanced dashboard (ADR 0182): one set of pages shown
 // two ways, chosen by the `ui.mode` setting.
 
-const SIMPLE = ['Home', 'Chat', 'Search', 'Echo', 'Recordings', 'Reminders', 'Library', 'About you', 'Skills', 'Devices', 'Settings'];
+const SIMPLE = ['Home', 'Chat', 'Search', 'Echo', 'Recordings', 'Reminders', 'Tasks', 'Library', 'About you', 'Skills', 'Devices', 'Settings'];
 const nav = (page: import('@playwright/test').Page) => page.getByRole('navigation', { name: 'Pages' });
 
 test('the simple dashboard lists the everyday pages under their plain names', async ({ page }) => {

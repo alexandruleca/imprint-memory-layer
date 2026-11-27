@@ -18,12 +18,14 @@ import { BoardView } from "@/components/agents/board/board";
 import { SessionDetails } from "@/components/agents/session-details";
 import { StatusDot } from "@/components/agents/status";
 import { getAgents, type AgentClient, type AgentSession, type AgentsPage } from "@/lib/api";
+import { useUiMode } from "@/lib/ui-mode";
 import { groupByTime } from "@/lib/time-groups";
 import { useCached } from "@/lib/use-cached";
 import { cn } from "@/lib/utils";
 
 const DESCRIPTION = "Every AI client that uses Imprint starts its own MCP server: each one is a session here, with the tools it called. Calls are kept for 30 days, with their arguments shortened and secrets redacted.";
 const BOARD_DESCRIPTION = "The workspace's Tasks, shared by every connected agent: what is ready, who is working on what, and what is stuck or waiting for you.";
+const SIMPLE_DESCRIPTION = "What your AI agents are working on, what is ready for them, and what waits for you.";
 /** The page's tabs; the address keeps the open one (/agents/#board). */
 const TABS = ["sessions", "board"] as const;
 type Tab = (typeof TABS)[number];
@@ -41,6 +43,16 @@ function linkedTab(): Tab {
 export default function AgentsPage() {
   // The static page renders the first tab; the browser then opens the linked one.
   const tab = useSyncExternalStore(onHashChange, linkedTab, () => "sessions" as Tab);
+  // The simple dashboard lists this page as Tasks: the Board alone, its sessions left to the advanced one (ADR 0217).
+  const { simple } = useUiMode();
+  if (simple) {
+    return (
+      <div className="mx-auto max-w-none">
+        <PageHeader title="Tasks" description={SIMPLE_DESCRIPTION} />
+        <BoardView />
+      </div>
+    );
+  }
   function open(next: Tab) {
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${next}`);
     window.dispatchEvent(new HashChangeEvent("hashchange"));
