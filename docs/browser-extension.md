@@ -164,8 +164,11 @@ a store already holds is not submitted again.
   failure fails the job. AMO takes each version number once across channels, and a
   listed version must be higher than the earlier ones, so never hand-submit a
   prerelease build of a coming release: `v0.62.2-dev.1` becomes 0.62.2.1, which is
-  higher than 0.62.2. The listing's text and screenshots are edited in the Developer
+  higher than 0.62.2. The listing's text, screenshots and icon are edited in the Developer
   Hub. The tooling that once applied them from the repository is in history at commit 301459a.
+  The listing showed AMO's default icon when it went public, though the manifest has icons:
+  upload `extensions/chrome/icon-128.png` under **Edit Product Page → Images → Upload a
+  Custom Icon...** (square PNG or JPG, at least 128×128).
 
 ## Install from this checkout
 
