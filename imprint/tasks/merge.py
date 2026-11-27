@@ -148,6 +148,20 @@ def _number(value) -> float:
     return float(value)
 
 
+def _setting_ok(key: str, value) -> bool:
+    """The settings a device takes from another: the workspace's autonomy,
+    and whether each device's Dispatcher is on (ADR 0220)."""
+    if key == 'autonomy':
+        return value in ('off', 'stale', 'ready')
+    if re.fullmatch(r'dispatching:[A-Za-z0-9_.-]{1,64}', key) and isinstance(value, str) and len(value) <= 256:
+        try:
+            parsed = json.loads(value)
+        except ValueError:
+            return False
+        return isinstance(parsed, dict) and isinstance(parsed.get('on'), bool) and isinstance(parsed.get('name'), str)
+    return False
+
+
 def sync_import(records: list[dict], workspace: str | None = None) -> dict[str, int]:
     """Store what a paired device sent: new events, newer lease renewals and
     settings, and read marks. Malformed records are skipped."""
@@ -180,7 +194,7 @@ def sync_import(records: list[dict], workspace: str | None = None) -> dict[str, 
                     stats['updated' if held is not None else 'inserted'] += 1
                 elif kind == 'setting':
                     key, value, at = str(record['key']), record['value'], _number(record['updated_at'])
-                    if key != 'autonomy' or value not in ('off', 'stale', 'ready'):
+                    if not _setting_ok(key, value):
                         raise ValueError(key)
                     held = conn.execute('SELECT updated_at FROM settings WHERE key = ?', (key,)).fetchone()
                     if held is not None and held['updated_at'] >= at:

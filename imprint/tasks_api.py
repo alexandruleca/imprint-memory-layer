@@ -108,6 +108,42 @@ async def set_autonomy(request: Request):
         return _refused(error)
 
 
+@router.get("/dispatch")
+def dispatch_status():
+    """This device's Dispatcher for the active workspace (ADR 0220): the Board's strip."""
+    from .dispatch import status
+    try:
+        return status.status(config.get_active_workspace(), projects=False)
+    except (ValueError, LookupError, OSError) as error:
+        return _refused(error)
+
+
+@router.put("/dispatch")
+async def dispatch_switch(request: Request):
+    """Switch this device's Dispatcher for the active workspace; the person's
+    choice, made on the Board (agents have no tool for it)."""
+    from .dispatch import status
+    try:
+        body = await _body(request)
+        if not isinstance(body.get('on'), bool):
+            raise ValueError('on is true or false')
+        workspace = config.get_active_workspace()
+        status.switch(workspace, body['on'])
+        return status.status(workspace, projects=False)
+    except (ValueError, LookupError, OSError) as error:
+        return _refused(error)
+
+
+@router.post("/dispatch/{run_id}/stop")
+def dispatch_stop(run_id: str):
+    """Stop a running Dispatched session, as `imprint tasks dispatch stop` does."""
+    from .dispatch import dispatched
+    try:
+        return {'run': dispatched.request_stop(run_id)}
+    except (ValueError, LookupError) as error:
+        return _refused(error)
+
+
 @router.post("")
 async def create(request: Request):
     try:

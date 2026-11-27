@@ -147,23 +147,17 @@ def _filters(args) -> dict:
                               priority=args.priority, assignee=args.assignee, holder=args.holder, text=args.text)
 
 
-def _dispatch_status(workspace: str) -> dict:
-    from .dispatch import folders, loop, store
-    return {'workspace': workspace, 'on': store.switched_on(workspace), 'server': loop.server_running(),
-            'autonomy': tasks.autonomy(workspace), 'running': loop.running_runs(), 'recent': store.recent(5),
-            'candidates': [s['id'] for s in loop.candidates(workspace)][:10],
-            'projects': folders.open_projects(workspace)}
-
-
 def _dispatch_status_text(status: dict) -> str:
     lines = [f"Dispatcher for {status['workspace']} on this device: {'on' if status['on'] else 'off'}"
              f"{'' if status['server'] or not status['on'] else ' (the dashboard server is not running: nothing is dispatched until it is)'}",
              f"Agents take unasked here: {status['autonomy']}"]
+    if status['devices']:
+        lines.append('Also on: ' + ', '.join(d['name'] for d in status['devices']))
     lines.append('Running:' if status['running'] else 'Running: none')
     lines += [f"  {r['id']}  {r['task']} {r['title']} ({r['client']}, since "
               f"{time.strftime('%H:%M', time.localtime(r['started_at']))})" for r in status['running']]
-    if status['candidates']:
-        lines.append('Next to take: ' + ', '.join(status['candidates']))
+    if status['next']:
+        lines.append('Next to take: ' + ', '.join(s['id'] for s in status['next']))
     lines.append('Projects with open Tasks:' if status['projects'] else 'Projects with open Tasks: none')
     lines += [f"  {p['project']}: {p['path']} ({p['branch'] or 'detached'})" if p['ok'] else f"  {p['project']}: {p['reason']}"
               for p in status['projects']]
@@ -175,18 +169,18 @@ def _dispatch_status_text(status: dict) -> str:
 
 
 def _dispatch(args, workspace: str | None, as_json: bool) -> None:
-    from .dispatch import dispatched, store
+    from .dispatch import dispatched, loop, status as dispatch_status
     from .workspace_policy import workspace_name
     action, name = args.dispatch_command, workspace_name(workspace)
     if action in ('on', 'off'):
-        store.switch(name, action == 'on')
-        note = ('' if action == 'off' or _dispatch_status(name)['server'] else
+        dispatch_status.switch(name, action == 'on')
+        note = ('' if action == 'off' or loop.server_running() else
                 ' It dispatches while the dashboard server runs: start it with `imprint ui start`.')
         _print({'workspace': name, 'on': action == 'on'}, as_json,
                f"Dispatcher for {name} on this device: {action}.{note}")
         return
     if action == 'status':
-        status = _dispatch_status(name)
+        status = dispatch_status.status(name)
         _print(status, as_json, _dispatch_status_text(status))
         return
     if action == 'stop':

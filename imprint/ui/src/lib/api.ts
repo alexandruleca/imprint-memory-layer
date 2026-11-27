@@ -1300,6 +1300,29 @@ export function getProgress(filters: { project?: string; feature?: string } = {}
 export function setAutonomy(value: Autonomy) {
   return fetchAPI<{ autonomy: Autonomy }>("/api/tasks/autonomy", { method: "PUT", body: JSON.stringify({ value }) });
 }
+/** One Dispatched session this device started (ADR 0220). */
+export type DispatchRun = {
+  id: string; workspace: string; task: string; title: string; project: string; client: string; role: string;
+  pid: number | null; worktree: string | null; branch: string | null; base: string | null; started_at: number;
+  ended_at: number | null; exit_code: number | null; outcome: "review" | "failed" | "refused" | null; detail: string | null;
+};
+/** This device's Dispatcher for the active workspace: the Board's strip. */
+export type DispatchStatus = {
+  workspace: string; on: boolean; server: boolean; autonomy: Autonomy; running: DispatchRun[]; recent: DispatchRun[];
+  next: { id: string; title: string; project: string }[];
+  /** Other paired devices whose Dispatcher is on for this workspace. */
+  devices: { device: string; name: string; on: boolean; at: number }[];
+};
+export function getDispatch() {
+  return fetchAPI<DispatchStatus>("/api/tasks/dispatch");
+}
+/** Switch this device's Dispatcher for the active workspace; the person's choice only. */
+export function setDispatch(on: boolean) {
+  return fetchAPI<DispatchStatus>("/api/tasks/dispatch", { method: "PUT", body: JSON.stringify({ on }) });
+}
+export function stopDispatched(id: string) {
+  return fetchAPI<{ run: DispatchRun }>(`/api/tasks/dispatch/${encodeURIComponent(id)}/stop`, { method: "POST" });
+}
 /** Comments agents addressed to the user, unread, and the Tasks waiting in Review. */
 export function getTaskInbox() {
   return fetchAPI<TaskInbox>("/api/tasks/inbox");

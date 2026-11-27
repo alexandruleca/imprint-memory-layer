@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 
 from . import sessions
@@ -35,6 +36,38 @@ def set_autonomy(value: str, workspace: str | None = None) -> str:
                      'ON CONFLICT (key) DO UPDATE SET value = excluded.value, '
                      'updated_at = MAX(excluded.updated_at, updated_at + 0.001)', (value, time.time()))
     return value
+
+
+DISPATCHING = 'dispatching:'
+
+
+def announce_dispatching(device: str, name: str, on: bool, workspace: str | None = None) -> None:
+    """Tell paired devices whether this device's Dispatcher is switched on
+    for this workspace (ADR 0220). The switch itself stays on the device;
+    this copy travels with the Board only so other devices can show it."""
+    value = json.dumps({'on': bool(on), 'name': str(name)[:64]})
+    with _writing(workspace) as conn:
+        conn.execute('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) '
+                     'ON CONFLICT (key) DO UPDATE SET value = excluded.value, '
+                     'updated_at = MAX(excluded.updated_at, updated_at + 0.001)',
+                     (f'{DISPATCHING}{device}', value, time.time()))
+
+
+def dispatching(workspace: str | None = None) -> list[dict]:
+    """Every device that announced its Dispatcher for this workspace:
+    ``{'device', 'name', 'on', 'at'}``."""
+    with _reading(workspace) as conn:
+        rows = conn.execute('SELECT key, value, updated_at FROM settings WHERE key LIKE ?',
+                            (f'{DISPATCHING}%',)).fetchall() if conn else []
+    found = []
+    for row in rows:
+        try:
+            value = json.loads(row['value'])
+            found.append({'device': row['key'][len(DISPATCHING):], 'name': str(value['name']), 'on': bool(value['on']),
+                          'at': float(row['updated_at'])})
+        except (ValueError, KeyError, TypeError):
+            continue
+    return sorted(found, key=lambda d: d['name'].lower())
 
 
 def _for_agent(assignees: list[str], client: str | None, device: str | None) -> bool:

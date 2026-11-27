@@ -21,6 +21,7 @@ import { useUiMode } from "@/lib/ui-mode";
 import { useCached } from "@/lib/use-cached";
 import { cn } from "@/lib/utils";
 import { STATUS_HINTS, STATUS_LABELS } from "./format";
+import { DispatcherStrip } from "./dispatcher-strip";
 import { NewTaskDialog } from "./new-task-dialog";
 import { ProgressPanel } from "./progress";
 import { TaskCard } from "./task-card";
@@ -273,6 +274,7 @@ export function BoardView() {
             ))}
             {attention && <Button variant="link" size="sm" className="h-auto px-1 text-xs" onClick={() => setAttention(null)}>Show every task</Button>}
           </div>
+          <DispatcherStrip now={now} onOpen={open} />
           <div className="flex snap-x gap-3 overflow-x-auto px-4 pb-2 sm:px-8" data-tour="board-columns">
             {TASK_STATUSES.map((status) => (
               <Column key={status} status={status} tasks={shownIn(status)} group={view.group} now={now} simple={simple}
