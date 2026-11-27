@@ -15,8 +15,8 @@ selected workspace. The recording form prefills available Meet or Teams titles.
 
 Install it from the [Chrome Web Store](https://chromewebstore.google.com/detail/imprint-capture/ammleledmkghliflljeapomaaccnhmme),
 which each stable release updates. The same source is the Firefox add-on for Firefox 140
-or later: stable releases carry `imprint-firefox-extension.xpi`, signed by Mozilla as an
-unlisted add-on.
+or later: each stable release submits it to its addons.mozilla.org listing, and the
+release carries the unsigned build.
 `scripts/package_chrome_extension.py --browser firefox` builds it with a Firefox manifest,
 and `--browser chrome-web-store` builds the store's upload.
 

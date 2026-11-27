@@ -397,6 +397,24 @@ SETTINGS: list[Setting] = [
     Setting("organize.auto_move",  "IMPRINT_ORGANIZE_AUTO_MOVE",  True,  bool,
             "Move sources with strong evidence without review; weaker proposals still wait"),
 
+    # ── The Board (ADRs 0210, 0211) ───────────────────────────
+    Setting("tasks.lease_minutes",    "IMPRINT_TASKS_LEASE_MINUTES",    15,  int,
+            "Minutes a claim lasts without its holder's Imprint renewing it; then the Task is Stale"),
+    Setting("tasks.stalling_minutes", "IMPRINT_TASKS_STALLING_MINUTES", 60,  int,
+            "Minutes without progress from its holder before a claimed Task is Stalling"),
+    Setting("tasks.stale_minutes",    "IMPRINT_TASKS_STALE_MINUTES",    120, int,
+            "Minutes without progress from its holder before a claimed Task is Stale and its claim released"),
+    Setting("tasks.autonomy",         "IMPRINT_TASKS_AUTONOMY",         "ready", str,
+            "What agents take unasked: off, stale (Stale Tasks only) or ready (Ready and Stale); a workspace can choose its own",
+            choices=(Choice("ready", "Ready and Stale"), Choice("stale", "Stale only"), Choice("off", "Off"))),
+
+    # ── Client rules (ADR 0214) ───────────────────────────────
+    # Setup gives clients that load skills a short rules block pointing to
+    # the imprint skill; these clients get the full block anyway. Upkeep
+    # adds a client whose agents stopped searching first.
+    Setting("instructions.full_rules", "IMPRINT_INSTRUCTIONS_FULL_RULES", "", str,
+            "Comma-separated clients that get the full Imprint rules block instead of the short one (claude-code, codex, cursor, copilot, opencode)"),
+
     # ── Upkeep (ADR 0201) ─────────────────────────────────────
     # The idle slot's last step: what is stored, brought up to the current
     # form piece by piece (synced memories' dates, data files kept whole).

@@ -12,6 +12,7 @@ build
 dist
 bin
 imprint/ui/out
+evals
 site/node_modules
 .uv-cache
 python

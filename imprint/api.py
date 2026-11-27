@@ -120,6 +120,8 @@ from .voice_api import router as voice_router
 app.include_router(voice_router)
 from .schedule_api import router as schedule_router
 app.include_router(schedule_router)
+from .tasks_api import router as tasks_router
+app.include_router(tasks_router)
 
 
 @app.middleware("http")
@@ -926,7 +928,7 @@ async def api_resolve_core_conflict(memory_id: str, request: Request):
         return JSONResponse({'error': str(error)}, status_code=400)
 
 
-# ── Skills and personas (ADRs 0168, 0169) ──────────────────────
+# ── Skills and personas (ADRs 0168, 0169), built-in skills (ADR 0213) ──
 
 def _registry_limits() -> dict:
     from . import registry
@@ -973,13 +975,46 @@ async def api_apply_skills():
 
 @app.get('/api/skills/{item_id}')
 def api_skill(item_id: str):
-    """One item with its files and this device's history of it."""
+    """One item with its files and this device's history of it; a fork
+    also with its ``difference`` from the release's built-in, as a unified
+    diff (empty for anything else)."""
     from . import registry
     item = registry.get(item_id)
     if item is None:
         return JSONResponse({'error': 'skill or persona not found'}, status_code=404)
     return {**item, 'history': [{k: v for k, v in version.items() if k != 'files'} | {'paths': list(version['files'])}
-                                for version in registry.history(item_id)]}
+                                for version in registry.history(item_id)],
+            'difference': registry.difference(item_id) if item['fork_of'] else ''}
+
+
+@app.post('/api/skills/{item_id}/fork')
+async def api_fork_skill(item_id: str):
+    """Fork a built-in skill: the user's own copy, which replaces it in
+    every client and on every paired device."""
+    from . import registry
+    item = registry.get(item_id)
+    if item is None or item['origin'] != registry.BUILTIN:
+        return JSONResponse({'error': 'built-in skill not found'}, status_code=404)
+    try:
+        fork = await asyncio.to_thread(registry.fork, item['name'], item['kind'])
+    except ValueError as error:
+        return JSONResponse({'error': str(error)}, status_code=400)
+    return {**fork, 'report': await asyncio.to_thread(_registry_applied)}
+
+
+@app.post('/api/skills/{item_id}/reset')
+async def api_reset_skill(item_id: str):
+    """Reset to built-in: remove the fork, here and on every paired device,
+    so the built-in returns. ``item_id`` is the fork's or the built-in's."""
+    from . import registry
+    item = registry.get(item_id)
+    if item is None or not (item['origin'] == registry.BUILTIN or item['fork_of']):
+        return JSONResponse({'error': 'built-in skill or fork not found'}, status_code=404)
+    try:
+        builtin = await asyncio.to_thread(registry.reset, item['name'], item['kind'])
+    except ValueError as error:
+        return JSONResponse({'error': str(error)}, status_code=400)
+    return {**builtin, 'report': await asyncio.to_thread(_registry_applied)}
 
 
 @app.post('/api/skills')
@@ -1431,6 +1466,35 @@ def api_agents(limit: int = 50, before: str | None = None, client: str | None = 
     except ValueError:
         return JSONResponse({"error": "Invalid cursor"}, status_code=400)
     return {**page, "clients": agent_activity.client_totals()}
+
+
+@app.get("/api/agents/search-first")
+def api_agents_search_first():
+    """For each client that got the short rules block (ADR 0214): its
+    sessions and the share that searched Imprint first, before and after,
+    and the decision once upkeep made it."""
+    from . import search_first
+    return {"clients": search_first.comparison(), "min_sessions": search_first.MIN_SESSIONS,
+            "max_drop": search_first.MAX_DROP}
+
+
+@app.post("/api/agents/{session_id}/name")
+async def api_agent_name(session_id: str, request: Request):
+    """Rename an agent session on its workspace's Board (ADR 0216)."""
+    from . import agent_activity, tasks
+    body = await request.json()
+    session = agent_activity.get_session(session_id)
+    if session is None:
+        return JSONResponse({"error": "No such agent session"}, status_code=404)
+    if not session.get("board_session"):
+        return JSONResponse({"error": "This session has not used the Board"}, status_code=400)
+    try:
+        name = tasks.choose_name(session["board_session"], str(body.get("name") or ""), client=session.get("client"),
+                                 pid=session.get("pid"), workspace=session.get("workspace") or None)
+    except ValueError as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    agent_activity.rename(session["board_session"], name)
+    return {"name": name}
 
 
 @app.get("/api/agents/{session_id}/calls")

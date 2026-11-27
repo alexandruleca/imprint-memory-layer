@@ -84,8 +84,8 @@ jobs:
           path: dist/imprint-chrome-web-store.zip
           if-no-files-found: error
 
-  # The same source as a Firefox add-on, tested in a pinned Firefox ESR and, for
-  # a stable release, signed by addons.mozilla.org as an unlisted add-on (ADRs 0193, 0206).
+  # The same source as a Firefox add-on, tested in a pinned Firefox ESR (ADR 0193);
+  # the firefox-listing job submits a stable release's to addons.mozilla.org (ADR 0207).
   firefox-extension:
     needs: branch-policy
     runs-on: [self-hosted, linux, x64]
@@ -98,7 +98,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m unittest discover -s tests -p 'test_sign_firefox_extension.py' -v
+      - run: python -m unittest discover -s tests -p 'test_publish_firefox_extension.py' -v
       - run: npm ci --prefix imprint/ui
       # Firefox's system libraries (GTK and others) are missing from the runner images.
       - run: npx playwright install-deps firefox
@@ -109,21 +109,10 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
       - run: node extensions/chrome/tests/firefox-smoke.mjs dist/imprint-firefox-extension-unsigned.xpi
-      - name: Sign with addons.mozilla.org when its API key is set
-        if: inputs.publish && !inputs.prerelease
-        env:
-          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
-          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
-        run: |
-          if [ -z "$AMO_JWT_ISSUER" ] || [ -z "$AMO_JWT_SECRET" ]; then
-            echo '::warning::AMO_JWT_ISSUER and AMO_JWT_SECRET are not set, so this release carries only the unsigned Firefox add-on.'
-            exit 0
-          fi
-          python scripts/sign_firefox_extension.py dist/imprint-firefox-extension-unsigned.xpi dist/imprint-firefox-extension.xpi
       - uses: actions/upload-artifact@v4
         with:
           name: firefox-extension
-          path: dist/imprint-firefox-extension*.xpi
+          path: dist/imprint-firefox-extension-unsigned.xpi
           if-no-files-found: error
 
   dashboard:
@@ -564,16 +553,9 @@ jobs:
             imprint-darwin-arm64.tar.gz \
             imprint-windows-amd64.zip imprint-windows-amd64-setup.exe \
             imprint-darwin-arm64.pkg \
-            imprint-chrome-extension.zip; do
+            imprint-chrome-extension.zip imprint-firefox-extension-unsigned.xpi; do
             test -s "$asset"
           done
-          # A signed Firefox add-on replaces the unsigned one; without it (a
-          # prerelease, or AMO throttled the signing) the unsigned add-on ships.
-          if [ -s imprint-firefox-extension.xpi ]; then
-            rm -f imprint-firefox-extension-unsigned.xpi
-          else
-            test -s imprint-firefox-extension-unsigned.xpi
-          fi
           sha256sum *.tar.gz *.zip *.exe *.pkg *.xpi > SHA256SUMS
       - name: Publish complete release
         env:
@@ -587,8 +569,8 @@ jobs:
           gh release create "$VERSION" --target "$GITHUB_SHA" \
             --title "$VERSION" --generate-notes "${FLAGS[@]}" dist/*
 
-  # The Chrome Web Store takes a stable release only once it is published, from the
-  # package that passed the smoke tests; the job is safe to rerun (ADR 0202).
+  # The stores take a stable release only once it is published, from the packages
+  # that passed the smoke tests; each job is safe to rerun (ADRs 0202, 0207).
   chrome-web-store:
     needs: publish
     if: inputs.publish && !inputs.prerelease
@@ -613,3 +595,28 @@ jobs:
             exit 0
           fi
           python scripts/publish_chrome_extension.py dist/imprint-chrome-web-store.zip
+
+  firefox-listing:
+    needs: publish
+    if: inputs.publish && !inputs.prerelease
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: firefox-extension
+          path: dist/
+      - name: Submit to addons.mozilla.org when its API key is set
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          if [ -z "$AMO_JWT_ISSUER" ] || [ -z "$AMO_JWT_SECRET" ]; then
+            echo '::warning::AMO_JWT_ISSUER and AMO_JWT_SECRET are not set, so this release was not submitted to addons.mozilla.org.'
+            exit 0
+          fi
+          python scripts/publish_firefox_extension.py dist/imprint-firefox-extension-unsigned.xpi

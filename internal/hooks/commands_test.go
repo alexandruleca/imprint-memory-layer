@@ -99,3 +99,59 @@ func TestCopilotHookCommandsExecuteInCopilotsShell(t *testing.T) {
 		t.Fatalf("Stop output %v, %v", stop, err)
 	}
 }
+
+// Claude Code's prompt hook is a shell script, not Python (ADR 0212): it
+// prints what the conversation's Imprint server prepared, once, in an
+// install whose path has spaces and an apostrophe.
+func TestPromptNoticesCommandPrintsOnce(t *testing.T) {
+	shell := exec.Command("sh", "-c")
+	if runtime.GOOS == "windows" {
+		// Claude Code runs hooks in Git Bash on Windows, not cmd.exe.
+		bash := filepath.Join(os.Getenv("ProgramFiles"), "Git", "bin", "bash.exe")
+		if _, err := os.Stat(bash); err != nil {
+			t.Skip("Git Bash needed")
+		}
+		shell = exec.Command(bash, "-c")
+	} else if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh needed")
+	}
+	root := filepath.Join(t.TempDir(), "Imprint's install with spaces")
+	if err := os.MkdirAll(filepath.Join(root, "imprint"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	script, err := os.ReadFile(filepath.Join("..", "..", "imprint", "prompt_notices.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "imprint", "prompt_notices.sh"), script, 0644); err != nil {
+		t.Fatal(err)
+	}
+	bp := Paths{ProjectDir: root, VenvPython: "unused", DataDir: filepath.Join(root, "user's data")}
+	notices := filepath.Join(bp.DataDir, "prompt-notices")
+	if err := os.MkdirAll(notices, 0755); err != nil {
+		t.Fatal(err)
+	}
+	prepared := `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"New comment"}}`
+	if err := os.WriteFile(filepath.Join(notices, "conversation-1.json"), []byte(prepared), 0644); err != nil {
+		t.Fatal(err)
+	}
+	run := func() string {
+		child := exec.Command(shell.Path, append(shell.Args[1:], PromptNoticesCommand(bp))...)
+		child.Stdin = bytes.NewBufferString(`{"session_id":"conversation-1","hook_event_name":"UserPromptSubmit","prompt":"hi"}`)
+		output, err := child.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s: %v", output, err)
+		}
+		return string(output)
+	}
+	if got := run(); got != prepared {
+		t.Fatalf("first prompt: %q", got)
+	}
+	if got := run(); got != "" {
+		t.Fatalf("second prompt: %q", got)
+	}
+	var decoded map[string]any
+	if json.Unmarshal([]byte(prepared), &decoded) != nil {
+		t.Fatal("fixture")
+	}
+}

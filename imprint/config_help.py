@@ -384,6 +384,27 @@ HELP: dict[str, dict[str, str]] = {
         "help": "Brings what is already stored up to date by itself whenever the dashboard's queue is idle, after background tagging and Organize: memories synced from paired devices get back the date they were first stored, and large data files this computer indexed are kept whole, as ingest now stores them, without a refresh. It works a piece at a time at low priority, rests between pieces, steps aside whenever another job waits, and takes at most ten minutes of each idle run. A file in a WSL distribution waits until that distribution runs. imprint upkeep does the same in the foreground. On by default.",
         "example": "false: on a laptop running on battery, to leave the work to the next imprint upkeep or refresh.",
     },
+    # ── The Board ────────────────────────────────────────────────────────
+    "tasks.lease_minutes": {
+        "help": "How long an agent's claim on a Task lasts without its Imprint renewing it. The holder's Imprint renews its claims every minute while the agent's session runs, so a claim runs out only when that session or its computer is gone; the Task is then Stale and another agent can take it over. A session that ends on this computer releases its claims at once. 15 minutes by default.",
+        "example": "30: when paired devices often sleep for a while and you would rather their agents keep their Tasks.",
+    },
+    "tasks.stalling_minutes": {
+        "help": "How long a claimed Task can go without progress from its holder (a checkpoint, another change to the Task, or any Imprint call) before the Board marks it Stalling and tells its holder. Nothing is released yet. 60 minutes by default.",
+        "example": "30: to hear sooner when an agent stops making progress.",
+    },
+    "tasks.stale_minutes": {
+        "help": "How long a claimed Task can go without progress from its holder before its claim is released and the Task is Stale, even while the holder's session still runs, so another agent can take it over from its last checkpoint. A session left waiting for your input loses its claim after this long. 120 minutes by default.",
+        "example": "240: when agents work on long tasks between checkpoints and you do not want them taken over.",
+    },
+    "tasks.autonomy": {
+        "help": "What agents take from the Board without being asked, once they have finished what you asked: ready lets them take a Ready Task, or a Stale one to finish, in the project they work in; stale lets them take only Stale ones; off leaves every Task until you point an agent at it. They never take one assigned to you, one assigned to another client or device, or one that waits on another Task. A workspace can choose its own with imprint tasks autonomy. ready by default.",
+        "example": "stale: to let agents finish abandoned work but start nothing new by themselves.",
+    },
+    "instructions.full_rules": {
+        "help": "Clients that get Imprint's full rules block in their global instructions file instead of the short one. Claude Code, Codex, Cursor, Copilot and OpenCode load skills, so setup writes them four lines that say to search Imprint first and to load the imprint skill for the rest; a client listed here gets the whole guidance in its file, as Cline and the desktop apps always do. Imprint adds a client itself when its agents search first less often after the switch. Takes effect the next time setup or imprint connect runs for that client. Empty by default.",
+        "example": "codex,cursor: to keep the full guidance in Codex's AGENTS.md and Cursor's rule.",
+    },
     "organize.auto_move": {
         "help": "Lets Organize move a source by itself when the evidence is strong: the source names exactly one project's registered folder, or one distinctive project name (such as checkout-service) at least twice and no other. Those moves are listed on the Organize page with an undo. Weaker proposals, including every one that rests on the local model's reading, wait for your review. On by default; off sends every proposal to review.",
         "example": "false: to review every move yourself before anything changes project.",

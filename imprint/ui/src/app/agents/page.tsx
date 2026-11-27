@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Bot, ChevronRight, RotateCw, Search, X } from "lucide-react";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -8,19 +8,72 @@ import { Button } from "@/components/ui/button";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/split-page";
 import { Timestamp, useNow } from "@/components/timestamp";
 import { clientName, folderName, plural, sessionLength, whenInGroup } from "@/components/agents/format";
 import { LoadMore } from "@/components/agents/load-more";
+import { BoardView } from "@/components/agents/board/board";
 import { SessionDetails } from "@/components/agents/session-details";
+import { SearchFirstPanel } from "@/components/agents/search-first";
 import { StatusDot } from "@/components/agents/status";
 import { getAgents, type AgentClient, type AgentSession, type AgentsPage } from "@/lib/api";
+import { useUiMode } from "@/lib/ui-mode";
 import { groupByTime } from "@/lib/time-groups";
 import { useCached } from "@/lib/use-cached";
 import { cn } from "@/lib/utils";
 
 const DESCRIPTION = "Every AI client that uses Imprint starts its own MCP server: each one is a session here, with the tools it called. Calls are kept for 30 days, with their arguments shortened and secrets redacted.";
+const BOARD_DESCRIPTION = "The workspace's Tasks, shared by every connected agent: what is ready, who is working on what, and what is stuck or waiting for you.";
+const SIMPLE_DESCRIPTION = "What your AI agents are working on, what is ready for them, and what waits for you.";
+/** The page's tabs; the address keeps the open one (/agents/#board). */
+const TABS = ["sessions", "board"] as const;
+type Tab = (typeof TABS)[number];
+
+function onHashChange(changed: () => void) {
+  window.addEventListener("hashchange", changed);
+  return () => window.removeEventListener("hashchange", changed);
+}
+
+function linkedTab(): Tab {
+  const hash = window.location.hash.slice(1);
+  return (TABS as readonly string[]).includes(hash) ? (hash as Tab) : "sessions";
+}
+
+export default function AgentsPage() {
+  // The static page renders the first tab; the browser then opens the linked one.
+  const tab = useSyncExternalStore(onHashChange, linkedTab, () => "sessions" as Tab);
+  // The simple dashboard lists this page as Tasks: the Board alone, its sessions left to the advanced one (ADR 0217).
+  const { simple } = useUiMode();
+  if (simple) {
+    return (
+      <div className="mx-auto max-w-none">
+        <PageHeader title="Tasks" description={SIMPLE_DESCRIPTION} />
+        <BoardView />
+      </div>
+    );
+  }
+  function open(next: Tab) {
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${next}`);
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  }
+  return (
+    <div className={cn("mx-auto", tab === "board" ? "max-w-none" : "max-w-5xl")}>
+      <PageHeader title="Agents" description={tab === "board" ? BOARD_DESCRIPTION : DESCRIPTION} />
+      <Tabs value={tab} onValueChange={(value) => open(value as Tab)} className="gap-4">
+        <div className="px-4 sm:px-8">
+          <TabsList variant="line" data-tour="agents-tabs" className="w-full justify-start border-b border-border">
+            <TabsTrigger value="sessions" className="flex-none px-2.5 sm:px-3">Sessions</TabsTrigger>
+            <TabsTrigger value="board" className="flex-none px-2.5 sm:px-3">Board</TabsTrigger>
+          </TabsList>
+        </div>
+        <TabsContent value="sessions"><SessionsView /></TabsContent>
+        <TabsContent value="board"><BoardView /></TabsContent>
+      </Tabs>
+    </div>
+  );
+}
 const POLL_MS = 3000;
 const PAGE = 50;
 
@@ -92,7 +145,7 @@ function useAgentSessions({ client, q }: Filters) {
   return { data, error, loadingOlder, olderFailed, loadOlder, retry: () => { setOlderError(null); void refresh(); } };
 }
 
-export default function AgentsPage() {
+function SessionsView() {
   const [client, setClient] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [q, setQ] = useState("");
@@ -106,7 +159,6 @@ export default function AgentsPage() {
 
   if (!data) return (
     <div className="mx-auto max-w-5xl">
-      <PageHeader title="Agents" description={DESCRIPTION} />
       <div className="space-y-4 px-4 sm:px-8" aria-busy={!error}>
         {error ? (
           <Alert variant="destructive">
@@ -132,7 +184,6 @@ export default function AgentsPage() {
 
   return (
     <div className="mx-auto max-w-5xl pb-10">
-      <PageHeader title="Agents" description={DESCRIPTION} />
       <div className="space-y-6 px-4 sm:px-8">
         {nothingYet ? (
           <Empty className="border border-border bg-card">
@@ -178,6 +229,8 @@ export default function AgentsPage() {
                 </ul>
               </section>
             )}
+
+            {!filtered && <SearchFirstPanel />}
 
             <section aria-labelledby="agents-history" className="space-y-2">
               <h2 id="agents-history" className="flex items-baseline justify-between gap-2 text-sm font-semibold">
@@ -285,12 +338,13 @@ function SessionRow({ session: s, group, now, onOpen }: { session: AgentSession;
   return (
     <li>
       <button type="button" onClick={onOpen}
-        aria-label={`${folder}, ${name}, ${s.connected ? "running" : "finished"}, ${plural(s.calls, "call")}${errors}. Show calls`}
+        aria-label={`${s.agent_name ? `${s.agent_name}, ` : ""}${folder}, ${name}, ${s.connected ? "running" : "finished"}, ${plural(s.calls, "call")}${errors}. Show calls`}
         className="group flex w-full min-w-0 items-center gap-3 px-4 py-2.5 text-left text-sm outline-none hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset">
         {s.connected && <StatusDot connected decorative />}
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-baseline gap-2">
-            <span className="truncate font-medium" title={s.directory ?? undefined}>{folder}</span>
+            {s.agent_name && <span className="shrink-0 font-semibold">{s.agent_name}</span>}
+            <span className={s.agent_name ? "truncate text-muted-foreground" : "truncate font-medium"} title={s.directory ?? undefined}>{folder}</span>
             {s.workspace && s.workspace !== "default" && (
               <Badge variant="outline" className="hidden shrink-0 text-[10px] sm:inline-flex">{s.workspace}</Badge>
             )}

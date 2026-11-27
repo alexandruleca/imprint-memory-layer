@@ -78,6 +78,8 @@ Recordings stay on the device that made them unless **Settings â†’ Device sync â
 
 Skills and personas ([ADR 0168](adr/0168-skills-and-personas-are-kept-once-and-synced-to-paired-devices.md)) also belong to no workspace, and travel the same way: one record per item, the newest change wins, sent only to a peer whose handshake offers them. The version a received change replaces stays in the receiving device's history, which never syncs. A device writes the items it receives into its own clients' folders at once ([ADR 0169](adr/0169-skills-and-personas-are-written-into-the-folders-clients-read.md)); see [skills and personas](skills.md).
 
+A workspace's [Board](tasks.md) travels with that workspace between paired devices, as the extra dataset `tasks`, sent only to a peer whose handshake offers it ([ADR 0209](adr/0209-a-tasks-history-is-a-log-of-events-that-devices-merge-by-union.md)). Its manifest lists the Board's events, which never change and merge by union; each claim's latest lease renewal; the workspace's settings, such as what agents take unasked, where the newest change wins; and the comments you have read. Arriving text is redacted again, a deleted Task's events lose their content on every device, and two Tasks given the same id are told apart the same way everywhere ([ADR 0218](adr/0218-imprint-renames-a-task-whose-id-another-device-gave-out.md)). Agents' names and what each agent session has read stay on its device. A one-shot `imprint sync` session and snapshot files do not carry the Board.
+
 ### Automatic sync between paired devices
 
 A one-time sync stays one-time unless **both** devices enable automatic pairing.

@@ -8,7 +8,6 @@ import (
 	"slices"
 
 	"github.com/hunter/imprint/internal/configfile"
-	"github.com/hunter/imprint/internal/instructions"
 	"github.com/hunter/imprint/internal/jsonutil"
 	"github.com/hunter/imprint/internal/output"
 	"github.com/hunter/imprint/internal/platform"
@@ -42,9 +41,10 @@ func SetupOpenCode(backend func() backendPaths) {
 	}
 
 	output.Info("Checking OpenCode instructions...")
-	if existing, err := os.ReadFile(rule); err == nil && string(existing) == instructions.OpenCodeRule {
+	text := rulesFor("opencode", bp.DataDir)
+	if existing, err := os.ReadFile(rule); err == nil && string(existing) == text {
 		output.Skip("OpenCode instructions already up to date at " + rule)
-	} else if err := configfile.Write(rule, []byte(instructions.OpenCodeRule)); err != nil {
+	} else if err := configfile.Write(rule, []byte(text)); err != nil {
 		output.Fail("Could not write " + rule + ": " + err.Error())
 	} else {
 		output.Success("Wrote OpenCode instructions to " + rule)

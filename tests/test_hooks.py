@@ -67,6 +67,41 @@ class HookTests(unittest.TestCase):
         self.assertEqual(claude['hookSpecificOutput']['hookEventName'], 'SessionStart')
         self.assertEqual(copilot, {'additionalContext': claude['hookSpecificOutput']['additionalContext']})
 
+    def test_session_start_tells_the_agent_about_the_projects_board(self):
+        import os
+        from unittest.mock import patch
+        from imprint import config, tasks
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data, shop = root / 'data', root / 'shop'
+            data.mkdir()
+            shop.mkdir()
+            (shop / 'package.json').write_text('{"name": "shop"}')
+            empty = json.loads(self.run_hook('session-start', data, {'session_id': 's1', 'cwd': str(shop)}).stdout)
+            self.assertNotIn('Board', empty['hookSpecificOutput']['additionalContext'])
+            with patch.object(config, 'get_data_dir', return_value=data), patch.dict(os.environ, {'IMPRINT_WORKSPACE': ''}):
+                ready = tasks.create('Fix the total', project='shop', acceptance=['x'], status='ready')['id']
+                tasks.create('Elsewhere', project='blog', acceptance=['x'], status='ready')
+                tasks.choose_name('conversation:s1', 'grimforge', pid=os.getpid())
+                tasks.comment(ready, '@grimforge the tax rule changed')
+            context = json.loads(self.run_hook('session-start', data, {'session_id': 's1', 'cwd': str(shop)}).stdout)
+            text = context['hookSpecificOutput']['additionalContext']
+            self.assertIn('Board', text)
+            self.assertIn(ready, text)
+            self.assertNotIn('Elsewhere', text)
+            self.assertIn('1 unread comment', text)
+            self.assertIn('You are grimforge', text)
+            self.assertLess(len(text), 2400)
+            unnamed = json.loads(self.run_hook('session-start', data, {'session_id': 's9', 'cwd': str(shop)}).stdout)
+            self.assertIn('task_edit(action="name"', unnamed['hookSpecificOutput']['additionalContext'])
+            # A Codex session is told of comments to Codex: its transcript lives under ~/.codex.
+            with patch.object(config, 'get_data_dir', return_value=data), patch.dict(os.environ, {'IMPRINT_WORKSPACE': ''}):
+                tasks.comment(ready, 'Codex: rebase first', to=['codex'])
+            codex = json.loads(self.run_hook('session-start', data, {
+                'session_id': 'x1', 'cwd': str(shop), 'transcript_path': '/home/me/.codex/sessions/x1.jsonl'}).stdout)
+            self.assertIn('1 unread comment', codex['hookSpecificOutput']['additionalContext'])
+
+
     def test_copilot_stop_payload_imports_its_transcript(self):
         # Copilot's PascalCase Stop payload is Claude Code's: session_id, cwd,
         # transcript_path, stop_reason and stop_hook_active.

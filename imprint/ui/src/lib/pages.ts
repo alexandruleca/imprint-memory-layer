@@ -29,7 +29,7 @@ export const PAGES: Page[] = [
   { href: "/projects", label: "Projects", simple: "Library", group: "memory", simpleGroup: "memory" },
   { href: "/sources", label: "Sources", group: "memory" },
   { href: "/queue", label: "Queue", group: "activity" },
-  { href: "/agents", label: "Agents", group: "activity" },
+  { href: "/agents", label: "Agents", simple: "Tasks", group: "activity", simpleGroup: "everyday" },
   { href: "/sync", label: "Sync", simple: "Devices", group: "activity", simpleGroup: "device" },
   { href: "/settings", label: "Settings", simple: "Settings", group: "system", simpleGroup: "device" },
   { href: "/commands", label: "Commands", group: "system" },

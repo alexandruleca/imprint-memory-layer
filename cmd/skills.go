@@ -8,8 +8,9 @@ import (
 	"github.com/hunter/imprint/internal/runner"
 )
 
-// Skills manages the user's skills and personas (ADRs 0168, 0169): list,
-// show, add, found, adopt, enable, disable, remove and apply, implemented by
+// Skills manages the user's skills and personas (ADRs 0168, 0169) and the
+// release's built-in skills (ADR 0213): list, show, add, found, adopt,
+// enable, disable, remove, fork, reset and apply, implemented by
 // imprint.cli_skills.
 func Skills(args []string) {
 	projectDir := platform.FindProjectDir()

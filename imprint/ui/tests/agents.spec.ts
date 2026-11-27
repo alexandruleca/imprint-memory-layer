@@ -245,3 +245,26 @@ test.describe('session history', () => {
     await expect(page.getByText('No agent has used Imprint yet.')).toBeVisible();
   });
 });
+
+// Whether agents still search Imprint first with the short rules block
+// (ADR 0214): the comparison per client, and a restore told once.
+test('shows each client searching first before and after the short rules, and tells a restore once', async ({ page }) => {
+  await mockApi(page, [session({})]);
+  await page.route('**/api/agents/search-first', route => route.fulfill({ json: {
+    min_sessions: 10, max_drop: 10, clients: [
+      { client: 'codex', short_since: now - 20 * 86400, decide_at: now - 6 * 86400,
+        before: { sessions: 12, search_first: 11, share: 91.7 }, after: { sessions: 10, search_first: 7, share: 70 },
+        decision: { outcome: 'restored', at: now - 86400, before: 91.7, after: 70 } },
+      { client: 'cursor', short_since: now - 3 * 86400, decide_at: now + 11 * 86400,
+        before: { sessions: 4, search_first: 4, share: 100 }, after: { sessions: 1, search_first: 1, share: 100 }, decision: null },
+    ] } }));
+  await page.goto('/agents/');
+  const panel = page.getByRole('region', { name: 'Searching first' });
+  await expect(panel.getByRole('listitem').filter({ hasText: 'Codex' })).toContainText('Full block restored');
+  await expect(panel).toContainText('91.7% of 12 sessions');
+  await expect(panel.getByRole('listitem').filter({ hasText: 'Cursor' })).toContainText('Measuring');
+  await expect(page.getByText('Codex has the full Imprint rules again')).toBeVisible();
+  await page.reload();
+  await expect(panel).toContainText('Codex');
+  await expect(page.getByText('Codex has the full Imprint rules again')).toHaveCount(0);
+});

@@ -1,4 +1,5 @@
-"""``imprint skills``: the user's skills and personas (ADRs 0168, 0169).
+"""``imprint skills``: the user's skills and personas (ADRs 0168, 0169),
+and the release's built-in skills (ADR 0213).
 
 Usage:
     python -m imprint.cli_skills [list] [--json]
@@ -7,11 +8,15 @@ Usage:
     python -m imprint.cli_skills found [--json]
     python -m imprint.cli_skills adopt (PATH | --all)
     python -m imprint.cli_skills enable|disable|remove NAME [--kind skill|persona]
+    python -m imprint.cli_skills fork|reset NAME
     python -m imprint.cli_skills apply [--quiet] [--if-needed] [--json]
 
 ``add`` keeps a skill's folder (with its ``SKILL.md``) or a persona's
 Markdown file; ``adopt`` keeps one ``found`` in a connected client's folder.
-Every change is written into the clients' folders at once (``apply``).
+A built-in skill is read-only: ``fork`` makes the user's own copy, which
+replaces it everywhere, and ``reset`` removes that fork so the built-in
+returns. Every change is written into the clients' folders at once
+(``apply``).
 """
 from __future__ import annotations
 
@@ -69,8 +74,10 @@ def _list(as_json: bool) -> int:
              'or adopt one a client already has: `imprint skills found`.')
         return 0
     for item in items:
-        flags = [item['state']] if item['state'] != 'active' else []
-        if item['shadowed']:
+        flags = registry.marks(item)
+        if item['state'] != 'active':
+            flags.append(item['state'])
+        if item['shadowed'] and item['origin'] != registry.BUILTIN:
             flags.append('another holds this name')
         suffix = f" [{', '.join(flags)}]" if flags else ''
         _say(f"{item['kind']:<8} {item['name']}{suffix}\n         {item['description']}")
@@ -96,6 +103,27 @@ def _add(path: str, persona: bool) -> int:
         raise SystemExit(f'{path}: not a skill folder (with a SKILL.md) or a persona file')
     item = registry.create(kind, files)
     _say(f"Added {kind} {item['name']}.")
+    return _apply(quiet=True)
+
+
+def _fork(name: str) -> int:
+    try:
+        registry.fork(name)
+    except KeyError:
+        raise SystemExit(f'No built-in skill named {name}: `imprint skills` lists them') from None
+    _say(f"Forked {name}: your own copy now replaces the built-in in every client and on every paired device. "
+         f"Change it on the Skills page or in a client's folder; `imprint skills reset {name}` brings the built-in back.")
+    return _apply(quiet=True)
+
+
+def _reset(name: str) -> int:
+    try:
+        item = registry.reset(name)
+    except KeyError:
+        raise SystemExit(f'No built-in skill named {name}: `imprint skills` lists them') from None
+    _say(f'Reset {name}: your fork is removed here and on every paired device, and the clients get the built-in again.')
+    if item['state'] == 'disabled':
+        _say(f'The built-in is disabled: `imprint skills enable {name}` gives it to the clients.')
     return _apply(quiet=True)
 
 
@@ -149,6 +177,9 @@ def main(argv: list[str] | None = None) -> int:
         command = commands.add_parser(state, help=help_text)
         command.add_argument('name')
         command.add_argument('--kind', choices=registry.KINDS)
+    for verb, help_text in (('fork', 'Make your own copy of a built-in skill, which replaces it everywhere'),
+                            ('reset', "Remove a built-in skill's fork, so the built-in returns")):
+        commands.add_parser(verb, help=help_text).add_argument('name')
     applying = commands.add_parser('apply', help="Write into the clients' folders and take back edits made there")
     applying.add_argument('--quiet', action='store_true', help='Print only problems')
     applying.add_argument('--if-needed', action='store_true',
@@ -180,6 +211,10 @@ def main(argv: list[str] | None = None) -> int:
             registry.update(item['id'], state=state)
             _say(f"{args.command.capitalize()}d {item['kind']} {item['name']}.")
             return _apply(quiet=True)
+        if args.command == 'fork':
+            return _fork(args.name)
+        if args.command == 'reset':
+            return _reset(args.name)
         if args.command == 'apply':
             if args.if_needed and not registry_files.needed():
                 return 0

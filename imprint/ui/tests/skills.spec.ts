@@ -2,12 +2,14 @@ import { test, expect, type Page } from '@playwright/test';
 
 type Item = { id: string; kind: 'skill' | 'persona'; name: string; description: string; hash: string;
   state: 'active' | 'disabled' | 'retired'; origin: string; device: string; created_at: number; updated_at: number;
-  paths: string[]; size: number; shadowed: boolean; files: Record<string, string> };
+  paths: string[]; size: number; shadowed: boolean; files: Record<string, string>;
+  fork_of?: string; fork?: string; builtin_changed?: boolean; difference?: string };
 
 /** An item as the API lists it: without its files. */
 function withoutFiles(item: Item): Omit<Item, 'files'> {
   const listed: Partial<Item> = { ...item };
   delete listed.files;
+  delete listed.difference;
   return listed as Omit<Item, 'files'>;
 }
 
@@ -20,10 +22,12 @@ const folders = [
   { kind: 'persona', folder: '/home/me/.claude/agents', clients: ['Claude Code'] },
 ];
 
-// Mirrors imprint/api.py's /api/skills (ADRs 0168, 0169): GET lists items
-// without files; POST /apply writes the clients' folders and lists what they
-// hold that Imprint does not (found); GET /{id} adds files and history;
-// PATCH edits files or state; POST /adopt keeps a found one.
+// Mirrors imprint/api.py's /api/skills (ADRs 0168, 0169, 0213): GET lists
+// items without files, the release's built-ins among them; POST /apply writes
+// the clients' folders and lists what they hold that Imprint does not
+// (found); GET /{id} adds files, history and a fork's difference; PATCH edits
+// files or state; POST /adopt keeps a found one; POST /{id}/fork and
+// /{id}/reset fork a built-in and remove the fork.
 async function mockSkills(page: Page) {
   let clock = 1_000;
   const items: Item[] = [
@@ -34,12 +38,25 @@ async function mockSkills(page: Page) {
     { id: 'b'.repeat(32), kind: 'persona', name: 'code-reviewer', description: 'Reviews diffs', hash: 'h2', state: 'active',
       origin: 'adopted', device: 'laptop', created_at: 2, updated_at: 950, paths: ['PERSONA.md'], size: 60, shadowed: false,
       files: { 'PERSONA.md': skillFile('code-reviewer', 'Reviews diffs', 'You review code.') } },
+    // A built-in nobody forked, and one the release changed since it was forked.
+    { id: 'e'.repeat(32), kind: 'skill', name: 'imprint-tasks', description: "Use Imprint's task board", hash: 'h5',
+      state: 'active', origin: 'builtin', device: '', created_at: 0, updated_at: 0, paths: ['SKILL.md'], size: 70,
+      shadowed: false, fork: '', files: { 'SKILL.md': skillFile('imprint-tasks', "Use Imprint's task board", 'Take a ready task.') } },
+    { id: 'g'.repeat(32), kind: 'skill', name: 'imprint', description: "Use Imprint's memory", hash: 'h6',
+      state: 'active', origin: 'builtin', device: '', created_at: 0, updated_at: 0, paths: ['SKILL.md'], size: 70,
+      shadowed: true, fork: 'h'.repeat(32), files: { 'SKILL.md': skillFile('imprint', "Use Imprint's memory", 'Search first.') } },
+    { id: 'h'.repeat(32), kind: 'skill', name: 'imprint', description: "Use Imprint's memory", hash: 'h7',
+      state: 'active', origin: 'user', device: 'laptop', created_at: 3, updated_at: 960, paths: ['SKILL.md'], size: 70,
+      shadowed: false, fork_of: 'g'.repeat(32), builtin_changed: true,
+      files: { 'SKILL.md': skillFile('imprint', "Use Imprint's memory", 'Search when unsure.') },
+      difference: '--- fork/SKILL.md\n+++ built-in/SKILL.md\n@@ -4 +4 @@\n-Search when unsure.\n+Search first.\n' },
   ];
   const found = [{ kind: 'skill', name: 'lint', path: '/home/me/.cursor/skills/lint', folder: '/home/me/.cursor/skills',
                    clients: ['Cursor'], description: 'Lint the change', problem: '' }];
   const report = { folders, written: [], removed: [], taken: [], kept: [], at: 990,
                    problems: [{ path: '/home/me/.claude/skills/cut-a-release', problem: 'SKILL.md needs a description' }] };
-  const state = { patches: [] as object[], posts: [] as object[], adopts: [] as object[] };
+  const state = { patches: [] as object[], posts: [] as object[], adopts: [] as object[], forks: [] as string[],
+                  resets: [] as string[] };
   const listed = () => items.map(withoutFiles);
   await page.route('**/api/**', route => route.fulfill({ json: {} }));
   await page.route('**/api/workspaces', route => route.fulfill({ json: { active: 'default', workspaces: ['default'] } }));
@@ -66,8 +83,28 @@ async function mockSkills(page: Page) {
                     change.state ? { state: change.state } : {}, { updated_at: ++clock });
       return route.fulfill({ json: { ...withoutFiles(item), report: { ...report, problems: [] } } });
     }
-    await route.fulfill({ json: { ...item, history: [{ hash: 'old', state: 'active', device: 'desktop', updated_at: 800,
-                                                         replaced_at: 850, paths: ['SKILL.md'] }] } });
+    const history = item.origin === 'builtin' ? [] : [{ hash: 'old', state: 'active', device: 'desktop', updated_at: 800,
+                                                       replaced_at: 850, paths: ['SKILL.md'] }];
+    await route.fulfill({ json: { ...item, history, difference: item.difference ?? '' } });
+  });
+  await page.route('**/api/skills/*/fork', async route => {
+    const id = route.request().url().split('/').at(-2)!;
+    state.forks.push(id);
+    const builtin = items.find(i => i.id === id)!;
+    const fork: Item = { ...builtin, id: 'f'.repeat(32), origin: 'user', device: 'laptop', created_at: ++clock,
+      updated_at: clock, shadowed: false, fork: '', fork_of: id, builtin_changed: false };
+    items.push(fork);
+    Object.assign(builtin, { fork: fork.id, shadowed: true });
+    await route.fulfill({ json: { ...withoutFiles(fork), report: { ...report, problems: [] } } });
+  });
+  await page.route('**/api/skills/*/reset', async route => {
+    const id = route.request().url().split('/').at(-2)!;
+    state.resets.push(id);
+    const fork = items.find(i => i.id === id)!;
+    const builtin = items.find(i => i.id === fork.fork_of)!;
+    Object.assign(fork, { state: 'retired', fork_of: '', builtin_changed: false, difference: '' });
+    Object.assign(builtin, { fork: '', shadowed: false });
+    await route.fulfill({ json: { ...withoutFiles(builtin), report: { ...report, problems: [] } } });
   });
   await page.route('**/api/skills/apply', route => route.fulfill({ json: { items: listed(), report, found } }));
   await page.route('**/api/skills/adopt', async route => {
@@ -137,4 +174,42 @@ test('adopts a skill found in a client folder', async ({ page }) => {
   await expect.poll(() => state.adopts).toEqual([{ path: '/home/me/.cursor/skills/lint', kind: 'skill' }]);
   await expect(page.getByText('In your clients')).toHaveCount(0);
   await expect(page.getByRole('navigation', { name: 'Skills and personas' }).getByRole('button', { name: 'lint' })).toBeVisible();
+});
+
+test('marks a built-in read-only and forks it', async ({ page }) => {
+  const state = await mockSkills(page);
+  await page.goto('/skills/');
+  const nav = page.getByRole('navigation', { name: 'Skills and personas' });
+  await expect(nav.getByText('Built-in skills')).toBeVisible();
+  await nav.getByRole('button', { name: /^imprint-tasks/ }).click();
+  await expect(page.getByText('Built-in', { exact: true })).toBeVisible();
+  await expect(page.getByText('Ships with this Imprint release, read-only')).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'SKILL.md' })).toHaveAttribute('readonly', '');
+  await expect(page.getByRole('button', { name: 'Save' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Remove' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Disable' })).toBeVisible();
+  await page.getByRole('button', { name: 'Fork', exact: true }).click();
+  await expect.poll(() => state.forks).toEqual(['e'.repeat(32)]);
+  // The fork is selected: the user's own skill, editable, with the way back.
+  await expect(page.getByText('Fork of the built-in skill')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Reset to built-in' })).toBeVisible();
+  await expect(nav.getByRole('button', { name: /^imprint-tasks forked/ })).toBeVisible();
+});
+
+test('shows how the release changed a forked built-in and resets it', async ({ page }) => {
+  const state = await mockSkills(page);
+  await page.goto('/skills/');
+  const nav = page.getByRole('navigation', { name: 'Skills and personas' });
+  await nav.getByRole('button', { name: /^imprint fork / }).click();
+  await expect(page.getByText('This release changed the built-in imprint')).toBeVisible();
+  const diff = page.getByLabel('Difference between your fork of imprint and the built-in');
+  await expect(diff).toContainText('-Search when unsure.');
+  await expect(diff).toContainText('+Search first.');
+  await page.getByRole('button', { name: 'Reset to built-in' }).first().click();
+  await expect.poll(() => state.resets).toEqual(['h'.repeat(32)]);
+  // The built-in is selected again, and no fork replaces it.
+  await expect(page.getByText('Ships with this Imprint release, read-only')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Fork', exact: true })).toBeVisible();
+  await expect(page.getByText('This release changed the built-in imprint')).toHaveCount(0);
 });

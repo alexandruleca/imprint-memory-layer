@@ -120,7 +120,7 @@ Re-running `install.sh` also works and now prompts before overwriting an existin
 
 | Target        | Wired into                                         | Config file                                                                           | Enforcement         |
 |---------------|-----------------------------------------------------|----------------------------------------------------------------------------------------|---------------------|
-| `claude-code` | Claude Code CLI (MCP + hooks + global `CLAUDE.md`) | `~/.claude/settings.json` + MCP registered via `claude mcp add`                        | Instructions + a once-per-session reminder (PreToolUse) |
+| `claude-code` | Claude Code CLI (MCP + hooks + global `CLAUDE.md`) | `~/.claude/settings.json` + MCP registered via `claude mcp add`                        | Instructions + a once-per-session reminder (PreToolUse) + Board notices on each prompt (UserPromptSubmit) |
 | `cursor`      | Cursor IDE (MCP + always-on rule + hooks)          | `~/.cursor/mcp.json` + `~/.cursor/rules/imprint.mdc` + `~/.cursor/hooks.json`          | Rule + a once-per-session reminder (postToolUse) |
 | `codex`       | OpenAI Codex CLI                                   | `~/.codex/config.toml` (`[mcp_servers.imprint]`)                                       | Text-only           |
 | `copilot`     | GitHub Copilot — VS Code (1.143+), Copilot CLI, JetBrains | `~/.copilot/mcp-config.json` + `copilot-instructions.md` + `hooks/imprint.json` (honors `COPILOT_HOME`) | Instructions + SessionStart/Stop hooks |
@@ -164,6 +164,8 @@ imprint restore --project <name> --to <out> [--apply]
                            # preview writing indexed files back from their snapshots, e.g. after a lost
                            # folder; --apply writes only what is missing (--all/--overwrite for the rest)
 imprint upkeep [--dry-run] # bring stored memories up to date now, as the idle queue does
+imprint tasks [list|show|create|move|comment|next|inbox|...]
+                           # the workspace's Board of Tasks that agents and you track work with
 # Heavy jobs (ingest/refresh/retag/scrub/ingest-url/refresh-urls) serialize via a
 # shared queue lock. If another job is already running, the CLI hands its job to
 # the dashboard's queue (an identical waiting job absorbs it) or waits; with
@@ -230,7 +232,7 @@ Terms used across the docs.
 | **Collection** | Qdrant's term for a named set of vectors. Each workspace has its own collection (e.g. `memories`, `memories_research`). |
 | **Workspace** | Isolated memory environment — dedicated Qdrant collection + SQLite DB + WAL. Lets you separate research/staging/prod memories. |
 | **Imprint Graph** | Temporal fact store (SQLite) for structured `subject → predicate → object` facts with `valid_from` / `ended` timestamps. |
-| **MCP** | Model Context Protocol — the open protocol Claude Code uses to call external tools. Imprint ships an MCP server with 21 tools — see [docs/mcp.md](docs/mcp.md). |
+| **MCP** | Model Context Protocol — the open protocol Claude Code uses to call external tools. Imprint ships an MCP server with 23 tools — see [docs/mcp.md](docs/mcp.md). |
 | **Project** | A codebase identified by a canonical name from its manifest (`package.json`, `go.mod`, etc.). Projects get the same identity across machines even if paths differ. |
 | **Layer** | Path-derived tag: `api`, `ui`, `tests`, `infra`, `config`, `migrations`, `docs`, `scripts`, `cli`. |
 | **Kind** | Filename-derived tag: `source`, `test`, `migration`, `readme`, `types`, `module`, `qa`, `auto-extract`. |

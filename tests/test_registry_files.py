@@ -24,7 +24,8 @@ class RegistryFilesTests(unittest.TestCase):
         self.data = root / 'data'
         self.home = root / 'home'
         for patcher in (patch.object(config, 'get_data_dir', return_value=self.data),
-                        patch.object(registry, '_device', return_value='device-a')):
+                        patch.object(registry, '_device', return_value='device-a'),
+                        patch.object(registry, 'BUILTINS', root / 'no-builtins')):
             patcher.start()
             self.addCleanup(patcher.stop)
         self.claude_skills = self.home / '.claude' / 'skills'

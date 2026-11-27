@@ -4,7 +4,7 @@ import sys
 from typing import Annotated, Literal
 from pydantic import AliasChoices, Field
 
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
 from fastmcp.server.middleware import Middleware
 from fastmcp.tools import ToolResult
 from mcp.types import TextContent
@@ -97,6 +97,7 @@ def start_session(directory) -> dict:
     import sqlite3
     from . import workspace_policy as policy
     _session.clear()
+    _session['directory'] = None if directory is None else str(directory)
     try:
         resolution = policy.resolve(directory, session=True)
     except (OSError, ValueError, sqlite3.Error) as error:
@@ -106,6 +107,17 @@ def start_session(directory) -> dict:
     os.environ['IMPRINT_WORKSPACE'] = resolution['workspace']
     _session.update(resolution, notice=policy.notice(resolution))
     return _session
+
+
+def _board_project() -> str | None:
+    """The session's project as the Board names projects: derived from the
+    session's folder, as `imprint tasks` and the session-start lines derive
+    it (ADR 0211), never that folder's path. A WSL client's folder is taken
+    as the client sees it, as its hooks do, not as the bridge's
+    \\\\wsl.localhost path."""
+    from .cli_conversations import derive_project
+    from .wsl_paths import client_path
+    return derive_project(client_path(_session.get('directory') or '')) or None
 
 
 class _SessionNotice(Middleware):
@@ -127,6 +139,30 @@ class _SessionNotice(Middleware):
 
 
 mcp.add_middleware(_SessionNotice())
+
+
+class _BoardNotice(Middleware):
+    """Count each call as the session's activity for its claims' leases, and
+    prefix what the Board has for this session (ADRs 0210, 0212)."""
+
+    async def on_call_tool(self, context, call_next):
+        result = await call_next(context)
+        try:
+            from . import tasks_tool
+            tasks_tool.touch()
+            notice = tasks_tool.notices(client=_calling_client(context.fastmcp_context))
+        except Exception:  # The Board must not cost the agent its result.
+            return result
+        if not notice or not isinstance(result, ToolResult):
+            return result
+        structured = result.structured_content
+        if isinstance(structured, dict) and isinstance(structured.get('result'), str):
+            structured = {**structured, 'result': f'{notice}\n\n{structured["result"]}'}
+        return ToolResult(content=[TextContent(type='text', text=notice), *result.content],
+                          structured_content=structured, meta=result.meta)
+
+
+mcp.add_middleware(_BoardNotice())
 
 
 def _client_info(params):
@@ -1631,6 +1667,144 @@ def skill_edit(
     if action == "create":
         return skills_tool.create(kind or "skill", name, description, instructions, files)
     return skills_tool.edit(name, kind, description, instructions, files, state)
+
+
+# ── The Board (ADRs 0208-0212) ────────────────────────────────────────────
+
+def _calling_client(ctx: Context | None) -> str | None:
+    """The client of this connection, as it named itself."""
+    try:
+        info = _client_info(getattr(getattr(ctx, 'session', None), 'client_params', None))
+        return getattr(info, 'name', None)
+    except Exception:
+        return None
+
+
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False})
+def tasks(
+    action: Literal["board", "list", "get", "history", "next", "handoff", "inbox", "progress"] = "board",
+    task: str = "",
+    project: str = "",
+    feature: str = "",
+    tag: str = "",
+    status: str = "",
+    priority: str = "",
+    assignee: str = "",
+    holder: str = "",
+    text: str = "",
+    archived: bool = False,
+    workspace: str = "",
+    ctx: Context | None = None,
+) -> str:
+    """The workspace's Board: Tasks that agents and the user track work with,
+    shared by every client and paired device. Read it before starting work
+    that may already be tracked.
+
+    Args:
+        action: "board" (Tasks by status), "list" (Tasks matching the filters), "get" (one Task),
+                "history" (one Task's changes), "next" (the standalone Task you may take unasked
+                in this session's project, whatever project is named; with feature, that Feature's
+                frontier, taken when the user asks), "handoff" (where a Task's work
+                stands, to take it over), "inbox" (unread comments addressed to you) or "progress"
+                (how far each project and Feature is, and how long is left)
+        task: The Task for get, history and handoff, e.g. "T-7f3kq"
+        project: Only this project's Tasks
+        feature: Only the Tasks of this Feature (a Task id)
+        tag: Only Tasks with this tag
+        status: Only this status: Backlog, Ready, In progress, Review, Done or Cancelled
+        priority: Only this priority, P0 to P3
+        assignee: Only Tasks assigned to this: "user", a client, "@device" or "client@device"
+        holder: Only Tasks held by this agent (its name)
+        text: Only Tasks whose id, title, description, criteria or tags contain this
+        archived: For list, include Done and Cancelled Tasks that ended over 14 days ago
+        workspace: Target workspace (default: the session's)
+    """
+    from . import tasks_tool
+    return tasks_tool.read(action, task=task, archived=archived, workspace=workspace, project=project,
+                           feature=feature, tag=tag, status=status, priority=priority, assignee=assignee, holder=holder,
+                           text=text, session_project=_board_project(), client=_calling_client(ctx))
+
+
+@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False})
+def task_edit(
+    action: Literal["create", "edit", "append", "move", "tag", "assign", "link", "block", "unblock", "cancel",
+                    "claim", "checkpoint", "release", "name", "comment"],
+    task: str = "",
+    title: str | None = None,
+    description: str | None = None,
+    project: str | None = None,
+    status: str = "",
+    priority: str | None = None,
+    position: float | None = None,
+    acceptance: list[str] | None = None,
+    tags: list[str] | None = None,
+    assignees: list[str] | None = None,
+    feature: str | None = None,
+    blockers: list[str] | None = None,
+    add: list[str] | None = None,
+    remove: list[str] | None = None,
+    text: str = "",
+    token: str = "",
+    branch: str = "",
+    commit: str = "",
+    files: list[str] | None = None,
+    next_step: str = "",
+    name: str = "",
+    to: list[str] | None = None,
+    workspace: str = "",
+    ctx: Context | None = None,
+) -> str:
+    """Change the workspace's Board. Create a Task for work you cannot finish
+    in this session (a follow-up, a defect outside your scope) or when the
+    user asks; it goes to Backlog unless it has acceptance criteria and you
+    pass status "Ready". Only the user deletes Tasks: cancel instead.
+
+    Args:
+        action: "create"; on an existing task: "edit" (replace the fields given), "append" (add
+                text to the description), "move" (to status), "tag"/"assign" (add, remove),
+                "link" (feature, and blockers to add/remove), "block" (text is the reason),
+                "unblock" or "cancel"; "claim" (take it to work on), "checkpoint" (record
+                progress while you hold it) or "release" (let it go unfinished); "name" (choose
+                the name you go by on the Board, before your first claim or comment); "comment"
+                (text, optionally to someone)
+        task: The Task to change, e.g. "T-7f3kq"
+        title: The title
+        description: What and why, in Markdown (edit replaces it; append adds to it)
+        project: The project (create's default: this session's)
+        status: For create, "Backlog" (default) or "Ready" (needs criteria); for move, the new status
+        priority: P0 (most urgent) to P3; default P2
+        position: For edit or move, its place within its status (lower is higher)
+        acceptance: Acceptance criteria, one per item (edit replaces them)
+        tags: For create, its tags
+        assignees: For create, who it is for: "user", a client ("codex"), "@device" or "client@device"
+        feature: The Feature (a Task id) it belongs to; for link, "" takes it out
+        blockers: For create, the Tasks that must be Done first
+        add: For tag, assign or link, the tags, assignees or blocking Tasks to add
+        remove: For tag, assign or link, those to remove
+        text: For append, the text; for block, the reason; for checkpoint, what is done
+        token: For claim, the token an earlier claim of yours returned, to take it back after a restart
+        branch: For checkpoint, the task branch the work is on
+        commit: For checkpoint, its last commit
+        files: For checkpoint, the files touched
+        next_step: For checkpoint, what comes next
+        name: For name, 2 to 24 letters, digits and hyphens that others will know you by
+        to: For comment, whom it is for: "user", "holder", an agent's name, a client ("codex"),
+            "@device" or "client@device"; @name in the text addresses too; none means the holder
+        workspace: Target workspace (default: the session's)
+    """
+    from . import tasks_tool
+    who = tasks_tool.actor(_calling_client(ctx), workspace)
+    if action == "name":
+        return tasks_tool.choose_name(name, actor=who, workspace=workspace)
+    if action == "create":
+        return tasks_tool.create(title=title or "", project=tasks_tool.project(project or "", _board_project()),
+                                 description=description or "", status=status, priority=priority or "",
+                                 acceptance=acceptance, tags=tags, assignees=assignees, feature=feature or "",
+                                 blockers=blockers, actor=who, workspace=workspace)
+    return tasks_tool.change(action, task, actor=who, workspace=workspace, title=title, description=description,
+                             project=project, status=status, priority=priority, position=position,
+                             acceptance=acceptance, feature=feature, add=add, remove=remove, text=text,
+                             token=token, branch=branch, commit=commit, files=files, next_step=next_step, to=to)
 
 
 def _first_meaningful_line(text: str, max_len: int = 200) -> str:

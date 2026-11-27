@@ -4,10 +4,10 @@ import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
 import Icon from '../components/Icon.astro';
 import releases from '../data/releases.json';
-import {chromeWebStoreUrl, latestChromeExtension, latestFirefoxExtension} from '../lib/chrome-extension.mjs';
+import {chromeWebStoreUrl, firefoxInstall, latestChromeExtension} from '../lib/chrome-extension.mjs';
 
 const extension = latestChromeExtension(releases);
-const firefox = latestFirefoxExtension(releases);
+const firefox = firefoxInstall(releases);
 const title = 'Browser extension — Save pages, files and screenshots to Imprint';
 const description = 'Save page text, a selection, a PDF or attachment, a Google Doc or Sheet, or the text in a screenshot to your local Imprint memory from Chrome or Firefox. Preview what you save; it goes only to Imprint on your computer.';
 const comingSoon = [
@@ -28,7 +28,9 @@ const comingSoon = [
           <p class="lede max-w-lg">A useful page. A passage, a PDF, a Google Doc. Save it to your local Imprint memory, right from your browser.</p>
           <div class="mt-8 flex flex-wrap gap-3">
             <a href={chromeWebStoreUrl} class="btn btn-primary"><Icon name="globe" size={17} /> Add to Chrome</a>
-            {firefox && <a href={firefox.asset.url} class="btn btn-ghost"><Icon name="download" size={17} /> Firefox add-on</a>}
+            {firefox && (firefox.listed
+              ? <a href={firefox.url} class="btn btn-ghost"><Icon name="globe" size={17} /> Add to Firefox</a>
+              : <a href={firefox.url} class="btn btn-ghost"><Icon name="download" size={17} /> Firefox add-on</a>)}
             <a href="#install" class="btn btn-ghost">How to install <Icon name="arrowRight" size={16} /></a>
           </div>
           <p class="mt-4 text-xs text-[color:var(--color-text-dim)]">Chrome Web Store · updates itself · Pages, files, screenshots &amp; meetings{extension && <> · or the <a href={extension.asset.url} class="underline underline-offset-2" data-extension-download>{extension.release.tag} ZIP</a> to load by hand</>}</p>
@@ -83,7 +85,7 @@ const comingSoon = [
       </div>
     </section>
 
-    <section class="section border-t border-[color:var(--color-border)]"><div class="wrap grid gap-9 md:grid-cols-2"><div><h2 class="text-lg font-semibold">What leaves my browser?</h2><p class="mt-3 text-sm text-[color:var(--color-text-muted)]">Only the text, link, file or screenshot you choose to save, and only to Imprint on your computer. The extension reads a page only when you open it there, does not read cookies, passwords or history, and has no analytics. Captures then follow your workspace’s sync and model settings, including any remote providers you have chosen. <a href="/privacy/#extension" class="underline underline-offset-2">Privacy policy</a></p></div><div><h2 class="text-lg font-semibold">How do I update it?</h2><p class="mt-3 text-sm text-[color:var(--color-text-muted)]">From the Chrome Web Store, Chrome updates it for you. A copy loaded from the ZIP does not: download the latest ZIP, replace the files in the same folder, then click <strong>Reload</strong> for Imprint Capture in <code class="cmd">chrome://extensions</code>. Keeping the same folder keeps the extension ID and settings.</p></div><div><h2 class="text-lg font-semibold">Is there a Firefox version?</h2><p class="mt-3 text-sm text-[color:var(--color-text-muted)]">The same extension runs in Firefox 140 or later. The <strong>Firefox add-on</strong> button installs the latest Mozilla-signed build when you open it in Firefox; it does not update itself, so install newer builds the same way. Each release's <code class="cmd">-unsigned.xpi</code> is for Developer Edition, Nightly or a temporary load.</p></div></div></section>
+    <section class="section border-t border-[color:var(--color-border)]"><div class="wrap grid gap-9 md:grid-cols-2"><div><h2 class="text-lg font-semibold">What leaves my browser?</h2><p class="mt-3 text-sm text-[color:var(--color-text-muted)]">Only the text, link, file or screenshot you choose to save, and only to Imprint on your computer. The extension reads a page only when you open it there, does not read cookies, passwords or history, and has no analytics. Captures then follow your workspace’s sync and model settings, including any remote providers you have chosen. <a href="/privacy/#extension" class="underline underline-offset-2">Privacy policy</a></p></div><div><h2 class="text-lg font-semibold">How do I update it?</h2><p class="mt-3 text-sm text-[color:var(--color-text-muted)]">From the Chrome Web Store, Chrome updates it for you. A copy loaded from the ZIP does not: download the latest ZIP, replace the files in the same folder, then click <strong>Reload</strong> for Imprint Capture in <code class="cmd">chrome://extensions</code>. Keeping the same folder keeps the extension ID and settings.</p></div><div><h2 class="text-lg font-semibold">Is there a Firefox version?</h2><p class="mt-3 text-sm text-[color:var(--color-text-muted)]">The same extension runs in Firefox 140 or later. {firefox?.listed ? <><strong>Add to Firefox</strong> opens it on addons.mozilla.org, and Firefox updates it for you.</> : <>The <strong>Firefox add-on</strong> button installs the latest Mozilla-signed build when you open it in Firefox; it does not update itself, so install newer builds the same way.</>} Each release's <code class="cmd">-unsigned.xpi</code> is for Developer Edition, Nightly or a temporary load.</p></div></div></section>
   </main>
   <Footer />
 </Landing>

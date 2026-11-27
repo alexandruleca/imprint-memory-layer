@@ -7,6 +7,10 @@ instructions list each active item's name and description (``index``), and
 the ``skills`` and ``skill_edit`` tools read, create and change them
 (``listing``, ``read``, ``create``, ``edit``). A change is written into the
 clients' folders at once and reaches paired devices with the next sync.
+
+The release's built-in skills (ADR 0213) are listed and read like the
+user's items. ``edit`` only enables or disables one: changing it takes a
+fork, which a skill created with its name is.
 """
 from __future__ import annotations
 
@@ -51,8 +55,6 @@ def _short(text: str, limit: int) -> str:
 def index(client: str | None = None) -> str:
     """The handshake's block listing the active skills and personas, or
     empty when there are none the client lacks."""
-    if not registry.exists():
-        return ''
     skip = native_kinds(client)
     sections = [(kind, items) for kind in registry.KINDS if kind not in skip
                 for items in [registry.active(kind)] if items]
@@ -93,8 +95,6 @@ def _find(name: str, kind: str = '') -> dict:
         raise ValueError('name is required: skills(action="list") lists them')
     if kind and kind not in registry.KINDS:
         raise ValueError(f'kind must be one of {", ".join(registry.KINDS)}')
-    if not registry.exists():
-        raise ValueError(f'No {kind or "skill or persona"} named {name}')
     try:
         return registry.find(name, kind or None)
     except KeyError:
@@ -105,14 +105,16 @@ def listing(kind: str = '') -> str:
     """Every skill and persona that is not removed, with its description."""
     if kind and kind not in registry.KINDS:
         raise ValueError(f'kind must be one of {", ".join(registry.KINDS)}')
-    items = [i for i in registry.list_all(kind or None) if i['state'] != 'retired'] if registry.exists() else []
+    items = [i for i in registry.list_all(kind or None) if i['state'] != 'retired']
     if not items:
         return ('No skills or personas yet. skill_edit(action="create", ...) keeps one, or the user adds them '
                 'with `imprint skills add` or on the dashboard\'s Skills page.')
     lines = []
     for item in items:
-        marks = [mark for mark, on in (('disabled', item['state'] == 'disabled'),
-                                       ('shadowed by an older one of the same name', item['shadowed'])) if on]
+        marks = registry.marks(item) + [mark for mark, on in (
+            ('disabled', item['state'] == 'disabled'),
+            ('shadowed by an older one of the same name', item['shadowed'] and item['origin'] != registry.BUILTIN))
+            if on]
         files = '' if item['paths'] == [registry.MAIN[item['kind']]] else f" ({len(item['paths'])} files)"
         lines.append(f"{item['kind']} {item['name']}{files}{' [' + ', '.join(marks) + ']' if marks else ''}: "
                      f"{item['description']}")
@@ -130,7 +132,7 @@ def read(name: str, kind: str = '', path: str = '', start: int = 0) -> str:
     start = max(0, int(start or 0))
     part = text[start:start + READ_CHARS]
     end = start + len(part)
-    head = [f"{item['kind']} {item['name']} ({item['state']}), {path}"]
+    head = [f"{item['kind']} {item['name']} ({', '.join([item['state'], *registry.marks(item)])}), {path}"]
     others = [p for p in files if p != path]
     if others:
         head.append(f'Its other files: {", ".join(others)} (path="<file>" reads one)')
@@ -189,8 +191,10 @@ def create(kind: str, name: str = '', description: str = '', instructions: str =
             raise ValueError(f'A new {kind} needs name, description and instructions, or files with its {main}')
         files[main] = registry.compose(kind, name, description, instructions)[main]
     item = registry.create(kind, files)
-    return (f"Kept {kind} {item['name']} [{item['id']}]; it reaches the user's paired devices with the next sync.\n"
-            + _written(item))
+    fork = (f" It is the fork of the built-in {kind} {item['name']}, and replaces it in every client."
+            if item['fork_of'] else '')
+    return (f"Kept {kind} {item['name']} [{item['id']}]; it reaches the user's paired devices with the next sync."
+            f"{fork}\n" + _written(item))
 
 
 def edit(name: str, kind: str = '', description: str = '', instructions: str = '',
@@ -200,6 +204,9 @@ def edit(name: str, kind: str = '', description: str = '', instructions: str = '
     if state and state not in WRITE_STATES:
         raise ValueError('state must be active or disabled; the user removes items in Imprint')
     item = _find(name, kind)
+    if item['origin'] == registry.BUILTIN and (files or description or instructions):
+        raise ValueError(registry.read_only(item['name']) + ' A skill you create with its name '
+                         '(skill_edit(action="create")) is its fork too.')
     main = registry.MAIN[item['kind']]
     changed = dict(item['files'])
     for path, text in (files or {}).items():

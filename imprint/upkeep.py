@@ -19,6 +19,10 @@ Steps, each finite, resumable and safe to repeat:
   record chunks although ingest now keeps them whole, are indexed again from
   disk, one file at a time, as a refresh would. A file in a WSL distribution
   that is not running waits for it: reading the share would start it.
+- ``search-first`` (ADR 0214): for each client that got the short rules
+  block, whether its agents still search Imprint first, and the decision to
+  keep the block or restore the full one (``search_first``). It belongs to
+  the device, not a workspace, and never reads the vector store.
 
 A device-local ledger, ``data/upkeep.json``, keeps each workspace's finished
 step versions, a step's resume point and the files a step could not handle
@@ -150,6 +154,7 @@ class Step:
     label: str
     due: Callable[[str, dict], bool]
     run: Callable[[str, dict, Pass], bool]   # True once finished; False when halted
+    device: bool = False                     # once per device, with the active workspace's name
 
 
 # ── timestamps (ADR 0200) ─────────────────────────────────────────────
@@ -420,10 +425,29 @@ def _data_run(workspace: str, entry: dict, run: Pass) -> bool:
     return True
 
 
+# ── search-first (ADR 0214) ───────────────────────────────────────────
+
+def _search_first_due(workspace: str, entry: dict) -> bool:
+    from . import search_first
+    return search_first.due()
+
+
+def _search_first_run(workspace: str, entry: dict, run: Pass) -> bool:
+    from . import search_first
+    if run.dry_run:
+        print('  would compare how often agents search Imprint first', flush=True)
+        return True
+    for line in search_first.step():
+        print(f'  {line}', flush=True)
+    return True
+
+
 STEPS: tuple[Step, ...] = (
     Step('timestamps', 'memories from paired devices dated to when they were first stored',
          _timestamps_due, _timestamps_run),
     Step('data-files', 'large data files kept whole', _data_due, _data_run),
+    Step('search-first', 'whether agents still search Imprint first with the short rules block',
+         _search_first_due, _search_first_run, device=True),
 )
 _BY_NAME = {step.name: step for step in STEPS}
 
@@ -467,8 +491,10 @@ def due(*, fresh: bool = False) -> list[tuple[str, str]]:
         return _due_cache['value']
     ledger = read()
     found = []
-    for workspace in _workspaces():
+    for position, workspace in enumerate(_workspaces()):
         for step in STEPS:
+            if step.device and position:
+                continue
             try:
                 if step.due(workspace, _entry(ledger, workspace, step.name)):
                     found.append((workspace, step.name))
@@ -544,12 +570,14 @@ def _run(stop, *, budget, dry_run, background, lower_priority) -> int:
     from . import vectorstore as vs
     work = Pass(stop, budget=budget, dry_run=dry_run, background=background,
                 command='tag-backlog' if background else 'upkeep')
-    client = vs._get_client()
+    client = None
     code = 0
     for workspace, name in pending:
         step = _BY_NAME[name]
         entry = _entry(work.ledger, workspace, name)
-        if not client.collection_exists(config.collection_name(workspace)):
+        if not step.device:
+            client = client or vs._get_client()
+        if not step.device and not client.collection_exists(config.collection_name(workspace)):
             _settle(name, workspace, entry)
             work.save()
             continue

@@ -27,7 +27,7 @@ The dashboard is Imprint's local web interface. It shows what your AI tools reme
 The dashboard comes in two forms over the same pages, memory and settings ([ADR 0182](adr/0182-the-dashboard-has-a-simple-and-an-advanced-form.md)). **Advanced** is every page and every setting, as the rest of this document describes. **Simple** is for people who use Imprint without setting it up in detail: fewer pages, plainer words, and a short list of settings. Nothing is turned off in either, and every address works in both.
 
 - **Which one shows** is the `ui.mode` setting of this device, so the browser, the desktop app and Echo's window agree. The first start of a version that has it chooses once: Advanced for an installation that had already run a job or served an agent session, Simple for a new one. The top-bar menu, the welcome and Settings switch it at any time; another open window follows at once.
-- **Simple lists eleven pages:** Home (Dashboard), Chat, Search, Echo (Voice), Recordings and Reminders; under *Your memory* Library (Projects), About you (Core memories) and Skills; under *This device* Devices (Sync) and Settings. Graph, Topics, Sources, Organize, Queue, Agents and Commands are not listed. Opened by their address they work, under a note that says the page belongs to the advanced dashboard and offers **Switch to Advanced**.
+- **Simple lists twelve pages:** Home (Dashboard), Chat, Search, Echo (Voice), Recordings, Reminders and Tasks (the Agents page's Board alone, [ADR 0217](adr/0217-the-simple-dashboard-lists-the-board-as-tasks.md)); under *Your memory* Library (Projects), About you (Core memories) and Skills; under *This device* Devices (Sync) and Settings. Graph, Topics, Sources, Organize, Queue and Commands are not listed. Opened by their address they work, under a note that says the page belongs to the advanced dashboard and offers **Switch to Advanced**.
 - **What Simple leaves out of the shared pages:**
   - *Home:* the commands behind **Add to memory** and its fetch-again and link-following options, the Topics and Languages tiles, and **What is in memory**. **Needs your review** takes the place of **Needs attention**: a job that did not finish in the last day (**Try again**), up to three sources Organize would move (**Move to …**, **Keep where it is**), up to three guidelines it drafted (**Yes, remember this**, **No, that is wrong**) and up to three contradictions (**Use the newer**, **Keep the earlier**, **Keep both**), each with **Undo** in its toast; more than three link to the full list. These are the writes Organize and Core memories make.
   - *The running job,* on Home and in the top bar, is named in plain words ("Reading your AI conversations") without its phase and counts; the top-bar pill opens a panel with its progress and what waits, and links to Queue.
@@ -160,14 +160,31 @@ Imprint runs one job at a time ([ADR 0064](adr/0064-single-slot-command-queue-an
 
 ### Agents
 
-Every AI client that uses Imprint starts its own MCP server, and each one is a session here ([ADR 0117](adr/0117-the-dashboard-shows-each-agent-session-and-its-calls.md)).
+The page has two tabs, **Sessions** and **Board**; the address keeps the open one (`/agents/#board`).
+
+Every AI client that uses Imprint starts its own MCP server, and each one is a session here ([ADR 0117](adr/0117-the-dashboard-shows-each-agent-session-and-its-calls.md)). A session that used the Board shows the name its agent chose, which **Rename** in its panel changes ([ADR 0216](adr/0216-agents-choose-their-own-names.md)).
 
 - **Clients** totals every recorded session by client: sessions, how many run now, calls, errors and last activity. Clicking a client shows only its sessions; clicking it again shows all. On a phone the clients scroll sideways.
 - **Filter** narrows the sessions to a folder, client or workspace name; Escape clears it.
 - **Running now** keeps connected sessions on top, with a pulsing dot, how long each has run and when it last called a tool.
+- **Searching first**, once a client got the short rules block, shows for each such client the share of its sessions that searched Imprint first in the 14 days before and after the switch, and what Imprint decided: still measuring (with the date it compares), the short block kept, or the full block restored. A restore is also told once in a toast on any page ([ADR 0214](adr/0214-the-rules-block-shrinks-to-a-stub-once-agents-keep-searching-first.md)).
 - **History** lists finished sessions by when they were last active, under Today, Yesterday, This week, Last week, This month, Last month and then each earlier month, in this computer's time zone and week. Each heading counts its sessions and stays at the top while its sessions scroll. A row shows the folder, client, calls, errors and how long the session ran; times are short within a group and full on hover.
 - The history loads 50 sessions at a time: the next page loads when the end of the list scrolls into view, or with **Load older sessions**. The page refreshes the newest sessions every 3 seconds without dropping pages already loaded or moving the list ([ADR 0151](adr/0151-agent-sessions-page-by-last-activity-with-a-cursor.md)).
 - A session opens a panel with its totals, folder, workspace, times and process, and its tool calls, newest first, with shortened and redacted arguments, errors, duration and time; calls from more than one day are grouped the same way. A running session's calls update live, and older calls load 100 at a time.
+
+**Board** shows the workspace's [Tasks](tasks.md) in a column per status and refreshes every 5 seconds while agents work ([ADR 0208](adr/0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md)).
+
+- **Progress** shows each project and Feature with a bar of its Done Tasks, what is in progress, in review, blocked or Stale, and how long is left at the pace of the last 14 days ([the Board](tasks.md#progress)). A Feature's card shows its bar too, and its drawer the estimate.
+- **What needs you** counts the Tasks waiting for your review, assigned to you, Stale, Stalling and Blocked; clicking a count shows only those Tasks.
+- A card shows the Task's id, priority, project, title, Feature (or, on a Feature, how many Tasks it has), tags and assignees, the agent working on it and when it last made progress, a **Stalling**, **Stale**, **Blocked** or **Waits on** mark, and its comments.
+- Done and Cancelled start folded to narrow strips with their counts, so every status fits; a strip unfolds on click and still takes a dropped card. Which columns are unfolded is kept in this browser.
+- **Find tasks** searches ids, titles, descriptions, criteria and tags. **Filters** narrows to a project, Feature, tag, priority, assignee or agent, and the filters on show under the toolbar, each with its own clear button. **Group by** splits each column by project or Feature. Filters and grouping are kept in this browser.
+- Drag a card to another column, or onto a card to place it above, or use the card's menu. A move the Board refuses, such as Ready without an acceptance criterion, says why and offers to add criteria.
+- **New task** puts one in Backlog, or in Ready with criteria.
+- A card opens the Task: status, priority, Feature, the agent working on it with a **Release** button (a Stale Task offers **Move back to Ready**), the Blocked mark, criteria, description, tags and assignees, where the work stands (last checkpoint, branch and commit, files, the agent's conversation), comments with a box to address an agent, the history, **Cancel task** and **Delete**. The address opens it too (`/agents/?task=T-…#board`).
+- Below the Board, the advanced dashboard sets what agents take unasked in this workspace (`tasks.autonomy`).
+- On any page, a comment an agent addressed to you, or a Task reaching Review, shows a toast with **Open**; in the desktop app it is also a native notification while the dashboard is not in front.
+- The simple dashboard lists this page as **Tasks** and shows the Board alone, without the Sessions tab, the history, lease times, branch and files. The Agents page's tutorial walks through the tabs, what needs you and the columns.
 
 ### Commands
 

@@ -19,6 +19,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from 'no
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { marked } from 'marked';
+import { amoListing, firefoxAddonId } from '../src/lib/chrome-extension.mjs';
 
 marked.setOptions({ gfm: true, breaks: false });
 
@@ -83,6 +84,24 @@ async function fetchReleases() {
     const res = await fetch(url, { headers, signal: ctrl.signal });
     if (!res.ok) throw new Error(`GitHub API ${res.status}: ${await res.text().catch(() => '')}`);
     return await res.json();
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+// The Firefox add-on's listing on addons.mozilla.org, or null while it has none
+// (ADR 0207). Read on every build: the site is rebuilt after each release, and
+// any failure only leaves the Firefox button on the newest signed file.
+async function fetchFirefoxListing() {
+  const url = `https://addons.mozilla.org/api/v5/addons/addon/${encodeURIComponent(firefoxAddonId)}/`;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { headers: { 'User-Agent': 'imprint-site-build', Accept: 'application/json' }, signal: ctrl.signal });
+    return res.ok ? amoListing(await res.json()) : null;
+  } catch (err) {
+    console.warn(`[build-releases] addons.mozilla.org lookup failed (${err.message}); no Firefox listing`);
+    return null;
   } finally {
     clearTimeout(t);
   }
@@ -188,12 +207,13 @@ async function main() {
     }
   }
 
-  const payload = normalize(raw);
+  const payload = { ...normalize(raw), firefoxListing: await fetchFirefoxListing() };
   mkdirSync(dirname(OUT), { recursive: true });
   writeFileSync(OUT, JSON.stringify(payload, null, 2));
 
   const latest = payload.latestStable?.tag || 'none';
-  console.log(`[build-releases] source=${source} latest=${latest} total=${payload.releases.length} → ${OUT}`);
+  const firefox = payload.firefoxListing ? `listed ${payload.firefoxListing.version}` : 'no listing';
+  console.log(`[build-releases] source=${source} latest=${latest} total=${payload.releases.length} firefox=${firefox} → ${OUT}`);
 }
 
 main().catch((err) => {

@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 
 	"github.com/hunter/imprint/internal/hooks"
-	"github.com/hunter/imprint/internal/instructions"
 	"github.com/hunter/imprint/internal/jsonutil"
 	"github.com/hunter/imprint/internal/output"
 	"github.com/hunter/imprint/internal/platform"
@@ -59,10 +58,11 @@ func SetupCursor(backend func() backendPaths) {
 	}
 	rulePath := filepath.Join(rulesDir, "imprint.mdc")
 	output.Info("Checking Cursor rule...")
-	if existing, err := os.ReadFile(rulePath); err == nil && string(existing) == instructions.CursorRule {
+	rule := rulesFor("cursor", bp.DataDir)
+	if existing, err := os.ReadFile(rulePath); err == nil && string(existing) == rule {
 		output.Skip("Cursor rule already up to date at " + rulePath)
 	} else {
-		if err := os.WriteFile(rulePath, []byte(instructions.CursorRule), 0644); err != nil {
+		if err := os.WriteFile(rulePath, []byte(rule), 0644); err != nil {
 			output.Fail("Could not write " + rulePath + ": " + err.Error())
 		} else {
 			output.Success("Wrote Cursor rule to " + rulePath)

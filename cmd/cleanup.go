@@ -22,7 +22,9 @@ type clientCleanup struct {
 	keys               []string
 	toml               bool
 	hooks, rules, rule string
-	permission         bool
+	// short is the short form of an owned rule file (ADR 0214), also removed.
+	short      string
+	permission bool
 	// stale marks a layout the client no longer reads, such as an older
 	// Claude Desktop config: disconnect still cleans it, but an entry there
 	// does not make the client connected.
@@ -68,7 +70,8 @@ func chatGPTDesktopRegistrations() []clientCleanup {
 }
 
 func cursorRegistrations() []clientCleanup {
-	return []clientCleanup{{registry: platform.CursorMCPPath(), keys: []string{"mcpServers"}, hooks: platform.CursorHooksPath(), rules: filepath.Join(platform.CursorRulesDir(), "imprint.mdc"), rule: instructions.CursorRule}}
+	return []clientCleanup{{registry: platform.CursorMCPPath(), keys: []string{"mcpServers"}, hooks: platform.CursorHooksPath(), rules: filepath.Join(platform.CursorRulesDir(), "imprint.mdc"), rule: instructions.CursorRule,
+		short: instructions.Rule("cursor", false)}}
 }
 
 func codexRegistrations() []clientCleanup {
@@ -116,7 +119,7 @@ func clineRegistrations() []clientCleanup {
 // listed instructions file), the instructions file and Imprint's plugin.
 func openCodeRegistrations() []clientCleanup {
 	return []clientCleanup{{registry: platform.OpenCodeConfigPath(), keys: []string{"mcp"},
-		rules: platform.OpenCodeRulePath(), rule: instructions.OpenCodeRule,
+		rules: platform.OpenCodeRulePath(), rule: instructions.OpenCodeRule, short: instructions.Rule("opencode", false),
 		owned: platform.OpenCodePluginPath(), instruction: platform.OpenCodeRulePath()}}
 }
 
@@ -250,7 +253,7 @@ func cleanupClient(c clientCleanup, project string) error {
 	if c.hooks != "" {
 		// Current hook_entry paths and historical Imprint commands. This client
 		// is known not to have a foreign Imprint registration at this point.
-		_, err := jsonutil.RemoveHooksMatching(c.hooks, []string{"imprint/hook_entry.py", `imprint\hook_entry.py`, "imprint.cli_", "Imprint MCP available", "Imprint MCP gate", "COMPACTION IMMINENT", "Imprint MCP: compaction", filepath.Join(platform.DataDir(project), ".sessions"), filepath.ToSlash(filepath.Join(platform.DataDir(project), ".sessions"))})
+		_, err := jsonutil.RemoveHooksMatching(c.hooks, []string{"imprint/hook_entry.py", `imprint\hook_entry.py`, promptNoticesMarker, "imprint.cli_", "Imprint MCP available", "Imprint MCP gate", "COMPACTION IMMINENT", "Imprint MCP: compaction", filepath.Join(platform.DataDir(project), ".sessions"), filepath.ToSlash(filepath.Join(platform.DataDir(project), ".sessions"))})
 		if err != nil {
 			return fmt.Errorf("%s: %w", c.hooks, err)
 		}
@@ -269,7 +272,7 @@ func cleanupClient(c clientCleanup, project string) error {
 			return err
 		}
 		if c.rule != "" {
-			if string(content) == c.rule {
+			if string(content) == c.rule || (c.short != "" && string(content) == c.short) {
 				return os.Remove(c.rules)
 			}
 			output.Skip("Preserving edited rule " + c.rules)

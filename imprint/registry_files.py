@@ -10,7 +10,8 @@ possible. A persona sits in Codex's folder as a TOML agent file and
 everywhere else as it is kept (``registry_formats``).
 
 A folder Imprint writes into holds ``.imprint-managed.json``: the items it
-wrote there, by name, with the content hash of what it wrote. That makes
+wrote there, by name, with the content hash of what it wrote, and
+``builtin`` for a built-in skill of the release (ADR 0213). That makes
 three rules hold:
 
 - Imprint never writes over or removes what it did not write. A folder of
@@ -19,7 +20,7 @@ three rules hold:
   is taken back into the registry, so it reaches every device. When the
   registry changed meanwhile too, the newer change wins and the other stays
   in this device's history. An edit that does not validate is left in place,
-  untouched, until it does.
+  untouched, until it does. A built-in changed there becomes its fork.
 - An item removed in Imprint, or a folder no connected client reads any
   more, is removed from that folder only while it still holds what Imprint
   wrote. One removed in the client is written again: Imprint is where items
@@ -200,8 +201,13 @@ def _load(kind: str, folder) -> dict:
         # A name is a path segment here: only valid item names are kept.
         if (isinstance(name, str) and registry.NAME.fullmatch(name) and isinstance(entry, dict)
                 and registry._ID.fullmatch(str(entry.get('id'))) and isinstance(entry.get('hash'), str)):
-            items[name] = {'id': entry['id'], 'hash': entry['hash']}
+            items[name] = _entry(entry['id'], entry['hash'], entry.get('builtin') is True)
     return {**doc, 'kind': kind, 'items': items}
+
+
+def _entry(item_id: str, digest: str, builtin: bool) -> dict:
+    """A manifest's record of one item it wrote; a built-in is marked."""
+    return {'id': item_id, 'hash': digest, **({'builtin': True} if builtin else {})}
 
 
 def _save(folder, doc: dict) -> None:
@@ -269,6 +275,19 @@ def _take(item_id: str, files: dict[str, str], at: float, report: dict, path: Pa
         report['kept'].append(str(path))
 
 
+def _fork(kind: str, name: str, files: dict[str, str], at: float, report: dict, path: Path) -> str:
+    """Take an edit of a built-in made in a client's folder as its fork (ADR
+    0213), or into the fork that holds its name already; returns the id the
+    edit went to. ValueError when the edit is not a valid item."""
+    holder = registry.find(name, kind)
+    if holder['origin'] != registry.BUILTIN:
+        _take(holder['id'], files, at, report, path)
+        return holder['id']
+    made = registry.create(kind, files)
+    report['taken'].append(str(path))
+    return made['id']
+
+
 def apply(clients: list[dict] | None = None) -> dict:
     """Write the registry into the clients' folders and take back what was
     changed there. Returns what it did, and the folders it left alone and
@@ -319,9 +338,13 @@ def apply(clients: list[dict] | None = None) -> dict:
                     item = registry.get(entry['id'])
                     if item is None:
                         raise LookupError(entry['id'])
-                    _take(entry['id'], parsed(kind, fmt, files, item['files']), path.stat().st_mtime
-                          if kind == 'persona' else max(f.stat().st_mtime for f in [path, *path.rglob('*')]),
-                          report, path)
+                    edited = parsed(kind, fmt, files, item['files'])
+                    at = path.stat().st_mtime if kind == 'persona' else max(f.stat().st_mtime
+                                                                            for f in [path, *path.rglob('*')])
+                    if item['origin'] == registry.BUILTIN:
+                        doc['items'][name] = entry = _entry(_fork(kind, name, edited, at, report, path), digest, False)
+                    else:
+                        _take(entry['id'], edited, at, report, path)
                     entry['hash'] = digest
                 except LookupError:
                     del doc['items'][name]  # Its item is unknown here: the folder is the user's now.
@@ -371,6 +394,7 @@ def _settle(kind: str, folder: str, fmt: str, doc: dict, items: list[dict], held
             continue
         path = place(kind, folder, name, fmt)
         entry = managed.get(name)
+        builtin = item['origin'] == registry.BUILTIN
         try:
             want = rendered(kind, fmt, item['files'])
             want_hash = registry.content_hash(kind, want)
@@ -378,7 +402,7 @@ def _settle(kind: str, folder: str, fmt: str, doc: dict, items: list[dict], held
             if files is not None:
                 digest = registry.content_hash(kind, files)
                 if digest == want_hash:
-                    managed[name] = {'id': item['id'], 'hash': want_hash}
+                    managed[name] = _entry(item['id'], want_hash, builtin)
                     continue
                 if entry is None:
                     # What Imprint did not write may still be the item itself,
@@ -388,7 +412,7 @@ def _settle(kind: str, folder: str, fmt: str, doc: dict, items: list[dict], held
                     except ValueError:
                         same = False
                     if same:
-                        managed[name] = {'id': item['id'], 'hash': digest}
+                        managed[name] = _entry(item['id'], digest, builtin)
                         continue
                     report['problems'].append({'path': str(path), 'problem': f'Imprint did not write this {kind}, so it '
                                                'is left as it is: adopt it, or rename one of the two'})
@@ -397,13 +421,14 @@ def _settle(kind: str, folder: str, fmt: str, doc: dict, items: list[dict], held
         except (OSError, ValueError) as error:
             report['problems'].append({'path': str(path), 'problem': f'Could not be written: {error}'})
             continue
-        managed[name] = {'id': item['id'], 'hash': want_hash}
+        managed[name] = _entry(item['id'], want_hash, builtin)
         report['written'].append(str(path))
 
 
 def needed() -> bool:
-    """Whether there is anything to apply: items, or folders written before."""
-    return (registry.exists() and bool(registry.manifest())) or bool(_known())
+    """Whether there is anything to apply: items, the release's built-in
+    skills, or folders written before."""
+    return (registry.exists() and bool(registry.manifest())) or bool(registry.builtins()) or bool(_known())
 
 
 def apply_quietly(clients: list[dict] | None = None) -> dict | None:

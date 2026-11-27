@@ -27,6 +27,7 @@ class SkillsToolTests(unittest.TestCase):
                          'skills': [str(self.skills)], 'personas': [str(self.agents)]}]
         for patcher in (patch.object(config, 'get_data_dir', return_value=self.data),
                         patch.object(registry, '_device', return_value='device-a'),
+                        patch.object(registry, 'BUILTINS', root / 'no-builtins'),
                         patch.object(registry_files, '_clients', side_effect=lambda: self.clients),
                         patch.dict(os.environ, {'IMPRINT_WSL_DISTRO': ''})):
             patcher.start()
@@ -149,6 +150,7 @@ class ServerTests(unittest.TestCase):
                          'skills': [str(self.data / 'skills')], 'personas': [str(self.data / 'agents')]}]
         for patcher in (patch.object(config, 'get_data_dir', return_value=self.data),
                         patch.object(registry, '_device', return_value='device-a'),
+                        patch.object(registry, 'BUILTINS', self.data / 'no-builtins'),
                         patch.object(registry_files, '_clients', return_value=self.clients),
                         patch.dict(os.environ, {'IMPRINT_WSL_DISTRO': ''})):
             patcher.start()

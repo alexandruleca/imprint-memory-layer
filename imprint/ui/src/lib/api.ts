@@ -412,7 +412,7 @@ export function changeCoreMemory(id: string, change: Partial<Pick<CoreMemory, "t
   return fetchAPI<CoreMemory>(`/api/core/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(change), ...init });
 }
 
-// ── Skills and personas (ADRs 0168, 0169) ───────────────────────
+// ── Skills and personas (ADRs 0168, 0169), built-in skills (ADR 0213) ──
 
 export type SkillKind = "skill" | "persona";
 export type SkillState = "active" | "disabled" | "retired";
@@ -423,15 +423,24 @@ export interface SkillItem {
   description: string;
   hash: string;
   state: SkillState;
-  /** user: written in Imprint; adopted: from a client's folder; client: first seen as an edit there. */
-  origin: "user" | "adopted" | "client";
+  /** user: written in Imprint; adopted: from a client's folder; client: first seen as an edit there;
+   * builtin: ships with this release, read-only and never synced. */
+  origin: "user" | "adopted" | "client" | "builtin";
   device: string;
   created_at: number;
   updated_at: number;
   paths: string[];
   size: number;
-  /** Another item of this kind and name holds it (two devices made it before they synced). */
+  /** Another item of this kind and name holds it (two devices made it before they synced, or a fork replaces a built-in). */
   shadowed?: boolean;
+  /** On a fork: the hash of the built-in it was made from. */
+  forked_from?: string;
+  /** On a fork: the id of the built-in it replaces. */
+  fork_of?: string;
+  /** On a built-in: the id of the fork that replaces it. */
+  fork?: string;
+  /** On a fork: this release changed the built-in since it was forked. */
+  builtin_changed?: boolean;
   /** Only on a single item: its files by path. */
   files?: Record<string, string>;
 }
@@ -486,8 +495,20 @@ export function applySkills() {
   return fetchAPI<{ items: SkillItem[]; report: SkillReport; found: FoundSkill[] }>("/api/skills/apply", { method: "POST" });
 }
 
+/** One item with its files and history; a fork with its unified diff from the built-in (`difference`). */
 export function getSkill(id: string) {
-  return fetchAPI<SkillItem & { files: Record<string, string>; history: SkillVersion[] }>(`/api/skills/${encodeURIComponent(id)}`);
+  return fetchAPI<SkillItem & { files: Record<string, string>; history: SkillVersion[]; difference: string }>(
+    `/api/skills/${encodeURIComponent(id)}`);
+}
+
+/** Fork a built-in skill: the user's own copy, which replaces it everywhere. Returns the fork. */
+export function forkSkill(id: string) {
+  return fetchAPI<SkillItem & { report: SkillReport }>(`/api/skills/${encodeURIComponent(id)}/fork`, { method: "POST" });
+}
+
+/** Reset to built-in: remove the fork (given the fork's or the built-in's id). Returns the built-in. */
+export function resetSkill(id: string) {
+  return fetchAPI<SkillItem & { report: SkillReport }>(`/api/skills/${encodeURIComponent(id)}/reset`, { method: "POST" });
 }
 
 export function addSkill(body: { kind: SkillKind; name: string; description: string; instructions: string }) {
@@ -1172,6 +1193,8 @@ export type AgentSession = {
   directory: string | null; workspace: string | null;
   started_at: number; last_seen: number; ended_at: number | null; connected: boolean;
   calls: number; errors: number; last_tool: string | null;
+  /** The session on the Board and the name its agent chose (ADR 0216), once it used the Board. */
+  board_session?: string | null; agent_name?: string | null;
 };
 export type AgentClient = { client: string; sessions: number; connected: number; calls: number; errors: number; last_seen: number };
 export type AgentCall = {
@@ -1190,6 +1213,104 @@ export function getAgents({ limit = 50, before, client, q }: { limit?: number; b
   if (client) qs.set("client", client);
   if (q) qs.set("q", q);
   return fetchAPI<AgentsPage>(`/api/agents?${qs}`);
+}
+/** Sessions of a client and how many searched Imprint first (ADR 0214). */
+export type SearchFirstCounts = { sessions: number; search_first: number; share: number | null };
+export type SearchFirstClient = {
+  client: string; short_since: number; decide_at: number; before: SearchFirstCounts; after: SearchFirstCounts;
+  decision: { outcome: "restored" | "kept" | "too_few"; at: number; before: number | null; after: number | null } | null;
+};
+/** Each client that got the short rules block, compared before and after. */
+export type SearchFirst = { clients: SearchFirstClient[]; min_sessions: number; max_drop: number };
+export const getSearchFirst = () => fetchAPI<SearchFirst>("/api/agents/search-first");
+
+// ── The Board (ADRs 0208-0216) ─────────────────────────────────
+
+export const TASK_STATUSES = ["backlog", "ready", "in_progress", "review", "done", "cancelled"] as const;
+export type TaskStatus = (typeof TASK_STATUSES)[number];
+export type TaskPriority = "P0" | "P1" | "P2" | "P3";
+/** Who wrote something on the Board: the user, or an agent session with its name and client. */
+export type TaskPerson = { kind: "user" | "agent" | "system"; device?: string; session?: string; name?: string | null; client?: string | null };
+export type TaskHolder = { session: string; name: string | null; client: string | null; device: string; since: number; progress_at?: number };
+export type TaskComment = { id: string; text: string; to: string[]; by: TaskPerson; at: number };
+export type TaskCheckpoint = { text: string; next?: string; branch?: string; commit?: string; files?: string[]; by: TaskPerson; at: number };
+export type BoardTask = {
+  id: string; title: string; description: string; project: string; status: TaskStatus; priority: TaskPriority;
+  position: number | null; acceptance: string[]; tags: string[]; assignees: string[];
+  feature: string | null; feature_title: string | null; blockers: string[]; open_blockers: string[]; tasks: string[];
+  blocked: { reason: string; by: TaskPerson; at: number } | null;
+  holder: TaskHolder | null; previous_holder: TaskHolder | null; stalling: boolean; stale: boolean; worked_by: string | null;
+  last_checkpoint: TaskCheckpoint | null; checkpoints: number; comments: TaskComment[]; comment_count: number;
+  created_at: number; created_by: TaskPerson; updated_at: number; ended_at: number | null; status_at: number;
+  /** Ids it had before another device's Task with the same id made it take a new one. */
+  former_ids?: string[];
+  /** On a Feature: its Done Tasks out of all but the Cancelled ones. */
+  progress?: { done: number; total: number } | null;
+};
+/** How far a project or Feature is; `days_left` is null until 3 Tasks were finished in the last 14 days. */
+export type ProgressEntry = {
+  total: number; done: number; cancelled: number; blocked: number; stale: number;
+  counts: Record<"backlog" | "ready" | "in_progress" | "review" | "done", number>;
+  finished_recently: number; pace: number; days_left: number | null;
+};
+export type TaskProgress = {
+  projects: (ProgressEntry & { name: string })[];
+  features: (ProgressEntry & { id: string; title: string; project: string })[];
+};
+export type BoardOptions = { projects: string[]; tags: string[]; assignees: string[]; holders: string[]; features: { id: string; title: string }[] };
+export type Autonomy = "off" | "stale" | "ready";
+export type BoardData = { workspace: string; columns: Record<TaskStatus, BoardTask[]>; total: number; options: BoardOptions; autonomy: Autonomy };
+export type BoardFilters = { project?: string; feature?: string; tag?: string; priority?: string; assignee?: string; holder?: string; text?: string; archived?: boolean };
+export type TaskEvent = { id: string; kind: string; data: Record<string, unknown>; hlc: string; device: string; actor: "user" | "agent" | "system";
+  session: string | null; agent: string | null; client: string | null; recorded_at: number };
+export type TaskHandoff = { previous_holder: TaskHolder | null; last_checkpoint: TaskCheckpoint | null; checkpoints: TaskCheckpoint[];
+  branch: string | null; commit: string | null; files: string[]; conversation: string | null };
+export type TaskDetails = { task: BoardTask; history: TaskEvent[]; handoff: TaskHandoff };
+export type NewTask = { title: string; project: string; description?: string; status?: "backlog" | "ready"; priority?: TaskPriority;
+  acceptance?: string[]; tags?: string[]; assignees?: string[]; feature?: string };
+export type TaskAction = "move" | "edit" | "append" | "comment" | "tags" | "assignees" | "link" | "block" | "unblock" | "release";
+export type TaskInbox = { comments: (TaskComment & { task: string; title: string })[]; review: BoardTask[] };
+
+/** The workspace's Board by status, filtered, with what every filter offers. */
+export function getBoard(filters: BoardFilters = {}) {
+  const qs = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) if (value) qs.set(key, String(value));
+  return fetchAPI<BoardData>(`/api/tasks/board${qs.size ? `?${qs}` : ""}`);
+}
+export function getTask(id: string) {
+  return fetchAPI<TaskDetails>(`/api/tasks/${encodeURIComponent(id)}`);
+}
+export function createTask(task: NewTask) {
+  return fetchAPI<{ task: BoardTask }>("/api/tasks", { method: "POST", body: JSON.stringify(task) });
+}
+/** A change to one Task as the user; the API refuses one that breaks the Board's rules, saying why. */
+export function changeTask(id: string, action: TaskAction, body: Record<string, unknown> = {}) {
+  return fetchAPI<{ task: BoardTask }>(`/api/tasks/${encodeURIComponent(id)}/${action}`, { method: "POST", body: JSON.stringify(body) });
+}
+export function deleteTask(id: string) {
+  return fetchAPI<{ id: string; deleted: boolean }>(`/api/tasks/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+/** How far each project and Feature is, and how long is left at the recent pace. */
+export function getProgress(filters: { project?: string; feature?: string } = {}) {
+  const qs = new URLSearchParams();
+  if (filters.project) qs.set("project", filters.project);
+  if (filters.feature) qs.set("feature", filters.feature);
+  return fetchAPI<TaskProgress>(`/api/tasks/progress${qs.size ? `?${qs}` : ""}`);
+}
+export function setAutonomy(value: Autonomy) {
+  return fetchAPI<{ autonomy: Autonomy }>("/api/tasks/autonomy", { method: "PUT", body: JSON.stringify({ value }) });
+}
+/** Comments agents addressed to the user, unread, and the Tasks waiting in Review. */
+export function getTaskInbox() {
+  return fetchAPI<TaskInbox>("/api/tasks/inbox");
+}
+export function markTaskCommentsRead(ids: string[]) {
+  return fetchAPI<{ read: number }>("/api/tasks/inbox/read", { method: "POST", body: JSON.stringify({ ids }) });
+}
+
+/** Rename an agent on its workspace's Board; refused when another live session has the name. */
+export function renameAgent(sessionId: string, name: string) {
+  return fetchAPI<{ name: string }>(`/api/agents/${encodeURIComponent(sessionId)}/name`, { method: "POST", body: JSON.stringify({ name }) });
 }
 export function getAgentCalls(sessionId: string, before?: number, limit = 100) {
   const qs = new URLSearchParams({ limit: String(limit) });

@@ -199,6 +199,14 @@ def graph_db_path(workspace: str | None = None) -> Path:
     return get_data_dir() / f"imprint_graph_{ws}.sqlite3"
 
 
+def tasks_db_path(workspace: str | None = None) -> Path:
+    """The workspace's Board: its Tasks' events (ADRs 0208, 0209)."""
+    ws = workspace or get_active_workspace()
+    if ws == "default":
+        return get_data_dir() / "tasks.sqlite3"
+    return get_data_dir() / f"tasks_{ws}.sqlite3"
+
+
 def wal_path(workspace: str | None = None) -> Path:
     ws = workspace or get_active_workspace()
     if ws == "default":

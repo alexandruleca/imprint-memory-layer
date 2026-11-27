@@ -52,7 +52,7 @@ func TestCleanupPreservesUnrelatedClientState(t *testing.T) {
 				writeCleanupFixture(t, c.hooks, `{"version":1,"hooks":{"sessionStart":[{"command":"python imprint/hook_entry.py session-start"},{"command":"keep-hook"},"keep-opaque"]},"keep":true}`)
 			} else {
 				writeCleanupFixture(t, c.rules, "Keep my guidance.\n"+instructions.MarkerStart+"\nImprint rule\n"+instructions.MarkerEnd+"\n")
-				writeCleanupFixture(t, c.hooks, `{"permissions":{"allow":["mcp__imprint__*","keep-permission"]},"hooks":{"Stop":[{"hooks":[{"command":"python imprint/hook_entry.py stop"},{"command":"keep-hook"}]}]},"keep":true}`)
+				writeCleanupFixture(t, c.hooks, `{"permissions":{"allow":["mcp__imprint__*","keep-permission"]},"hooks":{"Stop":[{"hooks":[{"command":"python imprint/hook_entry.py stop"},{"command":"keep-hook"}]}],"UserPromptSubmit":[{"hooks":[{"command":"IMPRINT_PROMPT_DATA='/d' . '/opt/imprint/prompt_notices.sh'"}]}]},"keep":true}`)
 			}
 			for i := 0; i < 2; i++ {
 				if err := cleanupClient(c, project); err != nil {

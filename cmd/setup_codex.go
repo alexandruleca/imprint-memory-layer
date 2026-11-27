@@ -55,7 +55,7 @@ func SetupCodex(backend func() backendPaths) {
 	if data, readErr := os.ReadFile(agentsPath); readErr == nil {
 		existing = string(data)
 	}
-	managed := instructions.MarkerStart + "\n" + instructions.CodexRule + instructions.MarkerEnd + "\n"
+	managed := instructions.MarkerStart + "\n" + rulesFor("codex", bp.DataDir) + instructions.MarkerEnd + "\n"
 	updated := instructions.MergeManaged(existing, managed)
 	if updated == existing {
 		output.Skip("Codex AGENTS.md already up to date at " + agentsPath)
