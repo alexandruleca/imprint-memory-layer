@@ -277,6 +277,18 @@ class TasksToolTests(unittest.TestCase):
         self.assertRegex(claimed, r'you are codex-\w{4} ')
 
 
+    def test_progress_says_how_far_each_project_and_feature_is(self):
+        feature = tasks.create('Checkout redesign', project='imprint', workspace='default')['id']
+        first = tasks.create('Total line', project='imprint', feature=feature, acceptance=['x'], workspace='default')['id']
+        tasks.move(first, 'done', workspace='default')
+        tasks.create('Coupon field', project='imprint', feature=feature, workspace='default')
+        _, [(failed, text)] = self.call(('tasks', {'action': 'progress'}))
+        self.assertFalse(failed, text)
+        self.assertIn('imprint: 1 of 2 done (50%)', text)
+        self.assertIn(f'{feature} Checkout redesign (imprint): 1 of 2 done (50%)', text)
+        self.assertIn('not enough finished work to estimate yet', text)
+
+
 class SkillExamplesTests(unittest.TestCase):
     """The built-in imprint-tasks skill teaches calls the tools accept."""
 

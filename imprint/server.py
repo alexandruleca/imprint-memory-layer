@@ -1670,7 +1670,7 @@ def _calling_client(ctx: Context | None) -> str | None:
 
 @mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False})
 def tasks(
-    action: Literal["board", "list", "get", "history", "next", "handoff", "inbox"] = "board",
+    action: Literal["board", "list", "get", "history", "next", "handoff", "inbox", "progress"] = "board",
     task: str = "",
     project: str = "",
     feature: str = "",
@@ -1692,7 +1692,8 @@ def tasks(
         action: "board" (Tasks by status), "list" (Tasks matching the filters), "get" (one Task),
                 "history" (one Task's changes), "next" (the Task you may take unasked in your
                 project; with feature, that Feature's frontier), "handoff" (where a Task's work
-                stands, to take it over) or "inbox" (unread comments addressed to you)
+                stands, to take it over), "inbox" (unread comments addressed to you) or "progress"
+                (how far each project and Feature is, and how long is left)
         task: The Task for get, history and handoff, e.g. "T-7f3kq"
         project: Only this project's Tasks
         feature: Only the Tasks of this Feature (a Task id)

@@ -704,5 +704,69 @@ class ReviewFindingTests(TasksTestCase):
         self.assertEqual(len(tasks.user_inbox(mark=False, workspace='default')), 1)
 
 
+
+class ProgressTests(TasksTestCase):
+    """How far a project or Feature is, and how long is left at the recent pace."""
+
+    def done(self, title, finished_at, **fields):
+        task = make(title, acceptance=['x'], **fields)['id']
+        with patch.object(time, 'time', return_value=finished_at):
+            tasks.move(task, 'done', workspace='default')
+        return task
+
+    def test_progress_counts_tasks_by_status_and_leaves_cancelled_and_features_out(self):
+        feature = make('Checkout', project='shop')['id']
+        self.done('Total line', time.time() - 3600, project='shop', feature=feature)
+        make('Coupon field', project='shop', feature=feature, acceptance=['x'], status='ready')
+        working = make('Tax rounding', project='shop', feature=feature, acceptance=['x'], status='ready')['id']
+        tasks.claim(working, actor=AGENT, workspace='default')
+        stuck = make('Payment SDK', project='shop', acceptance=['x'], status='ready')['id']
+        tasks.block(stuck, 'Waiting for the vendor', workspace='default')
+        dropped = make('Old banner', project='shop', feature=feature)['id']
+        tasks.move(dropped, 'cancelled', workspace='default')
+        make('Elsewhere', project='blog')
+        report = tasks.progress(workspace='default')
+        shop = next(p for p in report['projects'] if p['name'] == 'shop')
+        self.assertEqual((shop['total'], shop['done'], shop['cancelled'], shop['blocked']), (4, 1, 1, 1))
+        self.assertEqual(shop['counts'], {'backlog': 0, 'ready': 2, 'in_progress': 1, 'review': 0, 'done': 1})
+        [checkout] = report['features']
+        self.assertEqual((checkout['id'], checkout['title'], checkout['project']), (feature, 'Checkout', 'shop'))
+        self.assertEqual((checkout['total'], checkout['done'], checkout['cancelled']), (3, 1, 1))
+        self.assertEqual([p['name'] for p in tasks.progress(project='blog', workspace='default')['projects']], ['blog'])
+        self.assertEqual(tasks.progress(feature=feature, workspace='default')['projects'], [])
+
+    def test_the_estimate_follows_the_pace_of_the_last_14_days(self):
+        now = time.time()
+        for n in range(4):  # Four finished in the last 14 days: 4/14 a day.
+            self.done(f'Finished {n}', now - (n + 1) * 86400, project='shop')
+        self.done('Long ago', now - 40 * 86400, project='shop')
+        for n in range(6):
+            make(f'Open {n}', project='shop')
+        with patch.object(time, 'time', return_value=now):
+            [shop] = tasks.progress(workspace='default')['projects']
+        self.assertEqual((shop['total'], shop['done'], shop['finished_recently']), (11, 5, 4))
+        self.assertAlmostEqual(shop['pace'], 4 / 14)
+        self.assertAlmostEqual(shop['days_left'], 6 / (4 / 14))
+
+    def test_no_estimate_without_enough_finished_work_and_none_needed_when_all_is_done(self):
+        now = time.time()
+        self.done('One', now - 86400, project='shop')
+        self.done('Two', now - 2 * 86400, project='shop')
+        make('Open', project='shop')
+        [shop] = tasks.progress(workspace='default')['projects']
+        self.assertIsNone(shop['days_left'])
+        self.assertEqual(shop['finished_recently'], 2)
+        self.done('Three', now - 3 * 86400, project='blog')
+        [blog] = [p for p in tasks.progress(workspace='default')['projects'] if p['name'] == 'blog']
+        self.assertEqual(blog['days_left'], 0)
+
+    def test_a_features_card_carries_its_progress(self):
+        feature = make('Checkout', project='shop')['id']
+        self.done('Done one', time.time(), project='shop', feature=feature)
+        make('Open one', project='shop', feature=feature)
+        self.assertEqual(tasks.get(feature, workspace='default')['progress'], {'done': 1, 'total': 2})
+        self.assertIsNone(make('Plain', project='shop').get('progress'))
+
+
 if __name__ == '__main__':
     unittest.main()

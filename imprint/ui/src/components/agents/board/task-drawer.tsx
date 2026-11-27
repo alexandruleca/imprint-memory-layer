@@ -20,7 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  TASK_STATUSES, changeTask, deleteTask, getTask, type BoardOptions, type BoardTask, type TaskAction, type TaskDetails,
+  TASK_STATUSES, changeTask, deleteTask, getProgress, getTask, type BoardOptions, type BoardTask, type TaskAction, type TaskDetails,
   type TaskPriority, type TaskStatus,
 } from "@/lib/api";
 import { useCached } from "@/lib/use-cached";
@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 import { StatusDot } from "../status";
 import { PRIORITY_LABELS, STATUS_HINTS, STATUS_LABELS, ago, who } from "./format";
 import { lines } from "./new-task-dialog";
+import { ProgressSummary } from "./progress";
 
 const PRIORITIES: TaskPriority[] = ["P0", "P1", "P2", "P3"];
 const NO_FEATURE = "__none__";
@@ -113,6 +114,7 @@ export function TaskDrawer({ taskId, options, now, simple, onChanged, onClose }:
           <p className="-mt-1 text-xs text-muted-foreground sm:col-span-3">{STATUS_LABELS[task.status]}: {STATUS_HINTS[task.status].toLowerCase()}.</p>
         </div>
 
+        {task.tasks.length > 0 && <FeatureProgress task={task} />}
         <HolderPanel task={task} now={now} simple={simple} onRelease={() => act("release", {}, "Claim released")}
           onBack={() => act("move", { status: task.acceptance.length ? "ready" : "backlog" }, task.acceptance.length ? "Back in Ready" : "Back in Backlog")} />
         <BlockedPanel task={task} onBlock={(reason) => act("block", { reason })} onUnblock={() => act("unblock")} />
@@ -219,6 +221,14 @@ export function TaskDrawer({ taskId, options, now, simple, onChanged, onClose }:
       </AlertDialog>
     </>
   );
+}
+
+/** A Feature's progress and how long is left. */
+function FeatureProgress({ task }: { task: BoardTask }) {
+  const report = useCached(`tasks-progress:${task.id}`, () => getProgress({ feature: task.id }), { refreshInterval: 15_000, persist: false });
+  const entry = report.data?.features?.[0];
+  if (!entry) return null;
+  return <div className="rounded-lg border border-border p-3"><ProgressSummary entry={entry} name="Progress" /></div>;
 }
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {

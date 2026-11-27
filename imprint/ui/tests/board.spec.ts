@@ -42,6 +42,14 @@ async function mockBoard(page: Page, tasks: Task[], inbox: { comments?: unknown[
         features: [] } } });
     }
     if (parts[0] === 'inbox') return route.fulfill({ json: { comments: inbox.comments ?? [], review: inbox.review ?? [] } });
+    if (parts[0] === 'progress') {
+      const entry = (name: string, total: number, done: number, days_left: number | null) => ({ name, total, done, cancelled: 0, blocked: 0, stale: 0,
+        counts: { backlog: 0, ready: total - done, in_progress: 0, review: 0, done }, finished_recently: done, pace: done / 14, days_left });
+      return route.fulfill({ json: {
+        projects: [entry('shop', 12, 7, 2.4), entry('site', 3, 1, null)],
+        features: [{ ...entry('', 2, 1, null), id: 'T-feat1', title: 'Checkout redesign', project: 'shop' }],
+      } });
+    }
     if (parts.length === 0 && request.method() === 'POST') {
       const made = task({ id: 'T-new01', title: String(body.title), project: String(body.project), status: body.status ?? 'backlog',
         acceptance: body.acceptance ?? [], tags: body.tags ?? [] });
@@ -235,4 +243,20 @@ test('Done and Cancelled unfold, and stay unfolded after a reload', async ({ pag
   await expect(page.locator('li[data-task="T-ffff6"]')).toBeVisible();
   await page.getByRole('button', { name: 'Fold Done' }).click();
   await expect(page.locator('li[data-task="T-ffff6"]')).toHaveCount(0);
+});
+
+test("a Feature's card shows its progress, and Progress says how long is left", async ({ page }) => {
+  await base(page, { mode: 'advanced', tutorials: false });
+  await mockBoard(page, [...board(), task({ id: 'T-feat1', title: 'Checkout redesign', tasks: ['T-aaaa1', 'T-bbbb2'], progress: { done: 1, total: 2 } })]);
+  await page.goto('/agents/#board');
+  const card = page.locator('li[data-task="T-feat1"]');
+  await expect(card).toContainText('Feature · 2 tasks');
+  await expect(card).toContainText('1 of 2 done');
+  await expect(card.getByRole('progressbar', { name: 'Checkout redesign: 1 of 2 done' })).toBeVisible();
+  await page.getByRole('button', { name: 'Progress' }).click();
+  const panel = page.getByRole('dialog', { name: 'Progress' });
+  await expect(panel.getByRole('progressbar', { name: 'shop: 7 of 12 done' })).toBeVisible();
+  await expect(panel.getByText('About 3 days left')).toBeVisible();
+  await expect(panel.getByText('Not enough finished work to estimate yet').first()).toBeVisible();
+  await expect(panel.getByText('Checkout redesign · shop')).toBeVisible();
 });

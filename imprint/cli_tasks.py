@@ -15,6 +15,7 @@ Usage:
     python -m imprint.cli_tasks link TASK [--feature F | --no-feature] [--blocker B]... [--unblocker B]...
     python -m imprint.cli_tasks next [--project P] [--feature F] [--client C] [--device D]
     python -m imprint.cli_tasks handoff TASK
+    python -m imprint.cli_tasks progress [--project P] [--feature F]
     python -m imprint.cli_tasks autonomy [off|stale|ready]
     python -m imprint.cli_tasks comment TASK TEXT [--to A]...
     python -m imprint.cli_tasks inbox [--read]
@@ -105,6 +106,9 @@ def _parser() -> argparse.ArgumentParser:
     nxt.add_argument('--client', help='As an agent of this client')
     nxt.add_argument('--device', help='As an agent on this device')
     commands.add_parser('handoff', parents=[common], help="Where a Task's work stands").add_argument('task')
+    progress = commands.add_parser('progress', parents=[common], help='How far each project and Feature is, and how long is left')
+    progress.add_argument('--project')
+    progress.add_argument('--feature')
     autonomy = commands.add_parser('autonomy', parents=[common], help='What agents take unasked here')
     autonomy.add_argument('value', nargs='?', choices=tasks.AUTONOMY)
     comment = commands.add_parser('comment', parents=[common], help='Comment on it')
@@ -158,6 +162,10 @@ def _run(args, workspace: str | None, as_json: bool) -> None:
         project = args.project or derive_project(os.getcwd())
         found = tasks.next_task(project=project, client=args.client, device=args.device, workspace=workspace)
         _print(found, as_json, tasks_tool.next_text(found, project, tasks.autonomy(workspace)))
+        return
+    if command == 'progress':
+        report = tasks.progress(project=args.project, feature=args.feature, workspace=workspace)
+        _print(report, as_json, tasks_tool.progress_text(report))
         return
     if command == 'handoff':
         handoff = tasks.handoff(args.task, workspace=workspace)

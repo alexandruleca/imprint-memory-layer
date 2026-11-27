@@ -107,5 +107,15 @@ class CliTasksTests(unittest.TestCase):
         self.assertIsNone(handoff['previous_holder'])
 
 
+    def test_progress_from_the_terminal(self):
+        feature = json.loads(self.run_cli('create', 'Checkout', '--json').stdout)['id']
+        task = json.loads(self.run_cli('create', 'Total', '--feature', feature, '--criterion', 'x', '--json').stdout)['id']
+        self.run_cli('move', task, 'done')
+        report = json.loads(self.run_cli('progress', '--json').stdout)
+        self.assertEqual([(p['name'], p['done'], p['total']) for p in report['projects']], [('shop', 1, 1)])
+        self.assertEqual(report['projects'][0]['days_left'], 0)
+        self.assertIn('Checkout (shop): 1 of 1 done (100%) · finished', self.run_cli('progress').stdout)
+
+
 if __name__ == '__main__':
     unittest.main()

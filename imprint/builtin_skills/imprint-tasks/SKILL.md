@@ -40,7 +40,7 @@ Comment on the Task the message is about: `task_edit(action="comment", task="T-�
 
 ## Reading the Board
 
-`tasks()` shows the Board by status. `tasks(action="list", …)` filters by `project`, `feature`, `tag`, `status`, `priority`, `assignee` and `text`. `tasks(action="history", task="T-…")` shows every change to one Task.
+`tasks()` shows the Board by status. `tasks(action="list", …)` filters by `project`, `feature`, `tag`, `status`, `priority`, `assignee` and `text`. `tasks(action="history", task="T-…")` shows every change to one Task. `tasks(action="progress")` says how far each project and Feature is and, from the pace of the last 14 days, how long is left: use it when the user asks how much remains.
 
 ## When the repository's issue tracker is the Board
 

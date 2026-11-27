@@ -82,7 +82,10 @@ class _View:
         shown['blockers'] = [i for i in map(self.id, state['blockers']) if i]
         shown['open_blockers'] = [self.id(uid) for uid in state['blockers']
                                   if uid in self.by_uid and self.by_uid[uid]['status'] != 'done']
-        shown['tasks'] = sorted(s['id'] for s in self.by_uid.values() if s['feature'] == state['uid'])
+        children = [s for s in self.by_uid.values() if s['feature'] == state['uid']]
+        shown['tasks'] = sorted(s['id'] for s in children)
+        live = [s for s in children if s['status'] != 'cancelled']
+        shown['progress'] = {'done': sum(1 for s in live if s['status'] == 'done'), 'total': len(live)} if children else None
         stalling, stale = self.claim(state)
         holder = state.get('holder')
         shown['stalling'], shown['stale'] = stalling, stale

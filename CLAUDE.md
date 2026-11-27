@@ -33,7 +33,7 @@ Store durable decisions with their reasons. A successful MCP `store` response me
 | `use_workspace` | On the user's choice: create a workspace if new, approve the project folder, write `.imprint/workspace.json`, switch the session (no project folder: create only, pass `workspace` per call) |
 | `skills` | The user's skills and personas: `list`, or `get` one's file (read-only; ADR 0170) |
 | `skill_edit` | Create or change a skill or persona (`create`/`edit`, `state` disabled/active); written into the clients' folders at once |
-| `tasks` | Read the workspace's Board: `board`/`list`/`get`/`history`, `next` (what to take unasked; a Feature's frontier), `handoff`, `inbox` |
+| `tasks` | Read the workspace's Board: `board`/`list`/`get`/`history`, `next` (what to take unasked; a Feature's frontier), `handoff`, `inbox`, `progress` (how long is left) |
 | `task_edit` | Change the Board as this agent session: create/edit/append/move/tag/assign/link/block/cancel, `claim`/`checkpoint`/`release`, `name`, `comment` |
 
 `wake_up` is internal — `search` auto-loads session context on first call.

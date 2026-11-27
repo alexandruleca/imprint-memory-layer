@@ -142,5 +142,15 @@ class TasksApiTests(unittest.TestCase):
         self.assertEqual(self.api.put('/api/tasks/autonomy', json={'value': 'always'}).status_code, 400)
 
 
+    def test_progress_of_projects_and_features(self):
+        feature = self.create('Checkout')
+        self.create('Total line', feature=feature['id'])
+        report = self.api.get('/api/tasks/progress').json()
+        self.assertEqual([(p['name'], p['total']) for p in report['projects']], [('shop', 1)])
+        self.assertEqual([(f['id'], f['total'], f['done']) for f in report['features']], [(feature['id'], 1, 0)])
+        only = self.api.get('/api/tasks/progress', params={'feature': feature['id']}).json()
+        self.assertEqual((only['projects'], len(only['features'])), ([], 1))
+
+
 if __name__ == '__main__':
     unittest.main()

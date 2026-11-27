@@ -1234,6 +1234,18 @@ export type BoardTask = {
   created_at: number; created_by: TaskPerson; updated_at: number; ended_at: number | null; status_at: number;
   /** Ids it had before another device's Task with the same id made it take a new one. */
   former_ids?: string[];
+  /** On a Feature: its Done Tasks out of all but the Cancelled ones. */
+  progress?: { done: number; total: number } | null;
+};
+/** How far a project or Feature is; `days_left` is null until 3 Tasks were finished in the last 14 days. */
+export type ProgressEntry = {
+  total: number; done: number; cancelled: number; blocked: number; stale: number;
+  counts: Record<"backlog" | "ready" | "in_progress" | "review" | "done", number>;
+  finished_recently: number; pace: number; days_left: number | null;
+};
+export type TaskProgress = {
+  projects: (ProgressEntry & { name: string })[];
+  features: (ProgressEntry & { id: string; title: string; project: string })[];
 };
 export type BoardOptions = { projects: string[]; tags: string[]; assignees: string[]; holders: string[]; features: { id: string; title: string }[] };
 export type Autonomy = "off" | "stale" | "ready";
@@ -1267,6 +1279,13 @@ export function changeTask(id: string, action: TaskAction, body: Record<string, 
 }
 export function deleteTask(id: string) {
   return fetchAPI<{ id: string; deleted: boolean }>(`/api/tasks/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+/** How far each project and Feature is, and how long is left at the recent pace. */
+export function getProgress(filters: { project?: string; feature?: string } = {}) {
+  const qs = new URLSearchParams();
+  if (filters.project) qs.set("project", filters.project);
+  if (filters.feature) qs.set("feature", filters.feature);
+  return fetchAPI<TaskProgress>(`/api/tasks/progress${qs.size ? `?${qs}` : ""}`);
 }
 export function setAutonomy(value: Autonomy) {
   return fetchAPI<{ autonomy: Autonomy }>("/api/tasks/autonomy", { method: "PUT", body: JSON.stringify({ value }) });

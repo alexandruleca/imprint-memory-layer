@@ -222,6 +222,7 @@ The active workspace's [Tasks](tasks.md) ([ADRs 0208-0212](adr/0208-agents-track
 | GET | `/api/tasks/{id}` | `{task, history, handoff}`. |
 | POST | `/api/tasks/{id}/{action}` | `move` `{status, position?}`, `edit` (any of `title`, `description`, `project`, `priority`, `acceptance`, `position`), `append` `{text}`, `comment` `{text, to?}`, `tags` and `assignees` `{add, remove}`, `link` `{feature?, add_blockers?, remove_blockers?}`, `block` `{reason}`, `unblock`, `release`. Returns `{task}`. |
 | DELETE | `/api/tasks/{id}` | Delete, leaving a tombstone. |
+| GET | `/api/tasks/progress` | `{projects, features}`: each project's and Feature's `total`, `done`, `cancelled`, `counts` by status, `blocked`, `stale`, `finished_recently` (last 14 days), `pace` (a day) and `days_left` (null until 3 were finished in that time; 0 when all are done). `project` or `feature` narrows it. |
 | GET | `/api/tasks/inbox` | `{comments, review}`: unread comments agents addressed to the user, and Tasks in Review. |
 | POST | `/api/tasks/inbox/read` | `{ids}`: mark those comments read. |
 | PUT | `/api/tasks/autonomy` | `{value}`: `off`, `stale` or `ready` for this workspace. |

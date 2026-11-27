@@ -5,6 +5,7 @@ and the tools word the Board the same way."""
 
 from __future__ import annotations
 
+import math
 import os
 import time
 
@@ -350,6 +351,46 @@ def next_text(state: dict | None, project: str, mode: str) -> str:
             + detail(state))
 
 
+def estimate_text(days_left: float | None) -> str:
+    """How long is left, in words, from ``tasks.progress``."""
+    if days_left is None:
+        return 'not enough finished work to estimate yet'
+    if days_left == 0:
+        return 'finished'
+    if days_left < 1:
+        return 'less than a day left'
+    days = math.ceil(days_left)
+    return f"about {days} day{'s' if days != 1 else ''} left"
+
+
+def _progress_line(entry: dict) -> str:
+    share = round(100 * entry['done'] / entry['total']) if entry['total'] else 0
+    parts = [f"{entry['done']} of {entry['total']} done ({share}%)"]
+    counts = entry['counts']
+    parts += [f'{counts[status]} {label}' for status, label in (('in_progress', 'in progress'), ('review', 'in review'))
+              if counts[status]]
+    if entry['blocked']:
+        parts.append(f"{entry['blocked']} blocked")
+    if entry['stale']:
+        parts.append(f"{entry['stale']} stale")
+    parts.append(estimate_text(entry['days_left']))
+    return ' · '.join(parts)
+
+
+def progress_text(report: dict) -> str:
+    if not report['projects'] and not report['features']:
+        return 'No tasks to measure yet.'
+    lines = []
+    if report['projects']:
+        lines.append('Projects:')
+        lines += [f"- {p['name']}: {_progress_line(p)}" for p in report['projects']]
+    if report['features']:
+        lines.append('Features:')
+        lines += [f"- {f['id']} {f['title']} ({f['project']}): {_progress_line(f)}" for f in report['features']]
+    lines.append('Estimates follow the pace of the last 14 days, once 3 Tasks were finished in them.')
+    return '\n'.join(lines)
+
+
 def handoff_text(handoff: dict) -> str:
     state = handoff['task']
     lines = [f"Handoff for {state['id']} · {state['title']}"]
@@ -382,6 +423,9 @@ def handoff_text(handoff: dict) -> str:
 def read(action: str, *, task: str = '', archived: bool = False, workspace: str = '', session_project: str | None = None,
          client: str | None = None, **given) -> str:
     workspace = workspace or None
+    if action == 'progress':
+        return progress_text(tasks.progress(project=given.get('project') or None, feature=given.get('feature') or None,
+                                            workspace=workspace))
     if action == 'inbox':
         me = actor(client, workspace or '')
         return inbox_text(tasks.inbox(me['session'], name=me.get('name'), client=me.get('client'),

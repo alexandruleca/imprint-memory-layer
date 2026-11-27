@@ -22,6 +22,7 @@ import { useCached } from "@/lib/use-cached";
 import { cn } from "@/lib/utils";
 import { STATUS_HINTS, STATUS_LABELS } from "./format";
 import { NewTaskDialog } from "./new-task-dialog";
+import { ProgressPanel } from "./progress";
 import { TaskCard } from "./task-card";
 import { TaskDrawer } from "./task-drawer";
 
@@ -242,6 +243,7 @@ export function BoardView() {
                   items={options.holders.map((h) => ({ value: h, label: h }))} />
               </PopoverContent>
             </Popover>
+            <ProgressPanel />
             <Filter label="Group by" all="No grouping" value={view.group === "none" ? undefined : view.group} inline
               onChange={(v) => setView((current) => ({ ...current, group: (v || "none") as Group }))}
               items={[{ value: "project", label: "Group by project" }, { value: "feature", label: "Group by Feature" }]} />

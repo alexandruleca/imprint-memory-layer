@@ -192,7 +192,7 @@ Usage:
   imprint skills [list|show|add|found|adopt|enable|disable|remove|fork|reset|apply]
                              Your skills and personas, written into the connected clients and synced to paired devices;
                              fork a built-in skill to change it, reset to bring the built-in back
-  imprint tasks [board|list|show|history|create|edit|append|move|tag|assign|link|block|unblock|cancel|release|delete|next|handoff|autonomy|comment|inbox]
+  imprint tasks [board|list|show|history|create|edit|append|move|tag|assign|link|block|unblock|cancel|release|delete|next|handoff|autonomy|comment|inbox|progress]
                              The workspace's Board of Tasks that agents and you track work with
   imprint uninstall [-y] [--keep-data]
                              Disconnect clients, stop Imprint processes, remove runtime and memories (--keep-data keeps memories)

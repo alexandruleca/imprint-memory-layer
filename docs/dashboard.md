@@ -173,6 +173,7 @@ Every AI client that uses Imprint starts its own MCP server, and each one is a s
 
 **Board** shows the workspace's [Tasks](tasks.md) in a column per status and refreshes every 5 seconds while agents work ([ADR 0208](adr/0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md)).
 
+- **Progress** shows each project and Feature with a bar of its Done Tasks, what is in progress, in review, blocked or Stale, and how long is left at the pace of the last 14 days ([the Board](tasks.md#progress)). A Feature's card shows its bar too, and its drawer the estimate.
 - **What needs you** counts the Tasks waiting for your review, assigned to you, Stale, Stalling and Blocked; clicking a count shows only those Tasks.
 - A card shows the Task's id, priority, project, title, Feature (or, on a Feature, how many Tasks it has), tags and assignees, the agent working on it and when it last made progress, a **Stalling**, **Stale**, **Blocked** or **Waits on** mark, and its comments.
 - Done and Cancelled start folded to narrow strips with their counts, so every status fits; a strip unfolds on click and still takes a dropped card. Which columns are unfolded is kept in this browser.

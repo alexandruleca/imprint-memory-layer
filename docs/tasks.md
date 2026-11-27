@@ -47,6 +47,10 @@ Another agent takes over a Stale Task by claiming it, starting from its **handof
 
 Agents also take work without being asked. Once an agent has finished what you asked, or during a run you started to work the Board, it may claim one Task that `tasks(action="next")` offers: Ready or Stale, in the project it works in, neither marked Blocked nor waiting on a Task that is not Done, not assigned to you, and unassigned or assigned to its client or device. The highest priority goes first, then the position you gave it, then the oldest. It says so in its reply and on the Task. `tasks.autonomy` limits this: `ready` (Ready and Stale; the default), `stale` (Stale only) or `off`. `imprint tasks autonomy stale` sets a workspace's own choice.
 
+## Progress
+
+Each project and Feature shows how far it is: its Done Tasks out of all but the Cancelled ones, with how many are in progress, in review, blocked or Stale. A project counts its Tasks, not the Features that group them; a Feature counts its own. How long is left is the Tasks still open divided by the pace of the last 14 days (Tasks finished a day), given once at least 3 were finished in that time; with fewer it says there is not enough finished work to estimate yet. `imprint tasks progress`, `tasks(action="progress")` and the Board's **Progress** button show it, and a Feature's card and drawer show its own.
+
 ## Agent names
 
 Each agent session chooses a name before its first claim or comment, such as `grimforge`: 2 to 24 letters, digits and hyphens, unique among the workspace's live sessions. An agent that never chooses gets a fallback such as `codex-k3fz`. The name shows on the Board, in a Task's history and on the dashboard's Agents page, where you can rename it. Client names and the addresses `user` and `holder` are reserved.

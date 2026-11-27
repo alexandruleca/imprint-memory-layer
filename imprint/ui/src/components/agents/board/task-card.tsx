@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { StatusDot } from "../status";
 import { STATUS_LABELS, ago, trouble, who } from "./format";
 import { clientName } from "../format";
+import { ProgressBar } from "./progress";
 
 const PRIORITY_TONE: Record<string, string> = {
   P0: "border-destructive/40 bg-destructive/10 text-destructive",
@@ -52,7 +53,15 @@ export function TaskCard({ task, now, simple, dragging, onOpen, onMove, onDragSt
           <span className="mt-1 block truncate text-xs text-muted-foreground" title={`Feature ${task.feature}`}>↳ {task.feature_title}</span>
         )}
         {task.tasks.length > 0 && (
-          <span className="mt-1 block text-xs text-muted-foreground">Feature · {task.tasks.length} {task.tasks.length === 1 ? "task" : "tasks"}</span>
+          <span className="mt-1.5 grid gap-1">
+            <span className="flex justify-between gap-2 text-xs text-muted-foreground">
+              <span>Feature · {task.tasks.length} {task.tasks.length === 1 ? "task" : "tasks"}</span>
+              {task.progress && <span className="tabular-nums">{task.progress.done} of {task.progress.total} done</span>}
+            </span>
+            {task.progress && task.progress.total > 0 && (
+              <ProgressBar done={task.progress.done} total={task.progress.total} label={`${task.title}: ${task.progress.done} of ${task.progress.total} done`} />
+            )}
+          </span>
         )}
         {(task.tags.length > 0 || task.assignees.length > 0) && (
           <span className="mt-2 flex flex-wrap gap-1">

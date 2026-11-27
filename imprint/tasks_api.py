@@ -68,6 +68,16 @@ def board(project: str = "", feature: str = "", tag: str = "", status: str = "",
             'autonomy': mode}
 
 
+@router.get("/progress")
+def progress(project: str = "", feature: str = ""):
+    """How far each project and Feature is, and how long is left at the
+    pace of the last 14 days."""
+    try:
+        return tasks.progress(project=project or None, feature=feature or None)
+    except (ValueError, LookupError) as error:
+        return _refused(error)
+
+
 @router.get("/inbox")
 def inbox():
     """Comments agents addressed to the user, unread, and the Tasks waiting
