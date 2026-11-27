@@ -22,6 +22,7 @@ Usage:
     python -m imprint.cli_tasks block TASK REASON
     python -m imprint.cli_tasks unblock|cancel|release TASK
     python -m imprint.cli_tasks delete TASK --yes
+    python -m imprint.cli_tasks dispatch run TASK [--client claude-code] [--minutes N]
 
 FILTERS: --project P --feature F --tag T --status S --priority P --assignee A --holder H --text T.
 Every command takes ``--workspace W`` (default: the active workspace) and
@@ -124,6 +125,13 @@ def _parser() -> argparse.ArgumentParser:
     delete = commands.add_parser('delete', parents=[common], help='Delete it, leaving only a tombstone')
     delete.add_argument('task')
     delete.add_argument('--yes', action='store_true', help='Confirm the deletion')
+    dispatch = commands.add_parser('dispatch', help='Start agent sessions for Tasks (ADR 0220)')
+    actions = dispatch.add_subparsers(dest='dispatch_command', required=True)
+    run = actions.add_parser('run', parents=[common],
+                             help='Start a Dispatched session on a Task now and wait for it to end')
+    run.add_argument('task')
+    run.add_argument('--client', default='claude-code', help='The client to start (default: claude-code)')
+    run.add_argument('--minutes', type=float, help='Its time limit (default: dispatch.session_minutes)')
     return parser
 
 
@@ -132,8 +140,27 @@ def _filters(args) -> dict:
                               priority=args.priority, assignee=args.assignee, holder=args.holder, text=args.text)
 
 
+def _dispatch(args, workspace: str | None, as_json: bool) -> None:
+    from .dispatch import dispatched
+
+    def started(run):
+        if not as_json:
+            print(f"Dispatched {run['task']} to {run['client']}: worktree {run['worktree']} on {run['branch']}.\n"
+                  f"Its log: {dispatched.store.log_path(run['id'])}\nWaiting for the session to end "
+                  '(Ctrl+C stops it)...', flush=True)
+
+    run = dispatched.run(args.task, workspace=workspace, client=args.client, minutes=args.minutes, on_start=started)
+    verdict = 'reached Review' if run['outcome'] == 'review' else f"failed: the session {run['detail']}"
+    _print(run, as_json, f"{run['task']} {verdict}.")
+    if run['outcome'] != 'review':
+        raise SystemExit(1)
+
+
 def _run(args, workspace: str | None, as_json: bool) -> None:
     command = args.command or 'board'
+    if command == 'dispatch':
+        _dispatch(args, workspace, as_json)
+        return
     user = {'actor': tasks.USER, 'workspace': workspace}
     if command == 'board':
         found = _filters(args) if args.command else {}

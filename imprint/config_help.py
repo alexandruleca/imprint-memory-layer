@@ -401,6 +401,15 @@ HELP: dict[str, dict[str, str]] = {
         "help": "What agents take from the Board without being asked, once they have finished what you asked: ready lets them take a Ready Task, or a Stale one to finish, in the project they work in; stale lets them take only Stale ones; off leaves every Task until you point an agent at it. They never take one assigned to you, one assigned to another client or device, or one that waits on another Task. A workspace can choose its own with imprint tasks autonomy. ready by default.",
         "example": "stale: to let agents finish abandoned work but start nothing new by themselves.",
     },
+    # ── The Dispatcher ───────────────────────────────────────────────────
+    "dispatch.session_minutes": {
+        "help": "How long one Dispatched session, an agent session Imprint's Dispatcher started for a Task without you, may run. A session still running then is stopped, its claim released with the end of its log, and the run counts as failed. 60 minutes by default.",
+        "example": "120: when your Tasks are large and sessions need longer to reach Review.",
+    },
+    "dispatch.claude_code.command": {
+        "help": "The Claude Code binary the Dispatcher starts for Dispatched sessions, when claude is not on the PATH of the system the project lives on. Empty by default: the Dispatcher looks for claude on PATH.",
+        "example": "/home/me/.local/bin/claude: when Claude Code is installed outside PATH.",
+    },
     "instructions.full_rules": {
         "help": "Clients that get Imprint's full rules block in their global instructions file instead of the short one. Claude Code, Codex, Cursor, Copilot and OpenCode load skills, so setup writes them four lines that say to search Imprint first and to load the imprint skill for the rest; a client listed here gets the whole guidance in its file, as Cline and the desktop apps always do. Imprint adds a client itself when its agents search first less often after the switch. Takes effect the next time setup or imprint connect runs for that client. Empty by default.",
         "example": "codex,cursor: to keep the full guidance in Codex's AGENTS.md and Cursor's rule.",

@@ -85,6 +85,7 @@ imprint tasks move T-7f3kq review              # edit, append, tag, assign, link
 imprint tasks comment T-7f3kq "Use the new tax table" --to codex
 imprint tasks next --feature T-2b9hd           # a Feature's frontier: what can be taken now
 imprint tasks delete T-7f3kq --yes             # gone here, leaving a tombstone
+imprint tasks dispatch run T-7f3kq             # start a Dispatched session on it now and wait (ADR 0220, proposed)
 ```
 
 Every command takes `--workspace` and `--json`; changes made here are yours.

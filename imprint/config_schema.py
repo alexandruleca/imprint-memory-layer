@@ -408,6 +408,12 @@ SETTINGS: list[Setting] = [
             "What agents take unasked: off, stale (Stale Tasks only) or ready (Ready and Stale); a workspace can choose its own",
             choices=(Choice("ready", "Ready and Stale"), Choice("stale", "Stale only"), Choice("off", "Off"))),
 
+    # ── The Dispatcher (ADRs 0220, 0222) ──────────────────────
+    Setting("dispatch.session_minutes",     "IMPRINT_DISPATCH_SESSION_MINUTES",     60, int,
+            "Minutes a Dispatched session may run before the Dispatcher stops it"),
+    Setting("dispatch.claude_code.command", "IMPRINT_DISPATCH_CLAUDE_CODE_COMMAND", "", str,
+            "Claude Code's binary for Dispatched sessions when it is not on PATH"),
+
     # ── Client rules (ADR 0214) ───────────────────────────────
     # Setup gives clients that load skills a short rules block pointing to
     # the imprint skill; these clients get the full block anyway. Upkeep

@@ -116,13 +116,14 @@ def checkpoint(task: str, text: str, *, branch: str | None = None, commit: str |
 
 def release(task: str, *, status: str | None = None, actor: dict | None = None,
             workspace: str | None = None) -> dict:
-    """End a claim without finishing: its holder, or the user, lets it go.
-    Work in progress goes back to Ready (Backlog without criteria) unless a
-    status is given."""
+    """End a claim without finishing: its holder, the user, or Imprint
+    itself (the Dispatcher ending a Dispatched session's claim, ADR 0220)
+    lets it go. Work in progress goes back to Ready (Backlog without
+    criteria) unless a status is given."""
     actor = _actor(actor)
     with _writing(workspace) as conn:
         uid = _uid(conn, task)
-        state = _state(conn, uid) if actor['kind'] == 'user' else _held(conn, uid, actor)
+        state = _state(conn, uid) if actor['kind'] in ('user', 'system') else _held(conn, uid, actor)
         if not state['holder']:
             raise ValueError(f"{state['id']} has no claim to release")
         if status is None and state['status'] == 'in_progress':
