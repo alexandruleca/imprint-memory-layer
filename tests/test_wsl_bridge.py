@@ -37,6 +37,18 @@ class WSLPathTests(unittest.TestCase):
                 self.assertNotIn('usage:', stderr.getvalue())
             call.assert_not_called()
 
+    def test_claude_codes_session_id_becomes_the_servers_client_session(self):
+        # ADR 0210: a WSL session served by Windows holds claims as its conversation.
+        bridge = ['--data-dir', 'C:\\data', '--distribution', 'Ubuntu', '--cwd', '/home/test/project', '--home', '/home/test']
+        for given, expected in (('5c1d2e3f-aaaa-bbbb-cccc-111122223333', '5c1d2e3f-aaaa-bbbb-cccc-111122223333'),
+                                ('', None), ('not a session; rm -rf', None)):
+            with self.subTest(given=given), patch.dict(os.environ, {}, clear=False), \
+                    patch.object(wsl_bridge.os, 'chdir'), patch.object(wsl_bridge.sys, 'platform', 'win32'), \
+                    patch.object(wsl_bridge.sys, 'stdout', io.StringIO()):
+                os.environ.pop('IMPRINT_CLIENT_SESSION', None)
+                self.assertEqual(wsl_bridge.main(bridge + ['--client-session', given, 'probe']), 0)
+                self.assertEqual(os.environ.get('IMPRINT_CLIENT_SESSION'), expected)
+
     def test_namespace_and_mount_paths_do_not_assume_automount_root(self):
         convert = wsl_paths.linux_to_windows
         self.assertEqual(convert('/home/test/project/../file.py', 'Ubuntu'),

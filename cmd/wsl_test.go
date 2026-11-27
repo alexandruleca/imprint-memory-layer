@@ -135,7 +135,9 @@ func TestWSLLauncherShellSyntaxAndDataIsolation(t *testing.T) {
 	p := wslProfile{Distribution: "Ubuntu", Home: "/home/test"}
 	bp := backendPaths{ProjectDir: `C:\with ' apostrophe`, VenvPython: `C:\with ' apostrophe\python.exe`, DataDir: `C:\with spaces\data`}
 	script := wslLauncher(p, bp, "imprint-wsl")
-	for _, part := range []string{"wslpath -u", "exec \"$python\"", "--data-dir", "--cwd \"$PWD\"", "\"$@\""} {
+	for _, part := range []string{"wslpath -u", "exec \"$python\"", "--data-dir", "--cwd \"$PWD\"", "\"$@\"",
+		// Claude Code's conversation, so the Windows server holds claims as it (ADR 0210).
+		"--client-session \"${CLAUDE_CODE_SESSION_ID:-}\""} {
 		if !strings.Contains(script, part) {
 			t.Fatalf("missing %s", part)
 		}

@@ -300,7 +300,8 @@ func wslLauncher(p wslProfile, bp backendPaths, name string, action ...string) s
 		"mounts=$(" + wslDriveMounts + ")\n" +
 		"exec \"$python\" " + shellQuote(wslBridge(bp.ProjectDir)) +
 		" --cli " + shellQuote(cli) + " --data-dir " + shellQuote(bp.DataDir) + " --distribution " + shellQuote(p.Distribution) +
-		" --cwd \"$PWD\" --mounts \"$mounts\" --home " + shellQuote(p.Home) + " " + strings.Join(append(action, `"$@"`), " ") + "\n"
+		" --cwd \"$PWD\" --mounts \"$mounts\" --client-session \"${CLAUDE_CODE_SESSION_ID:-}\"" +
+		" --home " + shellQuote(p.Home) + " " + strings.Join(append(action, `"$@"`), " ") + "\n"
 }
 
 func wslBridge(project string) string { return filepath.Join(project, "imprint", "wsl_bridge.py") }

@@ -8,6 +8,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import runpy
 import subprocess
 import sys
@@ -48,6 +49,8 @@ def main(argv=None):
     parser.add_argument('--home', required=True)
     parser.add_argument('--cli', default=str(Path(__file__).resolve().parent.parent / 'bin' / 'imprint.exe'))
     parser.add_argument('--mounts', default='')
+    # Claude Code's conversation id, when the client sets one (ADR 0210).
+    parser.add_argument('--client-session', default='')
     parser.add_argument('action', choices=['mcp', 'hook', 'cli', 'probe'])
     parser.add_argument('args', nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
@@ -61,6 +64,8 @@ def main(argv=None):
                       IMPRINT_WSL_DISTRO=args.distribution, IMPRINT_WSL_CWD=args.cwd,
                       IMPRINT_WSL_HOME=args.home, IMPRINT_WSL_PYTHON=sys.executable,
                       IMPRINT_WSL_MOUNTS=args.mounts)
+    if re.fullmatch(r'[A-Za-z0-9._-]{1,128}', args.client_session):
+        os.environ['IMPRINT_CLIENT_SESSION'] = args.client_session
     os.chdir(cwd)
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
