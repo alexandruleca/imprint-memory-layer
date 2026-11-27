@@ -171,6 +171,15 @@ def lost_claims(session: str, workspace: str | None = None) -> list[dict]:
             for s in states for lost in s.get('lost_claims', []) if lost['session'] == session]
 
 
+def unseen(session: str, keys: list[str], workspace: str | None = None) -> list[str]:
+    """The ``keys`` this session has not been told yet, left untold."""
+    if not keys:
+        return []
+    with _reading(workspace) as conn:
+        told = {key for (key,) in conn.execute('SELECT key FROM seen WHERE session = ?', (session,))}
+    return [key for key in keys if key not in told]
+
+
 def take_unseen(session: str, keys: list[str], workspace: str | None = None) -> list[str]:
     """The ``keys`` this session has not been told yet, now marked told."""
     if not keys:

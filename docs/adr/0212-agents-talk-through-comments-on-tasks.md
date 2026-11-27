@@ -5,7 +5,7 @@ description: Messages between agents, clients and the user are comments on Tasks
 
 - Status: Accepted
 - Date: 2026-11-27
-- Scope: The notice on tool replies, the inbox, the session-start context and the dashboard's notifications (a desktop notification only in the desktop app). The Claude Code UserPromptSubmit hook is not built yet.
+- Scope: The notice on tool replies, the inbox, the session-start context, the dashboard's notifications (a desktop notification only in the desktop app) and Claude Code's UserPromptSubmit hook, natively and in WSL profiles; on native Windows only where Git Bash is installed.
 - Related: [ADR 0208](0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md) (the Board), [ADR 0003](0003-local-mcp-and-portable-hooks.md) (portable hooks), [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) (holders)
 
 ## Context
@@ -28,16 +28,22 @@ The owner wants the Board to "facilitate communication between different harness
 
 Comments addressed to the user, and Tasks reaching Review, show the dashboard's toast and a desktop notification.
 
+**The prompt hook.** The conversation's Imprint server already wakes every minute to renew its leases; on each pass it writes what it would announce to `data/prompt-notices/<conversation>.json`, already in the hook's output format, and the keys of those items beside it. The hook is a shell script ([`prompt_notices.sh`](../../imprint/prompt_notices.sh)) sourced in Claude Code's own hook shell: it reads the start of its input for `session_id`, and only when a file waits does it move it aside, print it and remove it. A keys file whose notice file is gone tells the server the hook printed it, and the server marks those items told; a tool reply first takes the file back, so nothing is told twice. In a WSL profile a script beside the bridge launcher runs the Windows installation's hook over the Windows data folder. On native Windows Claude Code runs hooks in Git Bash, or in PowerShell when Git Bash is missing, so setup registers the hook only where Git Bash is found.
+
 ## Rejected alternatives
 
 - **A chat channel outside Tasks.** Weighed in the design discussion; messages without a Task lose their context and their record.
 - **Delivery through hooks only.** Codex has no hook that runs during a session's turns, so it would see messages only at session start.
+- **A Python prompt hook, like the other hooks.** Imprint's existing WSL-bridged hook took 140–160 ms on the owner's machine (2026-11-27), past the 100 ms limit, and a Python start is most of that.
+- **Running the script with `sh` as a new process.** Under Git Bash each process costs tens of milliseconds: `sh` and `head` took the empty case to 174 ms through WSL interop, against 82 ms when sourced.
 
 ## Consequences
 
 - A message waits until its recipient next calls Imprint or, in Claude Code, until the next prompt. It is mail, not chat.
 - Codex sees new comments on Imprint tool replies and at session start, not on every prompt.
-- Setup gains one Claude Code hook, which `imprint disable` and the cleanup paths must also remove.
+- Setup gains one Claude Code hook, which `imprint disable` and the cleanup paths also remove, with the WSL profile's `imprint-prompt` script.
+- A notice can wait up to a minute before the prompt hook can carry it; a tool reply carries it at once.
+- A conversation that ended leaves its file until a server sweeps files older than a day.
 
 ## Invalidation conditions
 
@@ -51,4 +57,7 @@ Comments addressed to the user, and Tasks reaching Review, show the dashboard's 
 - `tests/test_tasks_tool.py`: a comment told once as a notice to the addressed client and then read in the inbox; a Stalling holder told once. `tests/test_hooks.py`: the session-start context with the project's Board, unread comments and the session's name, within its size.
 - Linux (WSL Ubuntu, Python 3.12 venv): the full suite, 1,522 tests, passed on 2026-11-27 with the Board and built-in skills together.
 - Windows 11 (the installed runtime's Python 3.13, from a native copy of the repository): `tests.test_tasks`, `test_tasks_tool`, `test_cli_tasks`, `test_hooks`, `test_agent_activity`, `test_config_help`, `test_builtin_skills`, `test_registry`, `test_registry_files`, `test_skills_tool`, `test_chat_tool_coverage`, `test_adr_records` and `test_docs_tables`, 187 tests, passed.
-- Not run: macOS.
+- `tests/test_prompt_notices.py`: the hook prints a prepared notice once, under `sh` and sourced in `sh` and `bash`, with a 300,000-character prompt; what it printed is not repeated on a tool reply and a tool reply leaves no file; no file without news or a conversation id; malformed input is quiet; old files are swept. `internal/hooks`: the registered command prints once from an install path with spaces and an apostrophe. `cmd`: the hook only where a shell runs it, owned across relocation, withdrawn without Git Bash, removed by cleanup; the WSL profile's script, its registration and removal, and `sh -n` over the generated scripts.
+- With the prompt hook: the full Linux suite, 1,554 tests, passed; on Windows 11 from a native copy, `test_prompt_notices` under Git Bash (6 tests, the timing test left to the figures below), `test_tasks`, `test_tasks_tool` and `test_hooks`, and the cross-compiled `internal/hooks` tests and `cmd` hook, WSL and cleanup tests, passed.
+- Prompt hook time, 2026-11-27, median of 20 runs (10 on Windows) with a 200,000–300,000-character prompt: Linux (WSL Ubuntu, dash) 4.6 ms with nothing waiting and 10.5 ms when a notice waits. Windows 11 Git Bash, started from WSL: 82 ms with nothing waiting against 70 ms for `bash -c true` alone, so the hook adds about 12 ms; 178 ms when a notice waits (three more processes). Starting a Windows process through WSL interop costs about 60 ms (`cmd /c rem`), so in native Windows Claude Code both figures are about that much lower. The WSL profile's script (two `wslpath` calls and a file test on the Windows drive) measured 11 ms.
+- Not run: macOS; a live Claude Code session showing the notice on a prompt.

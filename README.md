@@ -120,7 +120,7 @@ Re-running `install.sh` also works and now prompts before overwriting an existin
 
 | Target        | Wired into                                         | Config file                                                                           | Enforcement         |
 |---------------|-----------------------------------------------------|----------------------------------------------------------------------------------------|---------------------|
-| `claude-code` | Claude Code CLI (MCP + hooks + global `CLAUDE.md`) | `~/.claude/settings.json` + MCP registered via `claude mcp add`                        | Instructions + a once-per-session reminder (PreToolUse) |
+| `claude-code` | Claude Code CLI (MCP + hooks + global `CLAUDE.md`) | `~/.claude/settings.json` + MCP registered via `claude mcp add`                        | Instructions + a once-per-session reminder (PreToolUse) + Board notices on each prompt (UserPromptSubmit) |
 | `cursor`      | Cursor IDE (MCP + always-on rule + hooks)          | `~/.cursor/mcp.json` + `~/.cursor/rules/imprint.mdc` + `~/.cursor/hooks.json`          | Rule + a once-per-session reminder (postToolUse) |
 | `codex`       | OpenAI Codex CLI                                   | `~/.codex/config.toml` (`[mcp_servers.imprint]`)                                       | Text-only           |
 | `copilot`     | GitHub Copilot — VS Code (1.143+), Copilot CLI, JetBrains | `~/.copilot/mcp-config.json` + `copilot-instructions.md` + `hooks/imprint.json` (honors `COPILOT_HOME`) | Instructions + SessionStart/Stop hooks |

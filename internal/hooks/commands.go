@@ -52,3 +52,13 @@ func PreReadGateCommand(bp Paths) string        { return command(bp, "pre-read")
 // CursorPostReadCommand reminds a Cursor session that reads before searching
 // Imprint, after the read (ADR 0142): Cursor's preToolUse can only allow or deny.
 func CursorPostReadCommand(bp Paths) string { return command(bp, "cursor-post-read") }
+
+// PromptNoticesCommand prints, on each prompt, what the conversation's
+// Imprint server prepared for it (ADR 0212): a shell script sourced in the
+// hook's own shell (sh, or Git Bash on Windows) rather than Python, so a
+// prompt starts no other process when nothing waits. Forward slashes keep
+// Git Bash from searching PATH for a Windows path.
+func PromptNoticesCommand(bp Paths) string {
+	return "IMPRINT_PROMPT_DATA=" + quote(filepath.ToSlash(bp.DataDir)) + " . " +
+		quote(filepath.ToSlash(filepath.Join(bp.ProjectDir, "imprint", "prompt_notices.sh")))
+}

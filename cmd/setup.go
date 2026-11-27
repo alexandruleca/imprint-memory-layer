@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -1096,16 +1097,20 @@ func setupShellAlias(name, targetPath string) {
 //     remind the model once to prefer mcp__imprint__search; never refuse the
 //     read (ADR 0142)
 func setupHooks(settingsPath string, bp backendPaths) {
-	hp := hooks.Paths{ProjectDir: bp.ProjectDir, VenvPython: bp.VenvPython, DataDir: bp.DataDir}
+	writeClaudeCodeHooks(settingsPath, bp, runtime.GOOS != "windows" || gitBashFound())
+}
 
-	type hookSpec struct {
-		event   string
-		matcher string
-		command string
-		timeout int
-		async   bool
-	}
+type hookSpec struct {
+	event   string
+	matcher string
+	command string
+	timeout int
+	async   bool
+}
 
+// claudeCodeHooks are the hooks Imprint registers with Claude Code; the
+// prompt hook only where a shell runs it (ADR 0212).
+func claudeCodeHooks(hp hooks.Paths, promptHook bool) []hookSpec {
 	specs := []hookSpec{
 		{"Stop", "", hooks.StopCommand(hp), 120, true},
 		{"PreCompact", "", hooks.PreCompactCommand(hp), 90, false},
@@ -1113,8 +1118,15 @@ func setupHooks(settingsPath string, bp backendPaths) {
 		{"PostToolUse", "mcp__imprint__search", hooks.PostSearchSentinelCommand(hp), 10, true},
 		{"PreToolUse", "Read|Grep|Glob", hooks.PreReadGateCommand(hp), 10, false},
 	}
+	if promptHook {
+		specs = append(specs, hookSpec{"UserPromptSubmit", "", hooks.PromptNoticesCommand(hp), 5, false})
+	}
+	return specs
+}
 
-	for _, h := range specs {
+func writeClaudeCodeHooks(settingsPath string, bp backendPaths, promptHook bool) {
+	hp := hooks.Paths{ProjectDir: bp.ProjectDir, VenvPython: bp.VenvPython, DataDir: bp.DataDir}
+	for _, h := range claudeCodeHooks(hp, promptHook) {
 		if err := jsonutil.SetOwnedHookWithMatcher(settingsPath, h.event, h.matcher, h.command, h.timeout, h.async); err != nil {
 			output.Fail("Could not set " + h.event + " hook: " + err.Error())
 		} else {
@@ -1125,6 +1137,32 @@ func setupHooks(settingsPath string, bp backendPaths) {
 			output.Success("Configured " + label + " hook")
 		}
 	}
+	if !promptHook {
+		if _, err := jsonutil.RemoveHooksMatching(settingsPath, []string{promptNoticesMarker}); err != nil && !os.IsNotExist(err) {
+			output.Fail("Could not remove the UserPromptSubmit hook: " + err.Error())
+		}
+	}
+}
+
+// promptNoticesMarker is in every prompt hook command Imprint registers.
+const promptNoticesMarker = "prompt_notices.sh"
+
+// gitBashFound reports whether Claude Code on Windows has Git Bash to run
+// hooks in, as it looks for one; without it Claude Code runs them in
+// PowerShell, which has no sh.
+func gitBashFound() bool {
+	if configured := os.Getenv("CLAUDE_CODE_GIT_BASH_PATH"); configured != "" {
+		return platform.FileExists(configured)
+	}
+	if git, err := exec.LookPath("git"); err == nil && platform.FileExists(filepath.Join(filepath.Dir(filepath.Dir(git)), "bin", "bash.exe")) {
+		return true
+	}
+	for _, base := range []string{os.Getenv("ProgramFiles"), os.Getenv("ProgramFiles(x86)"), filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs")} {
+		if base != "" && platform.FileExists(filepath.Join(base, "Git", "bin", "bash.exe")) {
+			return true
+		}
+	}
+	return false
 }
 
 // setupGlobalClaudeMD writes the managed Imprint section into

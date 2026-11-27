@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
@@ -116,12 +117,29 @@ func TestWSLProfilesPreserveSettingsAndRemainIdempotent(t *testing.T) {
 			if strings.Count(string(encoded), "imprint-wsl' hook stop") != 1 {
 				t.Fatalf("duplicate stop hook: %s", encoded)
 			}
+			// Claude Code's prompt hook is a script beside the launcher (ADR 0212).
+			prompt := path.Join(p.ClaudeHome, "imprint-prompt")
+			if target == "claude-code" {
+				if strings.Count(string(encoded), "imprint-prompt") != 1 || !strings.Contains(string(encoded), "UserPromptSubmit") {
+					t.Fatalf("prompt hook: %s", encoded)
+				}
+				script, err := os.ReadFile(local(prompt))
+				if err != nil || !strings.Contains(string(script), wslBridgeMarker) || !strings.Contains(string(script), filepath.Join(`D:\Relocated Imprint`, "imprint", "prompt_notices.sh")) {
+					t.Fatalf("prompt script: %s %v", script, err)
+				}
+			} else if strings.Contains(string(encoded), "UserPromptSubmit") {
+				t.Fatalf("%s got Claude Code's prompt hook", target)
+			}
 			if err := removeWSLProfile(p, target, local); err != nil {
 				t.Fatal(err)
 			}
 			remaining, _ := os.ReadFile(local(hooksFile))
-			if !strings.Contains(string(remaining), "unrelated-hook") || strings.Contains(string(remaining), "imprint-wsl") {
+			if !strings.Contains(string(remaining), "unrelated-hook") || strings.Contains(string(remaining), "imprint-wsl") ||
+				strings.Contains(string(remaining), "imprint-prompt") {
 				t.Fatal("removal must retain unrelated hooks")
+			}
+			if _, err := os.Stat(local(prompt)); !os.IsNotExist(err) {
+				t.Fatalf("prompt script left behind: %v", err)
 			}
 			remaining, _ = os.ReadFile(local(rules))
 			if !strings.Contains(string(remaining), "User-authored guidance.") || strings.Contains(string(remaining), "IMPRINT") {
@@ -149,6 +167,22 @@ func TestWSLLauncherShellSyntaxAndDataIsolation(t *testing.T) {
 	command := wslLauncher(p, bp, "imprint", "cli")
 	if !strings.HasSuffix(command, `--home '/home/test' cli "$@"`+"\n") || !strings.HasPrefix(command, "#!/bin/sh\n"+wslBridgeMarker+" (imprint).\n") {
 		t.Fatalf("imprint command: %s", command)
+	}
+	prompt := wslPromptScript(bp)
+	for _, part := range []string{"#!/bin/sh\n" + wslBridgeMarker + " (imprint-prompt).\n", "exec sh \"$(wslpath -u ",
+		shellQuote(filepath.Join(bp.ProjectDir, "imprint", "prompt_notices.sh")), `"$(wslpath -u 'C:\with spaces\data')"`} {
+		if !strings.Contains(prompt, part) {
+			t.Fatalf("prompt script misses %s: %s", part, prompt)
+		}
+	}
+	if sh, err := exec.LookPath("sh"); err == nil {
+		for _, script := range []string{script, command, prompt} {
+			check := exec.Command(sh, "-n")
+			check.Stdin = strings.NewReader(script)
+			if out, err := check.CombinedOutput(); err != nil {
+				t.Fatalf("%s: %s\n%s", err, out, script)
+			}
+		}
 	}
 	if got := wslUNC("Ubuntu", "/home/user/../project"); got != `\\wsl.localhost\Ubuntu\home\project` {
 		t.Fatal(got)

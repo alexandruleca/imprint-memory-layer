@@ -63,7 +63,10 @@ A comment addressed to an agent reaches it:
 
 1. once, as a notice on its next Imprint tool reply, in every client;
 2. in `tasks(action="inbox")`, which lists its unread comments;
-3. at session start, where Imprint's context counts the session's unread comments and lists the project's Ready and Stale Tasks.
+3. at session start, where Imprint's context counts the session's unread comments and lists the project's Ready and Stale Tasks;
+4. in Claude Code, also on your next prompt, before the model reads it: the session's Imprint server prepares, about once a minute, what it would announce in `data/prompt-notices/<conversation>.json`, and a few lines of shell registered as Claude Code's `UserPromptSubmit` hook print it and remove it, without starting Python. What the hook printed is not repeated on a tool reply.
+
+Lost claims and Stalling warnings travel the same ways. On Windows, Claude Code gets the prompt hook only when Git Bash is installed, since without it Claude Code runs hooks in PowerShell.
 
 `imprint tasks inbox` lists the comments agents addressed to you; `--read` marks them read.
 

@@ -306,6 +306,15 @@ func wslLauncher(p wslProfile, bp backendPaths, name string, action ...string) s
 
 func wslBridge(project string) string { return filepath.Join(project, "imprint", "wsl_bridge.py") }
 
+// wslPromptScript is Claude Code's prompt hook in a WSL profile (ADR 0212):
+// the Windows installation's shell script over the Windows data folder,
+// where the conversation's Windows Imprint server writes, without Python.
+func wslPromptScript(bp backendPaths) string {
+	return "#!/bin/sh\n" + wslBridgeMarker + " (imprint-prompt).\n" +
+		"exec sh \"$(wslpath -u " + shellQuote(filepath.Join(bp.ProjectDir, "imprint", "prompt_notices.sh")) + ")\"" +
+		" \"$(wslpath -u " + shellQuote(bp.DataDir) + ")\"\n"
+}
+
 // wslCommand is where a registration puts the imprint command: the directory
 // the Linux installer links imprint into (install.sh).
 func wslCommand(p wslProfile) string { return path.Join(p.Home, ".local", "bin", "imprint") }
@@ -417,6 +426,7 @@ type wslLayout struct {
 	hookSet           []wslHook
 	ownedHooks        string // Copilot's hooks file, which Imprint owns whole
 	permission        bool   // Claude Code's permission for Imprint's tools
+	prompt            string // Claude Code's prompt hook script; "" for other clients
 }
 
 func wslLayoutOf(p wslProfile, target, dir string) wslLayout {
@@ -429,7 +439,7 @@ func wslLayoutOf(p wslProfile, target, dir string) wslLayout {
 		// default; CLAUDE_CONFIG_DIR moves the registry into that directory.
 		return wslLayout{registry: wslClaudeRegistry(p), rootKey: "mcpServers", spec: stdio,
 			rules: path.Join(dir, "CLAUDE.md"), rule: instructions.ClaudeCodeCLAUDE,
-			hooks: path.Join(dir, "settings.json"), permission: true, hookSet: append(lifecycle,
+			hooks: path.Join(dir, "settings.json"), permission: true, prompt: path.Join(dir, "imprint-prompt"), hookSet: append(lifecycle,
 				wslHook{"PreCompact", "", "pre-compact", 90, false},
 				wslHook{"PostToolUse", "mcp__imprint__search", "post-search", 10, true},
 				wslHook{"PreToolUse", "Read|Grep|Glob", "pre-read", 10, false})}
@@ -510,6 +520,20 @@ func applyWSLProfile(p wslProfile, bp backendPaths, target string, local func(st
 			return err
 		}
 	}
+	if layout.prompt != "" {
+		if previous, err := os.ReadFile(local(layout.prompt)); err == nil && !strings.Contains(string(previous), wslBridgeMarker) {
+			return fmt.Errorf("refusing to overwrite an unrecognized script: %s", layout.prompt)
+		}
+		if err := configfile.Write(local(layout.prompt), []byte(wslPromptScript(bp))); err != nil {
+			return err
+		}
+		if err := makeExecutable(layout.prompt); err != nil {
+			return err
+		}
+		if err := jsonutil.SetOwnedHookWithMatcher(local(layout.hooks), "UserPromptSubmit", "", shellQuote(layout.prompt), 5, false); err != nil {
+			return err
+		}
+	}
 	if layout.ownedHooks != "" {
 		hooks := copilotHooks(shellQuote(launcher)+" hook copilot-session-start", shellQuote(launcher)+" hook stop")
 		if err := configfile.Write(local(layout.ownedHooks), hooks); err != nil {
@@ -568,7 +592,20 @@ func removeWSLProfile(p wslProfile, target string, local func(string) string) er
 		return err
 	}
 	if layout.hooks != "" {
-		if _, err := jsonutil.RemoveHooksMatching(local(layout.hooks), []string{shellQuote(launcher) + " hook "}); err != nil && !os.IsNotExist(err) {
+		owned := []string{shellQuote(launcher) + " hook "}
+		if layout.prompt != "" {
+			owned = append(owned, shellQuote(layout.prompt))
+		}
+		if _, err := jsonutil.RemoveHooksMatching(local(layout.hooks), owned); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	if layout.prompt != "" {
+		if content, err := os.ReadFile(local(layout.prompt)); err == nil && strings.Contains(string(content), wslBridgeMarker) {
+			if err := os.Remove(local(layout.prompt)); err != nil {
+				return err
+			}
+		} else if err != nil && !os.IsNotExist(err) {
 			return err
 		}
 	}

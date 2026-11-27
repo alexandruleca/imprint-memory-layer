@@ -5,9 +5,12 @@ and the tools word the Board the same way."""
 
 from __future__ import annotations
 
+import json
 import math
 import os
+import re
 import time
+from pathlib import Path
 
 from . import tasks
 
@@ -75,7 +78,12 @@ def touch() -> None:
 
 
 def renew_now() -> int:
-    return tasks.renew(session(), active_at=_activity['at'])
+    renewed = tasks.renew(session(), active_at=_activity['at'])
+    try:
+        refresh_prompt_notices()
+    except Exception:  # A busy store or a full disk must not stop the renewals.
+        pass
+    return renewed
 
 
 def start_renewing(interval: float = 60) -> None:
@@ -110,35 +118,148 @@ NOTICE_COMMENTS = 3
 NOTICE_CHARS = 300
 
 
-def notices(workspace: str | None = None, client: str | None = None) -> str:
-    """What this session should hear on its next reply, each thing once:
-    claims it lost, new comments addressed to it, and its claims that are
-    Stalling."""
-    me = actor(client, workspace or '')
-    workspace = workspace or None
-    lines = []
-    lost = tasks.lost_claims(me['session'], workspace=workspace)
-    told = set(tasks.take_unseen(me['session'], [f"lost:{item['claim']}" for item in lost], workspace=workspace))
-    lines += [f"You lost your claim on {item['task']} ({item['title']}) to {tasks.label(item['to'])}, "
-              'who claimed it first on another device. Stop working on it.'
-              for item in lost if f"lost:{item['claim']}" in told]
-    unread = tasks.inbox(me['session'], name=me.get('name'), client=me.get('client'), device=tasks.device_name(),
-                         mark=False, workspace=workspace)
-    told = set(tasks.take_unseen(me['session'], [f"notified:{item['id']}" for item in unread], workspace=workspace))
-    fresh = [item for item in unread if f"notified:{item['id']}" in told]
-    for item in fresh[:NOTICE_COMMENTS]:
+def _pending(me: dict, workspace: str | None) -> tuple[list[str], list[str]]:
+    """What this session has not been told yet, without marking it told:
+    the keys that settle it and the lines that say it."""
+    keys, lines = [], []
+    lost = {f"lost:{item['claim']}": item for item in tasks.lost_claims(me['session'], workspace=workspace)}
+    for key in tasks.unseen(me['session'], list(lost), workspace=workspace):
+        item = lost[key]
+        keys.append(key)
+        lines.append(f"You lost your claim on {item['task']} ({item['title']}) to {tasks.label(item['to'])}, "
+                     'who claimed it first on another device. Stop working on it.')
+    unread = {f"notified:{item['id']}": item
+              for item in tasks.inbox(me['session'], name=me.get('name'), client=me.get('client'),
+                                      device=tasks.device_name(), mark=False, workspace=workspace)}
+    fresh = tasks.unseen(me['session'], list(unread), workspace=workspace)
+    keys += fresh
+    for key in fresh[:NOTICE_COMMENTS]:
+        item = unread[key]
         text = item['text'] if len(item['text']) <= NOTICE_CHARS else item['text'][:NOTICE_CHARS] + '…'
         lines.append(f"New comment on {item['task']} ({item['title']}) from {_who(item['by'])}: {text}")
     if len(fresh) > NOTICE_COMMENTS:
         lines.append(f'And {len(fresh) - NOTICE_COMMENTS} more: tasks(action="inbox").')
     held = [state for state in tasks.listing(workspace=workspace)
             if (state.get('holder') or {}).get('session') == me['session'] and state.get('stalling')]
-    keys = {f"stalling:{state['id']}:{int(state['holder']['progress_at'])}": state for state in held}
-    for key in tasks.take_unseen(me['session'], list(keys), workspace=workspace):
-        state = keys[key]
+    stalling = {f"stalling:{state['id']}:{int(state['holder']['progress_at'])}": state for state in held}
+    for key in tasks.unseen(me['session'], list(stalling), workspace=workspace):
+        state = stalling[key]
+        keys.append(key)
         lines.append(f"{state['id']} has had no progress from you for a while: record a checkpoint with "
                      f'task_edit(action="checkpoint", task="{state["id"]}", text="…"), or release it if you stopped.')
+    return keys, lines
+
+
+def notices(workspace: str | None = None, client: str | None = None) -> str:
+    """What this session should hear on its next reply, each thing once:
+    claims it lost, new comments addressed to it, and its claims that are
+    Stalling. What its prompt file held, unless the prompt hook took it
+    first, is told here instead."""
+    me = actor(client, workspace or '')
+    workspace = workspace or None
+    _settle_prompt_file(me['session'], workspace)
+    keys, lines = _pending(me, workspace)
+    if not keys:
+        return ''
+    told = set(tasks.take_unseen(me['session'], keys, workspace=workspace))
+    if not told:  # Another reply told it meanwhile.
+        return ''
     return '\n'.join(lines)
+
+
+# ── Claude Code's prompt hook (ADR 0212) ─────────────────────────
+#
+# Claude Code runs a hook on each prompt, before the model reads it; a shell
+# script (prompt_notices.sh) prints `<conversation>.json` from this folder
+# and removes it, without starting Python. This server keeps the file
+# current on each renewal tick. `<conversation>.keys` holds what the file
+# says; a keys file whose notice file is gone means the hook took it.
+
+PROMPT_DIR = 'prompt-notices'
+_CONVERSATION_ID = re.compile(r'[A-Za-z0-9-]{8,128}')
+
+
+def _prompt_paths(board_session: str):
+    kind, _, conversation = board_session.partition(':')
+    if kind != 'conversation' or not _CONVERSATION_ID.fullmatch(conversation):
+        return None
+    from . import config
+    folder = Path(config.get_data_dir()) / PROMPT_DIR
+    return folder, folder / f'{conversation}.json', folder / f'{conversation}.keys'
+
+
+def _settle_prompt_file(board_session: str, workspace: str | None) -> None:
+    """Take back the prompt file, or, if the hook printed it, mark told what
+    it said."""
+    paths = _prompt_paths(board_session)
+    if paths is None:
+        return
+    _, notice, keys = paths
+    taken = notice.with_name(f'{notice.name}.{os.getpid()}.back')
+    try:
+        os.replace(notice, taken)
+        taken.unlink(missing_ok=True)
+        printed = False
+    except FileNotFoundError:
+        printed = True
+    except OSError:  # Windows: the hook has it open this moment; settle it next time.
+        return
+    if printed and keys.exists():
+        try:
+            said = json.loads(keys.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            said = []
+        if isinstance(said, list):
+            tasks.take_unseen(board_session, [key for key in said if isinstance(key, str)], workspace=workspace)
+    keys.unlink(missing_ok=True)
+
+
+PROMPT_FILE_DAYS = 1
+_swept = {'at': 0.0}
+
+
+def _sweep(folder: Path) -> None:
+    """Remove, hourly, what conversations that ended left in the folder."""
+    now = time.time()
+    if now - _swept['at'] < 3600 or not folder.is_dir():
+        return
+    _swept['at'] = now
+    for path in folder.iterdir():
+        try:
+            if now - path.stat().st_mtime > PROMPT_FILE_DAYS * 86400:
+                path.unlink()
+        except OSError:
+            pass
+
+
+def _write(path: Path, text: str) -> None:
+    temporary = path.with_name(f'{path.name}.{os.getpid()}.tmp')
+    temporary.write_text(text, encoding='utf-8')
+    os.replace(temporary, path)
+
+
+def refresh_prompt_notices(workspace: str | None = None, client: str | None = None) -> None:
+    """Prepare what this conversation's next prompt should carry, for the
+    prompt hook to print: the notice file first, then its keys, so a keys
+    file never claims a notice that was not there to print."""
+    paths = _prompt_paths(session())
+    if paths is None:
+        return
+    folder, notice, keys_file = paths
+    _sweep(folder)
+    if not board_exists(workspace or ''):
+        return
+    me = actor(client, workspace or '')
+    workspace = workspace or None
+    _settle_prompt_file(me['session'], workspace)
+    keys, lines = _pending(me, workspace)
+    if not keys:
+        return
+    folder.mkdir(parents=True, exist_ok=True)
+    context = 'From the Imprint Board:\n' + '\n'.join(lines)
+    _write(notice, json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit',
+                                                      'additionalContext': context}}))
+    _write(keys_file, json.dumps(keys))
 
 
 def inbox_text(items: list[dict]) -> str:

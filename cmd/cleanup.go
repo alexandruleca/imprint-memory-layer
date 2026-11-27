@@ -250,7 +250,7 @@ func cleanupClient(c clientCleanup, project string) error {
 	if c.hooks != "" {
 		// Current hook_entry paths and historical Imprint commands. This client
 		// is known not to have a foreign Imprint registration at this point.
-		_, err := jsonutil.RemoveHooksMatching(c.hooks, []string{"imprint/hook_entry.py", `imprint\hook_entry.py`, "imprint.cli_", "Imprint MCP available", "Imprint MCP gate", "COMPACTION IMMINENT", "Imprint MCP: compaction", filepath.Join(platform.DataDir(project), ".sessions"), filepath.ToSlash(filepath.Join(platform.DataDir(project), ".sessions"))})
+		_, err := jsonutil.RemoveHooksMatching(c.hooks, []string{"imprint/hook_entry.py", `imprint\hook_entry.py`, promptNoticesMarker, "imprint.cli_", "Imprint MCP available", "Imprint MCP gate", "COMPACTION IMMINENT", "Imprint MCP: compaction", filepath.Join(platform.DataDir(project), ".sessions"), filepath.ToSlash(filepath.Join(platform.DataDir(project), ".sessions"))})
 		if err != nil {
 			return fmt.Errorf("%s: %w", c.hooks, err)
 		}
