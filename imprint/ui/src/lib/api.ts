@@ -1304,7 +1304,7 @@ export function setAutonomy(value: Autonomy) {
 export type DispatchRun = {
   id: string; workspace: string; task: string; title: string; project: string; client: string; role: string;
   pid: number | null; worktree: string | null; branch: string | null; base: string | null; started_at: number;
-  ended_at: number | null; exit_code: number | null; outcome: "review" | "failed" | "stopped" | "refused" | null; detail: string | null;
+  ended_at: number | null; exit_code: number | null; outcome: "review" | "failed" | "stopped" | "lost" | "refused" | null; detail: string | null;
 };
 /** This device's Dispatcher for the active workspace: the Board's strip. */
 export type DispatchStatus = {

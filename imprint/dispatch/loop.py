@@ -165,7 +165,8 @@ class Dispatcher:
                 if state['stale'] and not guards.takeover(state, folder, workspace)[0]:
                     continue
                 try:
-                    run, proc = dispatched.start(state['id'], workspace=workspace, client=state['client'])
+                    run, proc = dispatched.start(state['id'], workspace=workspace, client=state['client'],
+                                                 on_wait=self.watch)  # its sessions are watched while the claim travels
                 except (LookupError, PermissionError, ValueError, OSError, RuntimeError) as error:
                     print(f"[imprint] dispatcher passed over {state['id']}: {error}", file=sys.stderr, flush=True)
                     continue

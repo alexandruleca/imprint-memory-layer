@@ -19,6 +19,7 @@ const OUTCOMES: Record<string, { label: string; tone: string }> = {
   review: { label: "reached Review", tone: "text-emerald-700 dark:text-emerald-300" },
   failed: { label: "failed", tone: "text-destructive" },
   stopped: { label: "stopped", tone: "text-muted-foreground" },
+  lost: { label: "another device took it", tone: "text-muted-foreground" },
   refused: { label: "not started", tone: "text-muted-foreground" },
 };
 

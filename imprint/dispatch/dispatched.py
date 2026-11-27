@@ -35,6 +35,13 @@ _DROPPED_ENV = ('CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_SESSION_ID'
                 'IMPRINT_CLIENT_SESSION', *runners.REFUSED_ENV)
 
 
+class ClaimLost(LookupError):
+    """Another device's earlier claim on the Task won (ADR 0224)."""
+
+
+LOST_CHECK = 10.0  # How often a running session's claim is checked, in seconds.
+
+
 def session_of(run_id: str) -> str:
     """The Board session a Dispatched session holds its Task as until it takes the claim over."""
     return f'{DISPATCH}{run_id}'
@@ -220,7 +227,7 @@ def _our_sessions(task: str, run_id: str, workspace: str) -> set[str]:
 
 
 def start(task: str, *, workspace: str | None = None, client: str | None = None,
-          role: str = 'work') -> tuple[dict, subprocess.Popen]:
+          role: str = 'work', on_wait=None) -> tuple[dict, subprocess.Popen]:
     """Claim ``task`` and start a Dispatched session of ``client`` on it
     (by default, the client the Task is assigned to, else the default
     client, ADR 0222): (the run's record, the client's process)."""
@@ -268,6 +275,7 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
                      'session': session_of(run_id), 'conversation': conversation, 'worktree': worktree['path'],
                      'branch': worktree['branch'], 'base': worktree['base'], 'started_at': time.time(),
                      'watcher': os.getpid(), 'distro': distro})
+    claimed_at = time.time()
     try:
         claimed = tasks.claim(state['id'], actor=actor, pid=os.getpid(), workspace=workspace)
     except (PermissionError, ValueError) as error:
@@ -279,6 +287,12 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
                          branch=worktree['branch'], commit=worktree['base_commit'],
                          next_step='The Dispatched session takes the claim over and works the Task.',
                          actor=actor, workspace=workspace)
+        # The claim must reach the paired devices before the client starts (ADR 0224).
+        from . import claimcheck
+        held, winner = claimcheck.confirm(state['id'], workspace, session_of(run_id), claimed_at, on_wait=on_wait)
+        if not held:
+            finish(run_id, None, lost=winner, started=False)
+            raise ClaimLost(f"{state['id']} was claimed first by {winner}: no session started")
         text = prompt(claimed['task'], workspace=workspace, worktree=worktree, token=claimed['token'], role=role,
                       note=runner.note, handoff=handoff)
         log = store.log_path(run_id)
@@ -296,6 +310,8 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
             proc.stdin.close()
         except OSError:
             pass  # The client ended at once; its log says why.
+    except ClaimLost:
+        raise
     except Exception as error:
         finish(run_id, None, reason=f'could not start: {error}')
         raise
@@ -313,7 +329,8 @@ class Session:
         from ..config_schema import resolve
         self.run, self.proc, self.pid = run, proc, run['pid']
         self.limit = 60 * float(minutes if minutes is not None else resolve('dispatch.session_minutes')[0])
-        self.renewed, self.reason, self.stopped = time.monotonic(), None, False
+        self.renewed, self.reason, self.stopped, self.lost = time.monotonic(), None, False, None
+        self.checked = time.monotonic()
 
     def running(self) -> bool:
         return self.proc.poll() is None if self.proc else processes.is_alive(self.pid)
@@ -330,13 +347,25 @@ class Session:
         if self.running():
             if time.time() - self.run['started_at'] > self.limit:
                 self.stop(f'ran past its {self.limit / 60:g}-minute limit and was stopped', stopped=False)
+            elif time.monotonic() - self.checked >= LOST_CHECK and self._claim_lost():
+                self.stop(f'lost its claim to {self.lost}, whose claim was earlier, and was stopped', stopped=False)
             elif time.monotonic() - self.renewed >= RENEW_EVERY:
                 tasks.renew(self.run['session'], pid=self.pid)
                 self.renewed = time.monotonic()
             if self.running():
                 return None
         code = self.proc.wait() if self.proc else None  # An adopted session's exit code is not known.
-        return finish(self.run['id'], code, reason=self.reason, stopped=self.stopped)
+        return finish(self.run['id'], code, reason=self.reason, stopped=self.stopped, lost=self.lost)
+
+    def _claim_lost(self) -> bool:
+        """Whether another device's earlier claim took the Task from this session (ADR 0224)."""
+        from . import claimcheck
+        self.checked = time.monotonic()
+        held, winner = claimcheck.ours(self.run['task'], self.run['workspace'],
+                                       _our_sessions(self.run['task'], self.run['id'], self.run['workspace']))
+        if not held:
+            self.lost = winner
+        return not held
 
 
 def watch(run: dict, proc: subprocess.Popen, *, minutes: float | None = None) -> dict:
@@ -364,15 +393,40 @@ def request_stop(run_id: str, reason: str = 'was stopped by the person') -> dict
     return store.get(run_id)
 
 
-def finish(run_id: str, exit_code: int | None, *, reason: str | None = None, stopped: bool = False) -> dict:
+def _lost(run: dict, winner: str, started: bool) -> str:
+    """Record a run whose claim another device's earlier claim beat
+    (ADR 0224): its worktree goes, its commits stay on the branch."""
+    detail = (f'lost its claim to {winner}, whose claim was earlier, and was stopped' if started else
+              f'was not started: {winner} claimed the Task first')
+    if started:
+        try:
+            folder = folders.resolve(run['project'], run['workspace'])
+            if folder['ok']:
+                worktrees.remove(folder, run['task'])
+        except Exception:  # A worktree still in use is removed when its Task ends (Dispatcher 7).
+            pass
+    text = f"The Dispatched session on this device {detail}."
+    if started and run.get('branch'):
+        text += f" Its commits, if any, stay on {run['branch']} here."
+    tasks.comment(run['task'], text, actor=SYSTEM, workspace=run['workspace'])
+    return detail
+
+
+def finish(run_id: str, exit_code: int | None, *, reason: str | None = None, stopped: bool = False,
+           lost: str | None = None, started: bool = True) -> dict:
     """Record how the run ended. A worker whose Task is in Review succeeded;
     any other end releases the claim this run holds, with a comment. A
     session stopped by the person or the server's shutdown is ``stopped``,
-    any other end ``failed`` (ADR 0220)."""
+    one whose claim another device won is ``lost`` (ADR 0224), any other
+    end ``failed`` (ADR 0220)."""
     run = store.get(run_id)
     if run['ended_at'] is not None:
         return run  # Already recorded, by whoever saw it end first.
     workspace, task = run['workspace'], run['task']
+    if lost:
+        detail = _lost(run, lost, started)
+        store.update(run_id, ended_at=time.time(), exit_code=exit_code, outcome='lost', detail=detail)
+        return store.get(run_id)
     if run.get('stop_reason'):
         reason, stopped = run['stop_reason'], True
     state = tasks.get(task, workspace=workspace)
