@@ -59,23 +59,40 @@ def _when(seconds: float) -> str:
 
 
 def line(state: dict) -> str:
-    """One Task on one line: id, priority, title, project, tags, assignees."""
+    """One Task on one line: id, priority, title, project, tags, assignees and
+    what holds it up."""
     text = f"{state['id']} {state['priority']} {state['title']} · {state['project']}"
     if state.get('tags'):
         text += ' ' + ' '.join(f'#{tag}' for tag in state['tags'])
     if state.get('assignees'):
         text += ' → ' + ', '.join(state['assignees'])
+    if state.get('blocked'):
+        text += ' [blocked]'
+    if state.get('open_blockers'):
+        text += f" [waits on {', '.join(state['open_blockers'])}]"
     return text
 
 
 def detail(state: dict) -> str:
     lines = [f"{state['id']} · {state['title']}",
              f"Status: {STATUS_LABELS[state['status']]} · Priority: {state['priority']} · Project: {state['project']}"]
+    if state.get('feature'):
+        lines.append(f"Feature: {state['feature']} {state.get('feature_title') or ''}".rstrip())
+    if state.get('tasks'):
+        lines.append('Tasks: ' + ', '.join(state['tasks']))
     if state.get('tags'):
         lines.append('Tags: ' + ', '.join(state['tags']))
     if state.get('assignees'):
         lines.append('Assignees: ' + ', '.join(state['assignees']))
+    if state.get('blockers'):
+        open_ones = set(state.get('open_blockers') or [])
+        lines.append('Blocked by: ' + ', '.join(f"{b} ({'open' if b in open_ones else 'done'})"
+                                                for b in state['blockers']))
+    if state.get('blocked'):
+        lines.append(f"Blocked: {state['blocked']['reason']} ({_who(state['blocked']['by'])})")
     lines.append(f"Created by {_who(state['created_by'])}, {_when(state['created_at'])}")
+    if state.get('ended_at'):
+        lines.append(f"Ended {_when(state['ended_at'])}")
     if state.get('acceptance'):
         lines.append('Acceptance criteria:')
         lines.extend(f'- {criterion}' for criterion in state['acceptance'])
@@ -105,26 +122,84 @@ def list_text(states: list[dict]) -> str:
     return '\n'.join(line(state) for state in states)
 
 
+def history_text(events: list[dict]) -> str:
+    lines = []
+    for event in events:
+        who = 'the user' if event['actor'] == 'user' else (event.get('agent') or event.get('client') or 'an agent')
+        data = {k: v for k, v in event['data'].items() if k != 'id'}
+        lines.append(f"{_when(event['recorded_at'])} {event['kind']} by {who}" + (f': {data}' if data else ''))
+    return '\n'.join(lines)
+
+
 # ── The tools ────────────────────────────────────────────────────
 
-def read(action: str, *, task: str = '', project: str = '', status: str = '', workspace: str = '') -> str:
+def filters(*, project='', feature='', tag='', status='', priority='', assignee='', text='') -> dict:
+    """The filters given, in the tasks module's form."""
+    return {key: value for key, value in {
+        'project': project or None, 'feature': feature or None, 'tag': tag or None,
+        'status': status_ref(status) if status else None, 'priority': priority or None,
+        'assignee': assignee or None, 'text': text or None}.items() if value}
+
+
+def read(action: str, *, task: str = '', archived: bool = False, workspace: str = '', **given) -> str:
     workspace = workspace or None
+    found = filters(**given)
     if action == 'board':
-        return board_text(tasks.board(project=project or None, workspace=workspace), project or None)
+        return board_text(tasks.board(workspace=workspace, **found), found.get('project'))
     if action == 'list':
-        return list_text(tasks.listing(project=project or None, status=status_ref(status) if status else None,
-                                       workspace=workspace))
+        return list_text(tasks.listing(archived=archived, workspace=workspace, **found))
+    if not task:
+        raise ValueError(f'Name the task: task="T-…"')
     if action == 'get':
-        if not task:
-            raise ValueError('Name the task to get: task="T-…"')
         return detail(tasks.get(task, workspace=workspace))
+    if action == 'history':
+        return history_text(tasks.history(task, workspace=workspace))
     raise ValueError(f'Unknown action {action!r}')
 
 
 def create(*, title: str, project: str, description: str = '', status: str = '', priority: str = '',
-           acceptance=None, tags=None, assignees=None, actor: dict, workspace: str = '') -> str:
-    made = tasks.create(title, project=project, description=description,
+           acceptance=None, tags=None, assignees=None, feature: str = '', blockers=None, actor: dict,
+           workspace: str = '') -> str:
+    made = tasks.create(title, project=project, description=description or '',
                         status=status_ref(status) if status else 'backlog', priority=priority or 'P2',
                         acceptance=acceptance or (), tags=tags or (), assignees=assignees or (),
-                        actor=actor, workspace=workspace or None)
+                        feature=feature or None, blockers=blockers or (), actor=actor, workspace=workspace or None)
     return f"Created {made['id']}.\n{detail(made)}"
+
+
+def change(action: str, task: str, *, actor: dict, workspace: str = '', title=None, description=None,
+           project=None, status='', priority=None, position=None, acceptance=None, feature=None,
+           add=None, remove=None, text='') -> str:
+    """Every task_edit action but create, on one existing Task."""
+    if not task:
+        raise ValueError('Name the task: task="T-…"')
+    where = {'actor': actor, 'workspace': workspace or None}
+    if action == 'edit':
+        fields = {k: v for k, v in {'title': title, 'description': description, 'project': project,
+                                    'priority': priority, 'acceptance': acceptance, 'position': position}.items()
+                  if v is not None}
+        state = tasks.edit(task, **fields, **where)
+    elif action == 'append':
+        state = tasks.append(task, text, **where)
+    elif action == 'move':
+        if not status:
+            raise ValueError('Name the status to move to')
+        state = tasks.move(task, status_ref(status), position=position, **where)
+    elif action == 'cancel':
+        state = tasks.move(task, 'cancelled', **where)
+    elif action == 'tag':
+        state = tasks.tag(task, add=add or (), remove=remove or (), **where)
+    elif action == 'assign':
+        state = tasks.assign(task, add=add or (), remove=remove or (), **where)
+    elif action == 'link':
+        links = {'add_blockers': add or (), 'remove_blockers': remove or ()}
+        if feature is not None:
+            links['feature'] = feature
+        state = tasks.link(task, **links, **where)
+    elif action == 'block':
+        state = tasks.block(task, text, **where)
+    elif action == 'unblock':
+        state = tasks.unblock(task, **where)
+    else:
+        raise ValueError(f'Unknown action {action!r}')
+    return detail(state)

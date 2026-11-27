@@ -125,5 +125,144 @@ class CreateAndReadTests(TasksTestCase):
             tasks.get('T-zzzzz', workspace='default')
 
 
+
+AGENT = tasks.agent('session-1', name='grimforge', client='claude-code')
+
+
+def make(title='Task', **fields):
+    fields.setdefault('project', 'p')
+    return tasks.create(title, workspace='default', **fields)
+
+
+class ShapeTests(TasksTestCase):
+    def test_edits_keep_the_last_value_and_appended_text_accumulates(self):
+        made = make('Draft', description='First version.')
+        tasks.edit(made['id'], title='Final', priority='p0', acceptance=['Docs build'], actor=AGENT, workspace='default')
+        tasks.append(made['id'], 'Resolved: use retries.', actor=AGENT, workspace='default')
+        tasks.append(made['id'], 'Resolved: keep the timeout.', workspace='default')
+        got = tasks.get(made['id'], workspace='default')
+        self.assertEqual((got['title'], got['priority'], got['acceptance']), ('Final', 'P0', ['Docs build']))
+        self.assertEqual(got['description'], 'First version.\n\nResolved: use retries.\n\nResolved: keep the timeout.')
+        tasks.edit(made['id'], description='Rewritten.', workspace='default')
+        self.assertEqual(tasks.get(made['id'], workspace='default')['description'], 'Rewritten.')
+        kinds = [e['kind'] for e in tasks.history(made['id'], workspace='default')]
+        self.assertEqual(kinds, ['created', 'edited', 'appended', 'appended', 'edited'])
+
+    def test_a_task_moves_to_ready_only_with_an_acceptance_criterion(self):
+        made = make()
+        with self.assertRaisesRegex(ValueError, 'at least one acceptance criterion'):
+            tasks.move(made['id'], 'ready', workspace='default')
+        tasks.edit(made['id'], acceptance=['It works'], workspace='default')
+        self.assertEqual(tasks.move(made['id'], 'ready', workspace='default')['status'], 'ready')
+        with self.assertRaisesRegex(ValueError, 'acceptance criterion'):
+            tasks.edit(made['id'], acceptance=[], workspace='default')
+
+    def test_cancelling_ends_a_task_and_reopening_it_clears_the_end(self):
+        made = make()
+        with patch.object(tasks.time, 'time', return_value=1_800_000_000.0):
+            cancelled = tasks.move(made['id'], 'cancelled', actor=AGENT, workspace='default')
+        self.assertEqual((cancelled['status'], cancelled['ended_at']), ('cancelled', 1_800_000_000.0))
+        reopened = tasks.move(made['id'], 'backlog', workspace='default')
+        self.assertIsNone(reopened['ended_at'])
+
+    def test_the_blocked_mark_has_a_reason_and_keeps_the_status(self):
+        made = make(acceptance=['x'], status='ready')
+        blocked = tasks.block(made['id'], 'Waiting for the API key', actor=AGENT, workspace='default')
+        self.assertEqual(blocked['status'], 'ready')
+        self.assertEqual(blocked['blocked']['reason'], 'Waiting for the API key')
+        self.assertEqual(blocked['blocked']['by']['name'], 'grimforge')
+        with self.assertRaisesRegex(ValueError, 'reason'):
+            tasks.block(made['id'], ' ', workspace='default')
+        self.assertIsNone(tasks.unblock(made['id'], workspace='default')['blocked'])
+
+    def test_tags_and_assignees_are_added_and_removed_as_sets(self):
+        made = make(tags=['UI'], assignees=['codex'])
+        tasks.tag(made['id'], add=['Board', 'ui'], remove=['missing'], workspace='default')
+        tasks.assign(made['id'], add=['user', 'claude-code@bedrock', '@bedrock'], remove=['codex'], workspace='default')
+        got = tasks.get(made['id'], workspace='default')
+        self.assertEqual(got['tags'], ['ui', 'board'])
+        self.assertEqual(got['assignees'], ['user', 'claude-code@bedrock', '@bedrock'])
+        for bad in ('two words', 'a@b@c', '@', ''):
+            with self.subTest(assignee=bad), self.assertRaisesRegex(ValueError, 'assignee'):
+                tasks.assign(made['id'], add=[bad], workspace='default')
+
+
+class GroupingTests(TasksTestCase):
+    def test_a_task_belongs_to_one_feature_and_features_do_not_nest(self):
+        feature = make('Checkout redesign')
+        other = make('Search revamp')
+        task = make('New total line', feature=feature['id'])
+        self.assertEqual(task['feature'], feature['id'])
+        moved = tasks.link(task['id'], feature=other['id'], workspace='default')
+        self.assertEqual(moved['feature'], other['id'])
+        with self.assertRaisesRegex(ValueError, 'Feature'):
+            tasks.link(other['id'], feature=feature['id'], workspace='default')  # other has a Task of its own
+        with self.assertRaisesRegex(ValueError, 'Feature'):
+            make('Nested', feature=task['id'])  # task belongs to a Feature
+        with self.assertRaisesRegex(ValueError, 'itself'):
+            tasks.link(feature['id'], feature=feature['id'], workspace='default')
+        self.assertIsNone(tasks.link(task['id'], feature='', workspace='default')['feature'])
+
+    def test_blockers_are_tasks_without_cycles_and_open_ones_are_counted(self):
+        a, b, c = make('a'), make('b'), make('c')
+        tasks.link(c['id'], add_blockers=[a['id'], b['id']], workspace='default')
+        got = tasks.get(c['id'], workspace='default')
+        self.assertEqual(sorted(got['blockers']), sorted([a['id'], b['id']]))
+        self.assertEqual(sorted(got['open_blockers']), sorted([a['id'], b['id']]))
+        tasks.edit(a['id'], acceptance=['done'], workspace='default')
+        tasks.move(a['id'], 'done', workspace='default')
+        self.assertEqual(tasks.get(c['id'], workspace='default')['open_blockers'], [b['id']])
+        with self.assertRaisesRegex(ValueError, 'cycle'):
+            tasks.link(a['id'], add_blockers=[c['id']], workspace='default')
+        with self.assertRaisesRegex(ValueError, 'itself'):
+            tasks.link(a['id'], add_blockers=[a['id']], workspace='default')
+        with self.assertRaisesRegex(LookupError, 'No task T-zzzzz'):
+            tasks.link(a['id'], add_blockers=['T-zzzzz'], workspace='default')
+        tasks.link(c['id'], remove_blockers=[b['id']], workspace='default')
+        self.assertEqual(tasks.get(c['id'], workspace='default')['blockers'], [a['id']])
+
+    def test_filters_combine(self):
+        feature = make('Checkout')
+        hit = make('Fix tax rounding', project='shop', tags=['cart'], priority='P1', assignees=['codex'],
+                   description='Totals are off by a cent.', feature=feature['id'])
+        make('Fix tax rounding elsewhere', project='blog', tags=['cart'], priority='P1')
+        make('Cart icon', project='shop', tags=['ui'])
+        found = tasks.listing(project='shop', tag='cart', priority='p1', assignee='codex', text='OFF BY',
+                              feature=feature['id'], status='backlog', workspace='default')
+        self.assertEqual([t['id'] for t in found], [hit['id']])
+        self.assertEqual(len(tasks.listing(tag='cart', workspace='default')), 2)
+        self.assertEqual(len(tasks.listing(text='tax', workspace='default')), 2)
+
+    def test_ended_tasks_leave_the_board_after_14_days_and_stay_readable(self):
+        made = make(acceptance=['x'])
+        with patch.object(tasks.time, 'time', return_value=1_800_000_000.0):
+            tasks.move(made['id'], 'done', workspace='default')
+        with patch.object(tasks.time, 'time', return_value=1_800_000_000.0 + 13 * 86400):
+            self.assertEqual(len(tasks.board(workspace='default')['columns']['done']), 1)
+        with patch.object(tasks.time, 'time', return_value=1_800_000_000.0 + 15 * 86400):
+            self.assertEqual(tasks.board(workspace='default')['columns']['done'], [])
+            self.assertEqual(len(tasks.listing(archived=True, workspace='default')), 1)
+            self.assertEqual(tasks.get(made['id'], workspace='default')['status'], 'done')
+
+
+class DeleteTests(TasksTestCase):
+    def test_only_the_user_deletes_and_a_deletion_keeps_only_a_tombstone(self):
+        made = make(f'Secret plan', description='Very private.')
+        with self.assertRaisesRegex(PermissionError, 'cancel'):
+            tasks.delete(made['id'], actor=AGENT, workspace='default')
+        tasks.append(made['id'], 'More private notes.', workspace='default')
+        tasks.delete(made['id'], workspace='default')
+        with self.assertRaisesRegex(LookupError, 'deleted'):
+            tasks.get(made['id'], workspace='default')
+        self.assertEqual(tasks.listing(workspace='default'), [])
+        self.assertEqual(tasks.listing(archived=True, workspace='default'), [])
+        import sqlite3
+        conn = sqlite3.connect(self.data / 'tasks.sqlite3')
+        rows = conn.execute('SELECT kind, data FROM events ORDER BY hlc').fetchall()
+        conn.close()
+        self.assertEqual([kind for kind, _ in rows], ['created', 'appended', 'deleted'])
+        self.assertTrue(all('private' not in data for _, data in rows))
+
+
 if __name__ == '__main__':
     unittest.main()

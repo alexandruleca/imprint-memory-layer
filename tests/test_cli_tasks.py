@@ -61,5 +61,33 @@ class CliTasksTests(unittest.TestCase):
         self.assertIn("Unknown workspace 'nowhere'", done.stderr)
 
 
+    def test_the_user_shapes_moves_and_deletes_tasks(self):
+        feature = json.loads(self.run_cli('create', 'Checkout', '--json').stdout)['id']
+        task = json.loads(self.run_cli('create', 'Total line', '--json').stdout)['id']
+        self.run_cli('edit', task, '--priority', 'P0', '--criterion', 'Shows tax')
+        self.run_cli('append', task, 'Resolved: round half up.')
+        self.run_cli('tag', task, '--add', 'cart')
+        self.run_cli('assign', task, '--add', 'user')
+        self.run_cli('link', task, '--feature', feature)
+        self.run_cli('move', task, 'ready')
+        self.run_cli('block', task, 'Waiting for prices')
+        got = json.loads(self.run_cli('show', task, '--json').stdout)
+        self.assertEqual((got['priority'], got['status'], got['tags'], got['assignees'], got['feature']),
+                         ('P0', 'ready', ['cart'], ['user'], feature))
+        self.assertEqual(got['blocked']['reason'], 'Waiting for prices')
+        self.assertIn('Resolved: round half up.', got['description'])
+        listed = json.loads(self.run_cli('list', '--feature', feature, '--tag', 'cart', '--assignee', 'user',
+                                         '--priority', 'P0', '--text', 'total', '--json').stdout)
+        self.assertEqual([t['id'] for t in listed], [task])
+        self.run_cli('unblock', task)
+        self.run_cli('cancel', task)
+        self.assertEqual(json.loads(self.run_cli('show', task, '--json').stdout)['status'], 'cancelled')
+        self.run_cli('delete', task, '--yes')
+        done = self.run_cli('show', task, ok=False)
+        self.assertIn('was deleted', done.stderr)
+        done = self.run_cli('delete', feature, ok=False)
+        self.assertIn('--yes', done.stderr)
+
+
 if __name__ == '__main__':
     unittest.main()

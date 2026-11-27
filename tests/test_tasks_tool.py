@@ -87,5 +87,41 @@ class TasksToolTests(unittest.TestCase):
         self.assertFalse((self.data / 'tasks.sqlite3').exists())
 
 
+    def test_an_agent_shapes_groups_and_filters_tasks(self):
+        feature = tasks.create('Checkout redesign', project='imprint', workspace='default')['id']
+        blocker = tasks.create('Price API', project='imprint', workspace='default')['id']
+        task = tasks.create('Total line', project='imprint', workspace='default')['id']
+        _, results = self.call(
+            ('task_edit', {'action': 'edit', 'task': task, 'title': 'New total line', 'priority': 'P1',
+                           'acceptance': ['Shows tax']}),
+            ('task_edit', {'action': 'append', 'task': task, 'text': 'Resolved: round half up.'}),
+            ('task_edit', {'action': 'tag', 'task': task, 'add': ['Cart', 'ui']}),
+            ('task_edit', {'action': 'assign', 'task': task, 'add': ['codex']}),
+            ('task_edit', {'action': 'link', 'task': task, 'feature': feature, 'add': [blocker]}),
+            ('task_edit', {'action': 'move', 'task': task, 'status': 'Ready'}),
+            ('task_edit', {'action': 'block', 'task': task, 'text': 'Waiting for prices'}),
+            ('tasks', {'action': 'get', 'task': task}),
+            ('tasks', {'action': 'list', 'feature': feature, 'tag': 'cart', 'priority': 'P1', 'assignee': 'codex',
+                       'text': 'round half'}),
+            ('tasks', {'action': 'get', 'task': feature}))
+        self.assertEqual([failed for failed, _ in results], [False] * 10, results)
+        got = results[7][1]
+        for text in ('New total line', 'Status: Ready', 'Priority: P1', 'Tags: cart, ui', 'Assignees: codex',
+                     f'Feature: {feature} Checkout redesign', f'Blocked by: {blocker} (open)',
+                     'Blocked: Waiting for prices', 'Resolved: round half up.'):
+            self.assertIn(text, got)
+        self.assertIn(task, results[8][1])
+        self.assertIn(f'Tasks: {task}', results[9][1])
+        _, [(_, unblocked), (_, cancelled)] = self.call(('task_edit', {'action': 'unblock', 'task': task}),
+                                                        ('task_edit', {'action': 'cancel', 'task': task}))
+        self.assertNotIn('Blocked:', unblocked)
+        self.assertIn('Status: Cancelled', cancelled)
+
+    def test_agents_cannot_delete(self):
+        tools, _ = self.call()
+        actions = tools['task_edit'].inputSchema['properties']['action']['enum']
+        self.assertNotIn('delete', actions)
+
+
 if __name__ == '__main__':
     unittest.main()
