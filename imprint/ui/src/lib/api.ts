@@ -1172,6 +1172,8 @@ export type AgentSession = {
   directory: string | null; workspace: string | null;
   started_at: number; last_seen: number; ended_at: number | null; connected: boolean;
   calls: number; errors: number; last_tool: string | null;
+  /** The session on the Board and the name its agent chose (ADR 0216), once it used the Board. */
+  board_session?: string | null; agent_name?: string | null;
 };
 export type AgentClient = { client: string; sessions: number; connected: number; calls: number; errors: number; last_seen: number };
 export type AgentCall = {
@@ -1190,6 +1192,10 @@ export function getAgents({ limit = 50, before, client, q }: { limit?: number; b
   if (client) qs.set("client", client);
   if (q) qs.set("q", q);
   return fetchAPI<AgentsPage>(`/api/agents?${qs}`);
+}
+/** Rename an agent on its workspace's Board; refused when another live session has the name. */
+export function renameAgent(sessionId: string, name: string) {
+  return fetchAPI<{ name: string }>(`/api/agents/${encodeURIComponent(sessionId)}/name`, { method: "POST", body: JSON.stringify({ name }) });
 }
 export function getAgentCalls(sessionId: string, before?: number, limit = 100) {
   const qs = new URLSearchParams({ limit: String(limit) });

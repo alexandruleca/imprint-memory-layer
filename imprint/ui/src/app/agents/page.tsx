@@ -285,12 +285,13 @@ function SessionRow({ session: s, group, now, onOpen }: { session: AgentSession;
   return (
     <li>
       <button type="button" onClick={onOpen}
-        aria-label={`${folder}, ${name}, ${s.connected ? "running" : "finished"}, ${plural(s.calls, "call")}${errors}. Show calls`}
+        aria-label={`${s.agent_name ? `${s.agent_name}, ` : ""}${folder}, ${name}, ${s.connected ? "running" : "finished"}, ${plural(s.calls, "call")}${errors}. Show calls`}
         className="group flex w-full min-w-0 items-center gap-3 px-4 py-2.5 text-left text-sm outline-none hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset">
         {s.connected && <StatusDot connected decorative />}
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-baseline gap-2">
-            <span className="truncate font-medium" title={s.directory ?? undefined}>{folder}</span>
+            {s.agent_name && <span className="shrink-0 font-semibold">{s.agent_name}</span>}
+            <span className={s.agent_name ? "truncate text-muted-foreground" : "truncate font-medium"} title={s.directory ?? undefined}>{folder}</span>
             {s.workspace && s.workspace !== "default" && (
               <Badge variant="outline" className="hidden shrink-0 text-[10px] sm:inline-flex">{s.workspace}</Badge>
             )}

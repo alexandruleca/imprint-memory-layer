@@ -78,6 +78,10 @@ def _connect() -> sqlite3.Connection:
             ON agent_calls(session_id, id DESC);
         """
     )
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(agent_sessions)")}
+    for column in ("board_session", "agent_name"):  # The Board's session and the name it chose (ADR 0216).
+        if column not in columns:
+            conn.execute(f"ALTER TABLE agent_sessions ADD COLUMN {column} TEXT")
     conn.commit()
     _conn = conn
     return conn
@@ -123,6 +127,18 @@ def name_client(name: str | None, version: str | None) -> None:
     if _session_id:
         _write("UPDATE agent_sessions SET client = ?, client_version = ?, last_seen = ? WHERE id = ?",
                ((name or "")[:120] or None, (version or "")[:60] or None, time.time(), _session_id))
+
+
+def set_board(board_session: str, name: str | None = None) -> None:
+    """Record this process's Board session and, when known, its agent name."""
+    if _session_id:
+        _write("UPDATE agent_sessions SET board_session = ?, agent_name = COALESCE(?, agent_name) WHERE id = ?",
+               (board_session, name, _session_id))
+
+
+def rename(board_session: str, name: str) -> None:
+    """Show ``name`` for every session of this Board session."""
+    _write("UPDATE agent_sessions SET agent_name = ? WHERE board_session = ?", (name, board_session))
 
 
 def current() -> dict:

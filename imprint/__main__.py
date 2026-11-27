@@ -15,9 +15,14 @@ from . import agent_activity
 agent_activity.start_session(os.getcwd(), os.environ.get('IMPRINT_WORKSPACE'))
 atexit.register(agent_activity.end_session)
 
-# Its claims on the Board stay alive while it runs (ADR 0210).
-from .tasks_tool import start_renewing
-start_renewing()
+# Its claims on the Board stay alive while it runs (ADR 0210), and a resumed
+# conversation shows the name it chose (ADR 0216).
+from . import tasks_tool
+try:
+    agent_activity.set_board(tasks_tool.session(), tasks_tool.actor().get('name'))
+except Exception:
+    pass
+tasks_tool.start_renewing()
 
 mcp.instructions = (mcp.instructions or '') + '\n' + json.dumps({
     'current_device': current(), 'working_directory': os.getcwd(),

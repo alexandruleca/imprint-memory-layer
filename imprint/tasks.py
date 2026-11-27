@@ -81,6 +81,17 @@ CREATE TABLE IF NOT EXISTS seen (
     key     TEXT NOT NULL,
     PRIMARY KEY (session, key)
 );
+CREATE TABLE IF NOT EXISTS names (
+    session    TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    lower      TEXT NOT NULL,
+    client     TEXT,
+    device     TEXT NOT NULL,
+    pid        INTEGER,
+    chosen     INTEGER NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS names_by_lower ON names (lower);
 CREATE TABLE IF NOT EXISTS clock (
     one     INTEGER PRIMARY KEY CHECK (one = 1),
     wall    INTEGER NOT NULL,
@@ -893,6 +904,10 @@ def claim(task: str, *, actor: dict, token: str | None = None, pid: int | None =
         data = {'token_hash': _hash(token)}
         if replaces:
             data['replaces'] = replaces
+        if replaces and data['token_hash'] == holder.get('token_hash') and holder.get('name') and not actor.get('name'):
+            # The same agent after a restart: it keeps the name it had.
+            _name(conn, actor['session'], holder['name'], actor.get('client'), pid, chosen=True)
+            actor = {**actor, 'name': holder['name']}
         event = _append(conn, uid, 'claimed', data, actor)
         _lease(conn, event['id'], event['recorded_at'], pid or os.getpid(), actor['device'], event['recorded_at'])
         _project(conn, uid)
@@ -1031,3 +1046,73 @@ def take_unseen(session: str, keys: list[str], workspace: str | None = None) -> 
         new = [key for key in keys if conn.execute('INSERT OR IGNORE INTO seen (session, key) VALUES (?, ?)',
                                                    (session, key)).rowcount]
     return new
+
+
+
+# ── Agent names (ADR 0216) ───────────────────────────────────────
+
+_NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9-]{1,23}$')
+
+
+def _name(conn: sqlite3.Connection, session: str, name: str, client: str | None, pid: int | None,
+          chosen: bool) -> None:
+    conn.execute('INSERT INTO names (session, name, lower, client, device, pid, chosen, updated_at) '
+                 'VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (session) DO UPDATE SET name = excluded.name, '
+                 'lower = excluded.lower, client = COALESCE(excluded.client, client), device = excluded.device, '
+                 'pid = excluded.pid, chosen = excluded.chosen, updated_at = excluded.updated_at',
+                 (session, name, name.lower(), client, _device(), pid or os.getpid(), int(chosen), time.time()))
+
+
+def _taken(conn: sqlite3.Connection, session: str) -> set[str]:
+    """Names, in lower case, that another session has: one live on this
+    device, or one holding a live claim, seen from any device."""
+    from .processes import is_alive
+    device = _device()
+    taken = {row['lower'] for row in conn.execute('SELECT lower, device, pid FROM names WHERE session != ?', (session,))
+             if row['device'] != device or is_alive(row['pid'])}
+    view = _view(conn)
+    for state in view.by_uid.values():
+        holder = state.get('holder')
+        if holder and holder['session'] != session and holder.get('name') and not view.claim(state)[1]:
+            taken.add(holder['name'].lower())
+    return taken
+
+
+def choose_name(session: str, name: str, *, client: str | None = None, pid: int | None = None,
+                workspace: str | None = None) -> str:
+    """Give an agent session the name it chose: 2 to 24 letters, digits and
+    hyphens, unique without case among the workspace's live sessions."""
+    name = (name or '').strip()
+    if not _NAME.match(name):
+        raise ValueError('A name is 2 to 24 letters, digits and hyphens, starting with a letter or digit')
+    with _writing(workspace) as conn:
+        taken = _taken(conn, session)
+        if name.lower() in taken:
+            suggestion = next(f'{name}-{n}' for n in range(2, 1000) if f'{name}-{n}'.lower() not in taken)
+            raise ValueError(f'{name} is taken by another session: choose another, such as {suggestion}')
+        _name(conn, session, name, client, pid, chosen=True)
+    return name
+
+
+def name_of(session: str, workspace: str | None = None) -> str | None:
+    with _reading(workspace) as conn:
+        row = conn.execute('SELECT name FROM names WHERE session = ?', (session,)).fetchone() if conn else None
+    return row['name'] if row else None
+
+
+def ensure_name(session: str, *, client: str | None = None, pid: int | None = None,
+                workspace: str | None = None) -> str:
+    """The session's name, or a fallback (its client and four characters)
+    given now to a session that never chose one."""
+    with _writing(workspace) as conn:
+        row = conn.execute('SELECT name FROM names WHERE session = ?', (session,)).fetchone()
+        if row:
+            return row['name']
+        taken = _taken(conn, session)
+        prefix = re.sub(r'[^a-z0-9-]', '', (client or 'agent').lower())[:19] or 'agent'
+        while True:
+            name = f"{prefix}-{''.join(secrets.choice(ID_ALPHABET) for _ in range(4))}"
+            if name not in taken:
+                break
+        _name(conn, session, name, client, pid, chosen=False)
+    return name

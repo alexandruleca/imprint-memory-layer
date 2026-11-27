@@ -33,10 +33,43 @@ def session() -> str:
     return f"process:{agent_activity.current().get('session') or os.getpid()}"
 
 
-def actor(client: str | None = None) -> dict:
-    """The agent session this MCP server serves, as the actor of its changes."""
+def actor(client: str | None = None, workspace: str = '') -> dict:
+    """The agent session this MCP server serves, as the actor of its
+    changes, with the name it chose on the workspace's Board."""
     from . import agent_activity
-    return tasks.agent(session(), client=client or agent_activity.current().get('client'))
+    me = session()
+    try:
+        name = tasks.name_of(me, workspace=workspace or None)
+    except ValueError:
+        name = None
+    return tasks.agent(me, name=name, client=client or agent_activity.current().get('client'))
+
+
+def choose_name(name: str, *, actor: dict, workspace: str = '') -> str:
+    chosen = tasks.choose_name(actor['session'], name, client=actor.get('client'), workspace=workspace or None)
+    _mirror(actor['session'], chosen)
+    return (f'You are {chosen} on this Board: your claims, checkpoints and comments show it, and others '
+            f'address you as @{chosen}.')
+
+
+def _mirror(board_session: str, name: str) -> None:
+    """Show the name on the dashboard's Agents page."""
+    try:
+        from . import agent_activity
+        agent_activity.set_board(board_session, name)
+    except Exception:
+        pass
+
+
+def _named(actor: dict, workspace: str) -> tuple[dict, str]:
+    """The actor with a name, giving it a fallback when it has none, and
+    what to tell it about that."""
+    if actor.get('name'):
+        return actor, ''
+    name = tasks.ensure_name(actor['session'], client=actor.get('client'), workspace=workspace or None)
+    _mirror(actor['session'], name)
+    return {**actor, 'name': name}, (f'You had no name, so you are {name} on this Board; choose your own with '
+                                     'task_edit(action="name", name="…").\n')
 
 
 # ── The holder's Imprint keeps its claims alive ──────────────────
@@ -260,11 +293,12 @@ def change(action: str, task: str, *, actor: dict, workspace: str = '', title=No
         raise ValueError('Name the task: task="T-…"')
     where = {'actor': actor, 'workspace': workspace or None}
     if action == 'claim':
+        actor, told = _named(actor, workspace)
         claimed = tasks.claim(task, actor=actor, token=token or None, workspace=workspace or None)
         state = claimed['task']
         if not claimed['token']:
-            return f"You already hold {state['id']}.\n{detail(state)}"
-        return (f"Claimed {state['id']}. Your claim token: {claimed['token']}\n"
+            return f"{told}You already hold {state['id']}.\n{detail(state)}"
+        return (f"{told}Claimed {state['id']}. Your claim token: {claimed['token']}\n"
                 'Keep the token in this conversation, not on the Board; if your session restarts, take the '
                 f'claim back with task_edit(action="claim", task="{state["id"]}", token="…"). Record a '
                 'checkpoint at each step and at least every 30 minutes.\n' + detail(state))

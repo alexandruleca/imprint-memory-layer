@@ -1708,7 +1708,7 @@ def tasks(
 @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False})
 def task_edit(
     action: Literal["create", "edit", "append", "move", "tag", "assign", "link", "block", "unblock", "cancel",
-                    "claim", "checkpoint", "release"],
+                    "claim", "checkpoint", "release", "name"],
     task: str = "",
     title: str | None = None,
     description: str | None = None,
@@ -1729,6 +1729,7 @@ def task_edit(
     commit: str = "",
     files: list[str] | None = None,
     next_step: str = "",
+    name: str = "",
     workspace: str = "",
     ctx: Context | None = None,
 ) -> str:
@@ -1742,7 +1743,8 @@ def task_edit(
                 text to the description), "move" (to status), "tag"/"assign" (add, remove),
                 "link" (feature, and blockers to add/remove), "block" (text is the reason),
                 "unblock" or "cancel"; "claim" (take it to work on), "checkpoint" (record
-                progress while you hold it) or "release" (let it go unfinished)
+                progress while you hold it) or "release" (let it go unfinished); "name" (choose
+                the name you go by on the Board, before your first claim or comment)
         task: The Task to change, e.g. "T-7f3kq"
         title: The title
         description: What and why, in Markdown (edit replaces it; append adds to it)
@@ -1763,10 +1765,13 @@ def task_edit(
         commit: For checkpoint, its last commit
         files: For checkpoint, the files touched
         next_step: For checkpoint, what comes next
+        name: For name, 2 to 24 letters, digits and hyphens that others will know you by
         workspace: Target workspace (default: the session's)
     """
     from . import tasks_tool
-    who = tasks_tool.actor(_calling_client(ctx))
+    who = tasks_tool.actor(_calling_client(ctx), workspace)
+    if action == "name":
+        return tasks_tool.choose_name(name, actor=who, workspace=workspace)
     if action == "create":
         return tasks_tool.create(title=title or "", project=tasks_tool.project(project or "", _session.get('project')),
                                  description=description or "", status=status, priority=priority or "",

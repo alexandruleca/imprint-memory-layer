@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, XCircle } from "lucide-react";
+import { CheckCircle2, Pencil, XCircle } from "lucide-react";
+import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Spinner } from "@/components/loaders";
 import { Timestamp, absoluteTime, clockTime, dayLabel, useNow } from "@/components/timestamp";
-import { getAgentCalls, type AgentCall, type AgentSession } from "@/lib/api";
+import { getAgentCalls, renameAgent, type AgentCall, type AgentSession } from "@/lib/api";
 import { groupByTime } from "@/lib/time-groups";
 import { cn } from "@/lib/utils";
 import { clientName, folderName, ms, plural, sessionLength } from "./format";
@@ -81,11 +84,12 @@ export function SessionDetails({ session: initial }: { session: AgentSession }) 
       <SheetHeader className="gap-1 border-b border-border pr-12">
         <SheetTitle className="flex min-w-0 items-center gap-2">
           <StatusDot connected={s.connected} />
-          <span className="truncate">{folderName(s.directory)}</span>
+          <span className="truncate">{s.agent_name ? `${s.agent_name} · ${folderName(s.directory)}` : folderName(s.directory)}</span>
         </SheetTitle>
         <SheetDescription>
           {clientName(s.client)}{s.client_version && ` ${s.client_version}`} · {s.connected ? "Running" : "Finished"}
         </SheetDescription>
+        {s.board_session && <AgentName session={s} onRenamed={(agent_name) => setSession({ ...s, agent_name })} />}
       </SheetHeader>
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
         <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -159,5 +163,54 @@ function CallRow({ call: c, group, now }: { call: AgentCall; group: string; now:
       )}
       {c.error && <p className="pl-6 font-mono text-[11px] break-words text-destructive">{c.error}</p>}
     </li>
+  );
+}
+
+/** The name the agent goes by on the Board (ADR 0216), and renaming it. */
+function AgentName({ session, onRenamed }: { session: AgentSession; onRenamed: (name: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(session.agent_name ?? "");
+  const [saving, setSaving] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  async function save(event: React.FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      const { name } = await renameAgent(session.id, value.trim());
+      onRenamed(name);
+      setEditing(false);
+      setProblem(null);
+      toast.success(`This agent is now ${name} on the Board`);
+    } catch (e) {
+      setProblem(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!editing) {
+    return (
+      <div className="flex items-center gap-2 text-sm">
+        <span className="text-muted-foreground">Name on the Board</span>
+        <span className="font-medium">{session.agent_name ?? "none yet"}</span>
+        <Button type="button" variant="ghost" size="sm" onClick={() => { setValue(session.agent_name ?? ""); setEditing(true); }}>
+          <Pencil aria-hidden /> Rename
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <form onSubmit={save} className="flex flex-col gap-1">
+      <div className="flex items-center gap-2">
+        <Input aria-label="Agent name" value={value} onChange={(e) => setValue(e.target.value)} maxLength={24} autoFocus
+          className="h-8 max-w-56" aria-invalid={problem ? true : undefined} aria-describedby="agent-name-help" />
+        <Button type="submit" size="sm" disabled={saving || value.trim().length < 2}>Save</Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => { setEditing(false); setProblem(null); }}>Cancel</Button>
+      </div>
+      <p id="agent-name-help" className={cn("text-xs", problem ? "text-destructive" : "text-muted-foreground")}>
+        {problem ?? "2 to 24 letters, digits and hyphens. Others address this agent as @name."}
+      </p>
+    </form>
   );
 }

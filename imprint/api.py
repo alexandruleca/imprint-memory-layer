@@ -1433,6 +1433,24 @@ def api_agents(limit: int = 50, before: str | None = None, client: str | None = 
     return {**page, "clients": agent_activity.client_totals()}
 
 
+@app.post("/api/agents/{session_id}/name")
+def api_agent_name(session_id: str, body: dict):
+    """Rename an agent session on its workspace's Board (ADR 0216)."""
+    from . import agent_activity, tasks
+    session = agent_activity.get_session(session_id)
+    if session is None:
+        return JSONResponse({"error": "No such agent session"}, status_code=404)
+    if not session.get("board_session"):
+        return JSONResponse({"error": "This session has not used the Board"}, status_code=400)
+    try:
+        name = tasks.choose_name(session["board_session"], str(body.get("name") or ""), client=session.get("client"),
+                                 pid=session.get("pid"), workspace=session.get("workspace") or None)
+    except ValueError as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    agent_activity.rename(session["board_session"], name)
+    return {"name": name}
+
+
 @app.get("/api/agents/{session_id}/calls")
 def api_agent_calls(session_id: str, limit: int = 200, before: int | None = None):
     """One session's tool calls, newest first; ``before`` pages back."""

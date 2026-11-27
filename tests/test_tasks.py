@@ -269,6 +269,11 @@ CODEX = tasks.agent('session-2', name='quill', client='codex')
 T0 = 1_800_000_000.0
 
 
+def time_now():
+    import time
+    return time.time()
+
+
 def at(seconds):
     return patch.object(tasks.time, 'time', return_value=T0 + seconds)
 
@@ -425,6 +430,60 @@ class ClaimTests(TasksTestCase):
         self.assertEqual(state['holder']['name'], 'quill')
         lost = tasks.lost_claims('session-1', workspace='default')
         self.assertEqual([(l['task'], l['to']['name']) for l in lost], [(task, 'quill')])
+
+
+
+class NameTests(TasksTestCase):
+    def test_an_agent_chooses_a_name_of_letters_digits_and_hyphens(self):
+        self.assertEqual(tasks.choose_name('s1', 'Grimforge', client='claude-code', workspace='default'), 'Grimforge')
+        self.assertEqual(tasks.name_of('s1', workspace='default'), 'Grimforge')
+        for bad in ('x', 'a' * 25, 'two words', '-lead', 'emoji🙂'):
+            with self.subTest(name=bad), self.assertRaisesRegex(ValueError, '2 to 24'):
+                tasks.choose_name('s1', bad, workspace='default')
+
+    def test_a_name_a_live_session_has_is_refused_with_a_free_one_suggested(self):
+        tasks.choose_name('s1', 'grimforge', workspace='default')
+        with self.assertRaisesRegex(ValueError, r'(?i)GRIMFORGE is taken.*grimforge-2'):
+            tasks.choose_name('s2', 'GRIMFORGE', workspace='default')
+        self.assertEqual(tasks.choose_name('s1', 'grimforge', workspace='default'), 'grimforge')  # Its own.
+
+    def test_the_name_of_a_session_that_ended_is_free_again(self):
+        tasks.choose_name('s1', 'grimforge', pid=dead_pid(), workspace='default')
+        self.assertEqual(tasks.choose_name('s2', 'grimforge', workspace='default'), 'grimforge')
+
+    def test_a_claim_holders_name_from_another_device_is_taken(self):
+        task = make(acceptance=['x'], status='ready')['id']
+        [created] = tasks.history(task, workspace='default')
+        tasks.import_events([{'id': 'f' * 32, 'task': created['task'], 'kind': 'claimed', 'hlc': created['hlc'],
+                              'device': 'device-b', 'actor': 'agent', 'session': 'far', 'agent': 'quill',
+                              'client': 'codex', 'recorded_at': time_now(), 'data': {'token_hash': 'x' * 64}}],
+                            workspace='default')
+        with self.assertRaisesRegex(ValueError, '(?i)quill is taken'):
+            tasks.choose_name('s1', 'Quill', workspace='default')
+
+    def test_an_agent_without_a_name_gets_a_fallback_once(self):
+        name = tasks.ensure_name('s1', client='codex', workspace='default')
+        self.assertRegex(name, r'^codex-[0-9a-hjkmnp-tv-z]{4}$')
+        self.assertEqual(tasks.ensure_name('s1', client='codex', workspace='default'), name)
+        self.assertEqual(tasks.ensure_name('s2', client=None, workspace='default')[:6], 'agent-')
+        tasks.choose_name('s1', 'quill', workspace='default')
+        self.assertEqual(tasks.ensure_name('s1', client='codex', workspace='default'), 'quill')
+
+    def test_events_keep_the_name_the_session_had_when_it_wrote_them(self):
+        task = make(acceptance=['x'], status='ready')['id']
+        tasks.choose_name('s1', 'grimforge', workspace='default')
+        tasks.claim(task, actor=tasks.agent('s1', name=tasks.name_of('s1', workspace='default')), workspace='default')
+        tasks.choose_name('s1', 'ironquill', workspace='default')
+        tasks.checkpoint(task, 'Half way.', actor=tasks.agent('s1', name='ironquill'), workspace='default')
+        names = [e['agent'] for e in tasks.history(task, workspace='default') if e['actor'] == 'agent']
+        self.assertEqual(names, ['grimforge', 'ironquill'])
+
+    def test_taking_a_claim_back_with_its_token_keeps_the_holders_name(self):
+        task = make(acceptance=['x'], status='ready')['id']
+        tasks.choose_name('s1', 'grimforge', workspace='default')
+        token = tasks.claim(task, actor=tasks.agent('s1', name='grimforge'), workspace='default')['token']
+        tasks.claim(task, actor=tasks.agent('s1b'), token=token, workspace='default')
+        self.assertEqual(tasks.name_of('s1b', workspace='default'), 'grimforge')
 
 
 if __name__ == '__main__':

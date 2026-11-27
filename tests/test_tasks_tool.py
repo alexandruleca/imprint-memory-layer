@@ -178,5 +178,26 @@ class TasksToolTests(unittest.TestCase):
             self.assertEqual(tasks_tool.renew_now(), 0)
 
 
+    def test_agents_name_themselves_and_are_shown_by_name(self):
+        task = tasks.create('Named', project='imprint', acceptance=['x'], status='ready', workspace='default')['id']
+        [(failed, named), (_, claimed), (_, board)] = self.as_session(
+            'conv-1', ('task_edit', {'action': 'name', 'name': 'Grimforge'}),
+            ('task_edit', {'action': 'claim', 'task': task}), ('tasks', {}))
+        self.assertFalse(failed, named)
+        self.assertIn('You are Grimforge', named)
+        self.assertNotIn('You had no name', claimed)
+        self.assertIn('[held by Grimforge (claude-code)]', board)
+        [(failed, taken)] = self.as_session('conv-2', ('task_edit', {'action': 'name', 'name': 'grimforge'}))
+        self.assertTrue(failed)
+        self.assertIn('Grimforge-2', taken.replace('grimforge-2', 'Grimforge-2'))
+
+    def test_an_agent_that_claims_without_a_name_gets_one_and_is_told(self):
+        task = tasks.create('Unnamed', project='imprint', acceptance=['x'], status='ready', workspace='default')['id']
+        [(_, claimed)] = self.as_session('conv-9', ('task_edit', {'action': 'claim', 'task': task}))
+        fallback = re.search(r'you are (claude-code-\w{4})', claimed).group(1)
+        self.assertIn('task_edit(action="name"', claimed)
+        self.assertEqual(tasks.get(task, workspace='default')['holder']['name'], fallback)
+
+
 if __name__ == '__main__':
     unittest.main()
