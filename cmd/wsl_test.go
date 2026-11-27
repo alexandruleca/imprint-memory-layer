@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -175,7 +176,9 @@ func TestWSLLauncherShellSyntaxAndDataIsolation(t *testing.T) {
 			t.Fatalf("prompt script misses %s: %s", part, prompt)
 		}
 	}
-	if sh, err := exec.LookPath("sh"); err == nil {
+	// The scripts run in a WSL distribution's shell, so only a Linux sh judges
+	// them: macOS's bash 3.2 misreads a case pattern's ")" inside "$(...)".
+	if sh, err := exec.LookPath("sh"); err == nil && runtime.GOOS == "linux" {
 		for _, script := range []string{script, command, prompt} {
 			check := exec.Command(sh, "-n")
 			check.Stdin = strings.NewReader(script)
