@@ -156,12 +156,13 @@ The records in force, by area. An amended record is listed with the records that
 ### The Board
 
 - [ADR 0208](0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md) **Agents track work as Tasks on a Board in each workspace.** One Board per workspace, filtered by project, with fixed statuses, Features, tags, assignees and filters; standalone, not mirrored to GitHub Issues.
-- [ADR 0209](0209-a-tasks-history-is-a-log-of-events-that-devices-merge-by-union.md) **A Task's history is a log of events that devices merge by union.** Immutable events, exchanged and kept by every paired device; state computed in one fixed order; deletion as a tombstone event.
+- [ADR 0209](0209-a-tasks-history-is-a-log-of-events-that-devices-merge-by-union.md) **A Task's history is a log of events that devices merge by union.** Immutable events, exchanged and kept by every paired device; state computed in one fixed order; deletion as a tombstone event. Amended by [ADR 0218](0218-imprint-renames-a-task-whose-id-another-device-gave-out.md) (colliding ids).
 - [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) **Claims are leases held by the agent session.** The agent session holds a claim with a token, its Imprint server renews the lease, Stalling after 60 minutes without progress, Stale after 15 minutes without renewal or 120 without progress.
 - [ADR 0211](0211-agents-take-ready-and-stale-tasks-unasked-within-their-project.md) **Agents take Ready and Stale Tasks unasked, within their project.** One Task at a time after the request is done, unblocked, not assigned to the user or elsewhere; `tasks.autonomy`; Imprint starts no agents.
 - [ADR 0212](0212-agents-talk-through-comments-on-tasks.md) **Agents talk through comments on Tasks.** Addressed comments only, delivered on Imprint tool replies, at session start, and through a Claude Code prompt hook kept under 100 ms.
 - [ADR 0213](0213-built-in-skills-ship-with-each-release-and-a-fork-replaces-them.md) **Built-in skills ship with each release, and a fork replaces them.** Read-only, unsynced built-ins (`imprint-tasks` first); a same-named user fork replaces one everywhere; release changes shown, never merged.
 - [ADR 0215](0215-the-board-is-the-issue-tracker-of-the-planning-skills.md) **The Board is the issue tracker of the planning skills.** `imprint-tasks` carries a tracker description adopted through the "Other" option; triage states, sub-issues, blockers, assign, close and the frontier map onto the Board.
+- [ADR 0218](0218-imprint-renames-a-task-whose-id-another-device-gave-out.md) **Imprint renames a Task whose id another device gave out.** The older keeps the id; the other takes one derived from its identity, recorded by Imprint; former ids stay searchable.
 - [ADR 0217](0217-the-simple-dashboard-lists-the-board-as-tasks.md) **The simple dashboard lists the Board as Tasks.** A twelfth simple page after Reminders: the Agents page as the Board alone; Sessions stays advanced.
 - [ADR 0216](0216-agents-choose-their-own-names.md) **Agents choose their own names.** A session names itself before its first claim or comment; unique among live sessions, kept across a resume, shown wherever it acts and addressable in comments; a fallback when it does not choose.
 
@@ -498,7 +499,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0206](0206-the-firefox-add-on-goes-back-to-unlisted-signing.md) | 2026-11-23 | Superseded by [ADR 0207](0207-the-firefox-add-on-is-listed-on-addons-mozilla-org-again.md) | The Firefox add-on goes back to unlisted signing |
 | [0207](0207-the-firefox-add-on-is-listed-on-addons-mozilla-org-again.md) | 2026-11-23 | Accepted | The Firefox add-on is listed on addons.mozilla.org again |
 | [0208](0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md) | 2026-11-27 | Accepted | Agents track work as Tasks on a Board in each workspace |
-| [0209](0209-a-tasks-history-is-a-log-of-events-that-devices-merge-by-union.md) | 2026-11-27 | Accepted | A Task's history is a log of events that devices merge by union |
+| [0209](0209-a-tasks-history-is-a-log-of-events-that-devices-merge-by-union.md) | 2026-11-27 | Amended by [ADR 0218](0218-imprint-renames-a-task-whose-id-another-device-gave-out.md) | A Task's history is a log of events that devices merge by union |
 | [0210](0210-claims-are-leases-held-by-the-agent-session.md) | 2026-11-27 | Accepted | Claims are leases held by the agent session |
 | [0211](0211-agents-take-ready-and-stale-tasks-unasked-within-their-project.md) | 2026-11-27 | Accepted | Agents take Ready and Stale Tasks unasked, within their project |
 | [0212](0212-agents-talk-through-comments-on-tasks.md) | 2026-11-27 | Accepted | Agents talk through comments on Tasks |
@@ -507,6 +508,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0215](0215-the-board-is-the-issue-tracker-of-the-planning-skills.md) | 2026-11-27 | Accepted | The Board is the issue tracker of the planning skills |
 | [0216](0216-agents-choose-their-own-names.md) | 2026-11-27 | Accepted | Agents choose their own names |
 | [0217](0217-the-simple-dashboard-lists-the-board-as-tasks.md) | 2026-11-27 | Accepted | The simple dashboard lists the Board as Tasks |
+| [0218](0218-imprint-renames-a-task-whose-id-another-device-gave-out.md) | 2026-11-27 | Accepted | Imprint renames a Task whose id another device gave out |
 
 ## How to write and maintain ADRs
 

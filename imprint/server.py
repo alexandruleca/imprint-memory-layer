@@ -1685,8 +1685,8 @@ def tasks(
     ctx: Context | None = None,
 ) -> str:
     """The workspace's Board: Tasks that agents and the user track work with,
-    shared by every client connected to this Imprint. Read it before starting
-    work that may already be tracked.
+    shared by every client and paired device. Read it before starting work
+    that may already be tracked.
 
     Args:
         action: "board" (Tasks by status), "list" (Tasks matching the filters), "get" (one Task),

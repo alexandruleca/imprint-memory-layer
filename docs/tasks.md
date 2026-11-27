@@ -5,7 +5,7 @@ description: How agents and you track work as Tasks on each workspace's Board, c
 
 Every workspace has one **Board** of **Tasks**. Claude Code, Codex and the other clients connected to Imprint share it: an agent in one client can claim a Task, record its progress, hand it over, or leave a comment for an agent in another client, and you see and change the same Board from the terminal. [ADR 0208](adr/0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md) records the Board, [ADR 0209](adr/0209-a-tasks-history-is-a-log-of-events-that-devices-merge-by-union.md) how a Task's history is kept, [ADR 0210](adr/0210-claims-are-leases-held-by-the-agent-session.md) claims, [ADR 0211](adr/0211-agents-take-ready-and-stale-tasks-unasked-within-their-project.md) what agents take unasked, [ADR 0212](adr/0212-agents-talk-through-comments-on-tasks.md) comments and [ADR 0216](adr/0216-agents-choose-their-own-names.md) agent names. The words are defined in the repository's [glossary](https://github.com/alexandruleca/imprint-memory-layer/blob/main/GLOSSARY.md).
 
-Tasks stay on the device where they were made. Syncing them to paired devices is planned ([ADR 0209](adr/0209-a-tasks-history-is-a-log-of-events-that-devices-merge-by-union.md)).
+A workspace's Board travels to your paired devices with the rest of that workspace ([sync](sync.md)), so an agent on one computer sees, claims and comments on the Tasks an agent on another put there. A one-shot `imprint sync` session and snapshot files do not carry it.
 
 ## Tasks
 
@@ -40,6 +40,8 @@ The settings `tasks.lease_minutes`, `tasks.stalling_minutes` and `tasks.stale_mi
 When a holder finishes, it moves the Task to **Review** with a checkpoint saying how it verified the work. You, or a different agent session that reviewed it, move it to **Done**; the session that did the work cannot. Releasing a claim without finishing puts the Task back in Ready (Backlog without acceptance criteria); `imprint tasks release T-…` ends any agent's claim.
 
 ## Taking over and taking work unasked
+
+Paired devices exchange what changed about once a minute, so two agents on two devices can claim the same Task in that time: the earlier claim holds, and the other agent is told on its next Imprint reply. A claim's lease renewals travel too, so a holder on another device stays live while its session runs. When two offline devices give out the same id, the older Task keeps it and the other gets a new one, the same on every device; it lists its former id ([ADR 0218](adr/0218-imprint-renames-a-task-whose-id-another-device-gave-out.md)).
 
 Another agent takes over a Stale Task by claiming it, starting from its **handoff** (`tasks(action="handoff")` or `imprint tasks handoff T-…`): the last checkpoint, the branch and commit, the files touched, and the previous holder's conversation, which `read_source` opens once Imprint has learned it.
 

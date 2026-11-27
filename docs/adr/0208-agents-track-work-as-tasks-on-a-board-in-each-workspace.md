@@ -5,7 +5,7 @@ description: Agents and the user track work as Tasks on one Board per workspace,
 
 - Status: Accepted
 - Date: 2026-11-27
-- Scope: The Board, its tools, `imprint tasks` and the dashboard's Board tab. Tasks are not yet synced to paired devices ([ADR 0209](0209-a-tasks-history-is-a-log-of-events-that-devices-merge-by-union.md)).
+- Scope: The Board, its tools, `imprint tasks` and the dashboard's Board tab, synced between paired devices ([ADR 0209](0209-a-tasks-history-is-a-log-of-events-that-devices-merge-by-union.md)).
 - Related: [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) (projects name their workspace), [ADR 0117](0117-the-dashboard-shows-each-agent-session-and-its-calls.md) (the Agents page), [ADR 0168](0168-skills-and-personas-are-kept-once-and-synced-to-paired-devices.md) (installation-wide data, the contrast), [ADR 0209](0209-a-tasks-history-is-a-log-of-events-that-devices-merge-by-union.md) (how Tasks sync), [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) (claims), [ADR 0211](0211-agents-take-ready-and-stale-tasks-unasked-within-their-project.md) (taking work unasked), [ADR 0212](0212-agents-talk-through-comments-on-tasks.md) (comments), [ADR 0215](0215-the-board-is-the-issue-tracker-of-the-planning-skills.md) (the Board as the skills' tracker)
 
 ## Context

@@ -5,7 +5,6 @@ description: An agent takes a Task by claiming it; the claim belongs to the agen
 
 - Status: Accepted
 - Date: 2026-11-27
-- Scope: On one device. The WSL bridge does not forward `CLAUDE_CODE_SESSION_ID` yet, so sessions served across it are held by their process.
 - Related: [ADR 0208](0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md) (the Board), [ADR 0209](0209-a-tasks-history-is-a-log-of-events-that-devices-merge-by-union.md) (the log that orders claims), [ADR 0117](0117-the-dashboard-shows-each-agent-session-and-its-calls.md) (agent sessions), [ADR 0211](0211-agents-take-ready-and-stale-tasks-unasked-within-their-project.md) (who may take a Stale Task)
 
 ## Context
@@ -56,4 +55,5 @@ The owner asked that agents "detect stale issues or stalling issues etc and be a
 - `tests/test_tasks_tool.py`: claim, checkpoint, token takeover and release through the tools; a lost claim told once; the server renewing its own session's leases.
 - Linux (WSL Ubuntu, Python 3.12 venv): the full suite, 1,522 tests, passed on 2026-11-27 with the Board and built-in skills together.
 - Windows 11 (the installed runtime's Python 3.13, from a native copy of the repository): `tests.test_tasks`, `test_tasks_tool`, `test_cli_tasks`, `test_hooks`, `test_agent_activity`, `test_config_help`, `test_builtin_skills`, `test_registry`, `test_registry_files`, `test_skills_tool`, `test_chat_tool_coverage`, `test_adr_records` and `test_docs_tables`, 187 tests, passed.
-- Not run: macOS, where releasing a dead holder's claims at once depends on `processes.is_alive`.
+- `tests/test_wsl_bridge.py` and `cmd/wsl_test.go`: the WSL launcher passes `CLAUDE_CODE_SESSION_ID`, and the bridge makes a well-formed one the server's client session.
+- Not run: macOS, where releasing a dead holder's claims at once depends on `processes.is_alive`; claims between two real devices.

@@ -1,11 +1,11 @@
 ---
 name: imprint-tasks
-description: Imprint's Board of Tasks, shared by every agent and client connected to Imprint. Use when the user mentions the Board or a Task (T-xxxxx); before you claim, checkpoint, hand off or finish tracked work; when you finish a request and may take the next Task; to message another agent or client; and when a repository's issue tracker is the Imprint Board.
+description: Imprint's Board of Tasks, shared by every agent, client and paired device. Use when the user mentions the Board or a Task (T-xxxxx); before you claim, checkpoint, hand off or finish tracked work; when you finish a request and may take the next Task; to message another agent or client; and when a repository's issue tracker is the Imprint Board.
 ---
 
 # The Board
 
-Each Imprint workspace has one Board of Tasks. Claude Code, Codex and the other clients connected to Imprint read it with the `tasks` tool and change it with `task_edit`. A Task has a status (Backlog, Ready, In progress, Review, Done, Cancelled), a project, a priority from P0 to P3, acceptance criteria, tags and assignees, and may belong to a Feature: a Task that groups the Tasks building one piece of work.
+Each Imprint workspace has one Board of Tasks. Claude Code, Codex and the other clients on every paired device read it with the `tasks` tool and change it with `task_edit`. A Task has a status (Backlog, Ready, In progress, Review, Done, Cancelled), a project, a priority from P0 to P3, acceptance criteria, tags and assignees, and may belong to a Feature: a Task that groups the Tasks building one piece of work.
 
 ## Your name
 
@@ -14,7 +14,7 @@ Before your first claim or comment in a session, choose the name you go by on th
 ## Working a Task
 
 1. **Claim** it: `task_edit(action="claim", task="T-…")`. Keep the claim token from the reply in this conversation. If your session restarts, take the claim back with `task_edit(action="claim", task="T-…", token="…")`. A Task held by a live session is refused: choose another.
-2. **Re-check** the claim before long work: `tasks(action="get", task="T-…")` shows you as its holder. A notice on your next Imprint reply tells you if you lost a claim; stop working on that Task at once.
+2. **Re-check** the claim before long work: `tasks(action="get", task="T-…")` shows you as its holder. Of two claims made on two devices within the same minute, the earlier one holds; a notice on your next Imprint reply tells you if you lost yours. Stop working on that Task at once.
 3. **Branch**: work on `task/<id>-<slug>`, for example `task/7f3kq-retry-uploads`. Commit and push as far as the repository and the user already allow.
 4. **Checkpoint** at each meaningful step and at least every 30 minutes: `task_edit(action="checkpoint", task="T-…", text="what is done", next_step="what comes next", branch="…", commit="…", files=[…])`. A claim with no progress for 60 minutes is Stalling; at 120 minutes it is Stale, and the next agent takes it over from your last checkpoint.
 5. **Finish**: when every acceptance criterion holds, record a checkpoint saying how you verified each one, then `task_edit(action="move", task="T-…", status="Review")`. The user, or a different session that reviews the work, moves it to Done. To stop before finishing, checkpoint where you stopped and `task_edit(action="release", task="T-…")`; it goes back to Ready.

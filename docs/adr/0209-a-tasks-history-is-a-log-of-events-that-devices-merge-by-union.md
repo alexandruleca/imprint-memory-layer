@@ -3,9 +3,10 @@ title: ADR 0209 — A Task's history is a log of events that devices merge by un
 description: Every change to a Task is an immutable event in its log; paired devices exchange the events the other lacks and keep all of them, and a Task's current state is computed from its events in one fixed order, so concurrent edits and comments on two devices are never lost.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-27
-- Scope: On one device. The log, its fold in clock order, appends, tombstones and the import of another device's events (`import_events`) are implemented; exchanging events with paired devices as the `tasks` dataset, and the renamed event for colliding ids, are not yet.
+- Scope: Between paired devices (the delta sync, [ADR 0116](0116-paired-devices-send-only-what-the-other-lacks-in-stored-chunks.md)); a one-shot `imprint sync` session and snapshot files do not carry Tasks.
+- Amended by: [ADR 0218](0218-imprint-renames-a-task-whose-id-another-device-gave-out.md) — how colliding ids are renamed, and where the old id leads
 - Related: [ADR 0208](0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md) (the Board), [ADR 0168](0168-skills-and-personas-are-kept-once-and-synced-to-paired-devices.md) (the newest-wins rule this declines), [ADR 0116](0116-paired-devices-send-only-what-the-other-lacks-in-stored-chunks.md) (the paired exchange), [ADR 0060](0060-redact-secrets-before-memories-are-stored.md) (redaction), [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) (claims), [sync](../sync.md)
 
 ## Context
@@ -52,4 +53,5 @@ The owner asked for Tasks "synced across devices" so that agents in different cl
 - `tests/test_tasks.py`: every change recorded as an event with its device, session and clock; clocks that keep order when the wall clock stands still or goes back; last-edit-wins fields and accumulating appends; a deletion that empties the other events' content; an imported event kept once, ordered by its clock, and moving the store's clock.
 - Linux (WSL Ubuntu, Python 3.12 venv): the full suite, 1,522 tests, passed on 2026-11-27 with the Board and built-in skills together.
 - Windows 11 (the installed runtime's Python 3.13, from a native copy of the repository): `tests.test_tasks`, `test_tasks_tool`, `test_cli_tasks`, `test_hooks`, `test_agent_activity`, `test_config_help`, `test_builtin_skills`, `test_registry`, `test_registry_files`, `test_skills_tool`, `test_chat_tool_coverage`, `test_adr_records` and `test_docs_tables`, 187 tests, passed.
-- Not run: macOS.
+- `tests/test_tasks_sync.py`: two devices that each worked on the Board end with the same one; a deletion empties the other device's events, late ones too; lease renewals, the autonomy setting and the user's read marks travel while agents' read state and names stay; arriving text is redacted and malformed records skipped; the dataset goes only to a peer that offers it.
+- Not run: macOS; a real sync between two devices (bedrock was unreachable on 2026-11-27).
