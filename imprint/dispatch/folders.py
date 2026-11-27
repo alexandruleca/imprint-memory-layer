@@ -94,3 +94,17 @@ def open_projects(workspace: str | None = None) -> list[dict]:
     projects = sorted({state['project'] for state in tasks.listing(workspace=workspace)
                        if state['status'] in OPEN_STATUSES and state['project']})
     return [resolve(project, workspace) for project in projects]
+
+
+def distributions(workspace: str | None = None) -> list[str]:
+    """The WSL distributions this device's projects live in, as their
+    mappings and recent sessions name them; only running ones, since
+    looking into a stopped one starts it (ADR 0201)."""
+    from ..wsl_paths import running_distributions
+    places = set()
+    for path in [*workspace_policy.mapped_roots(workspace), *agent_activity.recent_directories(RECENT_FOLDERS)]:
+        located = windows_to_linux(path)
+        if located:
+            places.add(located[0])
+    running = running_distributions() or []
+    return sorted(place for place in places if place in running)

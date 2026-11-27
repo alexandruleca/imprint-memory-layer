@@ -16,9 +16,9 @@ from .. import config
 
 COLUMNS = ('id', 'workspace', 'task', 'title', 'project', 'client', 'role', 'session', 'conversation', 'claim',
            'pid', 'worktree', 'branch', 'base', 'started_at', 'ended_at', 'exit_code', 'outcome', 'detail',
-           'watcher', 'stop_reason')
+           'watcher', 'stop_reason', 'distro')
 # Columns later Tasks of the Dispatcher added to a store that existed before them.
-_ADDED = {'watcher': 'INTEGER', 'stop_reason': 'TEXT'}
+_ADDED = {'watcher': 'INTEGER', 'stop_reason': 'TEXT', 'distro': 'TEXT'}
 
 
 def _db_path() -> Path:

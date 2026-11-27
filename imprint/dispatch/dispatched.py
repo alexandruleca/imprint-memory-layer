@@ -110,13 +110,26 @@ def _signal_group(pid: int, force: bool) -> None:
             pass
 
 
-def kill(pid: int, proc: subprocess.Popen | None = None, grace: float = STOP_GRACE) -> None:
+def kill(pid: int, proc: subprocess.Popen | None = None, grace: float = STOP_GRACE, *,
+         distro: str | None = None, run_id: str | None = None) -> None:
     """End a client and everything it started: SIGTERM to its process group
-    (a tree kill on Windows), then SIGKILL after ``grace`` seconds. Works
-    on a session another process started, by its pid."""
+    (a tree kill on Windows; the group inside its WSL distribution for a
+    project there), then SIGKILL after ``grace`` seconds. Works on a
+    session another process started, by its pid."""
     def alive():
         return proc.poll() is None if proc else processes.is_alive(pid)
+    if distro and run_id:
+        # The group inside the distribution first: ending wsl.exe alone leaves it running.
+        from . import wsl
+        if wsl.kill(distro, run_id, force=False):
+            deadline = time.monotonic() + grace
+            while wsl.group_alive(distro, run_id) and time.monotonic() < deadline:
+                time.sleep(0.2)
+            if wsl.group_alive(distro, run_id):
+                wsl.kill(distro, run_id, force=True)
     if not pid or not alive():
+        if proc:
+            proc.wait()
         return
     _signal_group(pid, force=False)
     deadline = time.monotonic() + grace
@@ -195,32 +208,42 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
     folder = folders.resolve(state['project'], workspace)
     if not folder['ok']:
         raise LookupError(folder['reason'])
+    from . import clients
+    distro = folder.get('distro')
+    where = f' in {distro}' if distro else ''
     if client is None:
-        from . import clients
-        client = clients.for_task(state, clients.allowed(), tasks.device_name())
+        client = clients.for_task(state, clients.allowed(where=distro), tasks.device_name())
         if client is None:
-            raise LookupError(f"No client this device may start for {state['id']}: "
+            raise LookupError(f"No client this device may start for {state['id']}{where}: "
                               '`imprint tasks dispatch status` says which are available')
     runner = runners.get(client)
-    runners.command(runner, {'session_id': '', 'cwd': '', 'git_dir': '', 'last_message': ''})  # a missing client claims nothing
+    binary = clients.binary(runner, distro)  # before claiming: a missing client claims nothing
+    if not binary:
+        raise LookupError(f'{runner.label} was not found{where}: put {runner.binary} on PATH or set {runner.setting}')
     worktree = worktrees.prepare(folder, state['id'], state['title'])
     run_id = uuid.uuid4().hex[:12]
     conversation = str(uuid.uuid4())
-    argv = runners.command(runner, {'session_id': conversation, 'cwd': worktree['cwd'], 'git_dir': worktree['git_dir'],
-                                    'last_message': str(last_message_path(run_id))})
+    last_message = str(last_message_path(run_id))
+    if distro:
+        from . import wsl
+        last_message = wsl.linux_path(distro, last_message)
+    argv = runners.check(runner.argv(binary, {'session_id': conversation, 'cwd': worktree['cwd'],
+                                              'git_dir': worktree['git_dir'], 'last_message': last_message}))
+    if distro:
+        argv = wsl.launch(distro, worktree['cwd'], argv, run_id)
     actor = tasks.agent(session_of(run_id), client=runner.client)
     run = store.add({'id': run_id, 'workspace': workspace, 'task': state['id'], 'title': state['title'],
                      'project': state['project'], 'client': runner.client, 'role': role,
                      'session': session_of(run_id), 'conversation': conversation, 'worktree': worktree['path'],
                      'branch': worktree['branch'], 'base': worktree['base'], 'started_at': time.time(),
-                     'watcher': os.getpid()})
+                     'watcher': os.getpid(), 'distro': distro})
     try:
         claimed = tasks.claim(state['id'], actor=actor, pid=os.getpid(), workspace=workspace)
     except (PermissionError, ValueError) as error:
         store.update(run_id, ended_at=time.time(), outcome='refused', detail=str(error))
         raise
     try:
-        tasks.checkpoint(state['id'], f"Dispatched to {runner.label} on this device: worktree {worktree['path']} "
+        tasks.checkpoint(state['id'], f"Dispatched to {runner.label} on this device{where}: worktree {worktree['path']} "
                          f"on {worktree['branch']}, made from {worktree['base']} at {worktree['base_commit']}.",
                          branch=worktree['branch'], commit=worktree['base_commit'],
                          next_step='The Dispatched session takes the claim over and works the Task.',
@@ -229,9 +252,12 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
                       note=runner.note)
         log = store.log_path(run_id)
         log.parent.mkdir(parents=True, exist_ok=True)
+        env = _env(workspace, run_id)
+        if distro:
+            env = wsl.launch_env(env)  # wsl.exe starts the client in its worktree inside the distribution
         with open(log, 'wb') as output:
-            proc = subprocess.Popen(argv, cwd=worktree['cwd'], stdin=subprocess.PIPE, stdout=output,
-                                    stderr=subprocess.STDOUT, env=_env(workspace, run_id), **_group())
+            proc = subprocess.Popen(argv, cwd=None if distro else worktree['cwd'], stdin=subprocess.PIPE,
+                                    stdout=output, stderr=subprocess.STDOUT, env=env, **_group())
         tasks.renew(session_of(run_id), pid=proc.pid)
         store.update(run_id, pid=proc.pid)
         try:
@@ -266,7 +292,7 @@ class Session:
         shutdown) unless it is a failure, such as its time limit."""
         if not self.reason:
             self.reason, self.stopped = reason, stopped
-        kill(self.pid, self.proc)
+        kill(self.pid, self.proc, distro=self.run.get('distro'), run_id=self.run['id'])
 
     def step(self) -> dict | None:
         """None while the session runs; the run's record once it has ended."""
@@ -303,7 +329,7 @@ def request_stop(run_id: str, reason: str = 'was stopped by the person') -> dict
     if run['ended_at'] is not None:
         raise ValueError(f"Dispatched session {run_id} already ended: {run['detail']}")
     store.update(run_id, stop_reason=reason)
-    kill(run['pid'])
+    kill(run['pid'], distro=run.get('distro'), run_id=run_id)
     return store.get(run_id)
 
 
@@ -340,6 +366,12 @@ def finish(run_id: str, exit_code: int | None, *, reason: str | None = None, sto
             text += f'\n\nThe end of its log:\n\n{tail}'
         tasks.comment(task, text, actor=SYSTEM, workspace=workspace)
     store.update(run_id, ended_at=time.time(), exit_code=exit_code, outcome=outcome, detail=detail)
+    if run.get('distro'):
+        from . import wsl
+        try:
+            wsl.run(run['distro'], ['rm', '-f', wsl.pid_file(run_id)], timeout=10)
+        except RuntimeError:
+            pass  # A file in the distribution's /tmp; it goes with the next restart.
     ended = store.get(run_id)
     if outcome == 'failed':
         from . import guards

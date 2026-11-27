@@ -11,6 +11,7 @@ merge, or change the project's own checkout.
 from __future__ import annotations
 
 import os
+import posixpath
 import re
 from pathlib import Path
 
@@ -40,10 +41,28 @@ def _folder_name(name: str) -> str:
 
 
 def location(folder: dict, task_id: str) -> str:
-    """Where the Task's worktree goes, as git on the project's system sees it."""
+    """Where the Task's worktree goes, as git on the project's system sees
+    it: under the home of the WSL distribution a project lives in, else
+    under this system's home."""
     if folder.get('distro'):
-        raise NotImplementedError('Worktrees of projects in WSL come with Dispatcher 6')
+        from . import wsl
+        return posixpath.join(wsl.worktree_root(folder['distro']), _folder_name(folder['project']), task_id)
     return os.path.join(str(Path.home()), '.imprint', 'worktrees', _folder_name(folder['project']), task_id)
+
+
+def _exists(folder: dict, path: str) -> bool:
+    if folder.get('distro'):
+        from . import wsl
+        return os.path.exists(wsl.native(path, folder['distro']))
+    return os.path.exists(path)
+
+
+def _make_parent(folder: dict, path: str) -> None:
+    if folder.get('distro'):
+        from . import wsl
+        wsl.run(folder['distro'], ['mkdir', '-p', posixpath.dirname(path)])
+    else:
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
 
 
 def _worktrees(folder: dict) -> dict[str, str]:
@@ -79,9 +98,9 @@ def prepare(folder: dict, task_id: str, title: str) -> dict:
     if existing is not None:
         branch, created = existing or _task_branch(folder, task_id) or branch_name(task_id, title), False
     else:
-        if os.path.exists(path):
+        if _exists(folder, path):
             raise FileExistsError(f'{path} exists and is not a worktree of {folder["repository"]}: move it away')
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        _make_parent(folder, path)
         branch = _task_branch(folder, task_id)
         if branch:
             git.run(folder['path'], 'worktree', 'add', path, branch)
@@ -89,11 +108,21 @@ def prepare(folder: dict, task_id: str, title: str) -> dict:
             branch = branch_name(task_id, title)
             git.run(folder['path'], 'worktree', 'add', '-b', branch, path, base)
         created = True
-    cwd = os.path.join(path, *folder['subfolder'].split('/')) if folder.get('subfolder') else path
+    join = posixpath.join if folder.get('distro') else os.path.join
+    cwd = join(path, *folder['subfolder'].split('/')) if folder.get('subfolder') else path
     # The folder a worktree's commits are written to: the repository's own git folder.
-    git_dir = git.run(path, 'rev-parse', '--path-format=absolute', '--git-common-dir')
+    where = wsl_native(folder, path)
+    git_dir = git.run(where, 'rev-parse', '--path-format=absolute', '--git-common-dir')
     return {'path': path, 'cwd': cwd, 'branch': branch, 'base': base, 'base_commit': folder['commit'],
             'git_dir': git_dir, 'created': created}
+
+
+def wsl_native(folder: dict, path: str) -> str:
+    """A worktree path as this runtime reaches it, for running git there."""
+    if folder.get('distro'):
+        from . import wsl
+        return wsl.native(path, folder['distro'])
+    return path
 
 
 def remove(folder: dict, task_id: str) -> bool:

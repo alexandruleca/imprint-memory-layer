@@ -17,7 +17,7 @@ import platform
 import re
 import shutil
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 # Flags and values that switch a client's safety off (ADR 0222's table). No
@@ -40,8 +40,10 @@ class Runner:
     setting: str    # the setting that names the binary when it is not on PATH
     help_args: tuple[str, ...] = ('--help',)
     required: tuple[str, ...] = ()   # what that help must list
-    # VS Code extensions that bundle the client: (extension folder glob, path of the binary inside it).
-    bundles: tuple[tuple[str, str], ...] = field(default=())
+    # The VS Code extension that bundles the client, and its binary's path inside it
+    # ({exe} and {platform} filled in for the system it is looked for on).
+    extension: str = ''
+    inside: str = ''
     # What a session of this client needs to know about its own sandbox, added to the prompt.
     note: str = ''
 
@@ -51,8 +53,25 @@ class Runner:
         ``last_message`` (a file for the client's final message)."""
         raise NotImplementedError
 
+    def bundle(self, system: str | None = None) -> tuple[str, str] | None:
+        """(extension folder glob, binary inside it) on ``system`` (VS Code's
+        name, ``linux-x64``; default: this one), or None without an extension."""
+        if not self.extension:
+            return None
+        system = system or _vscode_suffix()
+        os_name, arch = system.split('-', 1)
+        exe = '.exe' if os_name == 'win32' else ''
+        platform_name = {'win32': 'windows', 'darwin': 'macos'}.get(os_name, 'linux') + \
+            ('-aarch64' if arch == 'arm64' else '-x86_64')
+        return f'{self.extension}-*-{system}', self.inside.format(exe=exe, platform=platform_name)
+
+    @property
+    def bundles(self) -> tuple[tuple[str, str], ...]:
+        found = self.bundle()
+        return (found,) if found else ()
+
     def bundled(self) -> list[str]:
-        """The binaries VS Code extensions installed for this client, newest first."""
+        """The binaries VS Code extensions installed for this client here, newest first."""
         found = []
         for root in (Path.home() / '.vscode' / 'extensions', Path.home() / '.vscode-server' / 'extensions'):
             for pattern, inside in self.bundles:
@@ -93,19 +112,12 @@ class Codex(Runner):
                 '--output-last-message', context['last_message']]
 
 
-def _bundle(extension: str, inside: str) -> tuple[tuple[str, str], ...]:
-    exe = '.exe' if sys.platform == 'win32' else ''
-    system = {'win32': 'windows', 'darwin': 'macos'}.get(sys.platform, 'linux')
-    codex_platform = f"{system}-{'aarch64' if _arm() else 'x86_64'}"
-    return ((f'{extension}-*-{_vscode_suffix()}', inside.format(exe=exe, platform=codex_platform)),)
-
-
 CLAUDE_CODE = ClaudeCode('claude-code', 'Claude Code', 'claude', 'dispatch.claude_code.command',
                          required=('--permission-mode', 'auto', '--session-id', '--output-format'),
-                         bundles=_bundle('anthropic.claude-code', 'resources/native-binary/claude{exe}'))
+                         extension='anthropic.claude-code', inside='resources/native-binary/claude{exe}')
 CODEX = Codex('codex', 'Codex', 'codex', 'dispatch.codex.command', help_args=('exec', '--help'),
               required=('--sandbox', 'workspace-write', '--approve-for-me', '--json', '--output-last-message'),
-              bundles=_bundle('openai.chatgpt', 'bin/{platform}/codex{exe}'),
+              extension='openai.chatgpt', inside='bin/{platform}/codex{exe}',
               note=('Your sandbox keeps git\'s own folders read-only, so `git add` and `git commit` fail with '
                     '"Permission denied" on an index.lock. Run each git command that writes (add, commit) with '
                     'escalated permissions: the reviewer approves commits on your task branch in your worktree. '
