@@ -285,6 +285,11 @@ The records in force, by area. An amended record is listed with the records that
 Under consideration; not current behavior.
 
 - [ADR 0009](0009-model-profiles-and-embedding-identity.md) **Model profiles and embedding identity.** Evaluate local model profiles with explicit embedding identity and safe re-embedding.
+- [ADR 0220](0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md) **A Dispatcher starts agent sessions for Board Tasks when the person switches it on.** Per device and workspace, off by default, only the person switches it; reviews, then Stale, then Ready Tasks by the rules of `next`; limits on sessions, time and failures.
+- [ADR 0221](0221-dispatched-sessions-review-tasks-in-review-with-another-client.md) **Dispatched sessions review Tasks in Review, with another client where one is available.** Pass to Done with the branch named, fail back to Ready with findings, two failed reviews to the person.
+- [ADR 0222](0222-only-clients-with-a-sandbox-or-a-check-of-each-action-are-dispatched.md) **Only clients with a sandbox or a check of each action are dispatched.** A runner per client, never a bypass flag; availability found per device and WSL distro; Claude Code and Codex first.
+- [ADR 0223](0223-dispatched-sessions-work-in-a-worktree-outside-the-project-and-never-push-or-merge.md) **Dispatched sessions work in a worktree outside the project and never push or merge.** The Task's branch from the checked-out branch; takeovers only where the work exists; merging stays the person's.
+- [ADR 0224](0224-a-dispatched-session-starts-only-after-its-claim-has-reached-the-paired-devices.md) **A Dispatched session starts only after its claim has reached the paired devices.** Sync exchanges at once and the Dispatcher waits for it; a session whose claim is lost is stopped by the Dispatcher.
 
 ## Decision log
 
@@ -511,6 +516,11 @@ Every record in number order. *Date* is when the decision was made.
 | [0217](0217-the-simple-dashboard-lists-the-board-as-tasks.md) | 2026-11-27 | Accepted | The simple dashboard lists the Board as Tasks |
 | [0218](0218-imprint-renames-a-task-whose-id-another-device-gave-out.md) | 2026-11-27 | Accepted | Imprint renames a Task whose id another device gave out |
 | [0219](0219-agents-take-only-standalone-tasks-unasked.md) | 2026-11-27 | Accepted | Agents take only standalone Tasks unasked |
+| [0220](0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md) | 2026-11-27 | Proposed | A Dispatcher starts agent sessions for Board Tasks when the person switches it on |
+| [0221](0221-dispatched-sessions-review-tasks-in-review-with-another-client.md) | 2026-11-27 | Proposed | Dispatched sessions review Tasks in Review, with another client where one is available |
+| [0222](0222-only-clients-with-a-sandbox-or-a-check-of-each-action-are-dispatched.md) | 2026-11-27 | Proposed | Only clients with a sandbox or a check of each action are dispatched |
+| [0223](0223-dispatched-sessions-work-in-a-worktree-outside-the-project-and-never-push-or-merge.md) | 2026-11-27 | Proposed | Dispatched sessions work in a worktree outside the project and never push or merge |
+| [0224](0224-a-dispatched-session-starts-only-after-its-claim-has-reached-the-paired-devices.md) | 2026-11-27 | Proposed | A Dispatched session starts only after its claim has reached the paired devices |
 
 ## How to write and maintain ADRs
 
