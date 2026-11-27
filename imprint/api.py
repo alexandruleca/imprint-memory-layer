@@ -926,7 +926,7 @@ async def api_resolve_core_conflict(memory_id: str, request: Request):
         return JSONResponse({'error': str(error)}, status_code=400)
 
 
-# ── Skills and personas (ADRs 0168, 0169) ──────────────────────
+# ── Skills and personas (ADRs 0168, 0169), built-in skills (ADR 0213) ──
 
 def _registry_limits() -> dict:
     from . import registry
@@ -973,13 +973,46 @@ async def api_apply_skills():
 
 @app.get('/api/skills/{item_id}')
 def api_skill(item_id: str):
-    """One item with its files and this device's history of it."""
+    """One item with its files and this device's history of it; a fork
+    also with its ``difference`` from the release's built-in, as a unified
+    diff (empty for anything else)."""
     from . import registry
     item = registry.get(item_id)
     if item is None:
         return JSONResponse({'error': 'skill or persona not found'}, status_code=404)
     return {**item, 'history': [{k: v for k, v in version.items() if k != 'files'} | {'paths': list(version['files'])}
-                                for version in registry.history(item_id)]}
+                                for version in registry.history(item_id)],
+            'difference': registry.difference(item_id) if item['fork_of'] else ''}
+
+
+@app.post('/api/skills/{item_id}/fork')
+async def api_fork_skill(item_id: str):
+    """Fork a built-in skill: the user's own copy, which replaces it in
+    every client and on every paired device."""
+    from . import registry
+    item = registry.get(item_id)
+    if item is None or item['origin'] != registry.BUILTIN:
+        return JSONResponse({'error': 'built-in skill not found'}, status_code=404)
+    try:
+        fork = await asyncio.to_thread(registry.fork, item['name'], item['kind'])
+    except ValueError as error:
+        return JSONResponse({'error': str(error)}, status_code=400)
+    return {**fork, 'report': await asyncio.to_thread(_registry_applied)}
+
+
+@app.post('/api/skills/{item_id}/reset')
+async def api_reset_skill(item_id: str):
+    """Reset to built-in: remove the fork, here and on every paired device,
+    so the built-in returns. ``item_id`` is the fork's or the built-in's."""
+    from . import registry
+    item = registry.get(item_id)
+    if item is None or not (item['origin'] == registry.BUILTIN or item['fork_of']):
+        return JSONResponse({'error': 'built-in skill or fork not found'}, status_code=404)
+    try:
+        builtin = await asyncio.to_thread(registry.reset, item['name'], item['kind'])
+    except ValueError as error:
+        return JSONResponse({'error': str(error)}, status_code=400)
+    return {**builtin, 'report': await asyncio.to_thread(_registry_applied)}
 
 
 @app.post('/api/skills')

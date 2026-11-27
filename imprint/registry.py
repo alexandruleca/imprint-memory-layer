@@ -18,17 +18,30 @@ in this device's history, which is never synced.
 Items hold text files only. A file that holds what looks like a credential
 is refused rather than stored redacted (ADR 0060): a redacted script would
 no longer run, and the folder in the client would be rewritten with it.
+
+**Built-in skills** (ADR 0213) ship with each release in ``BUILTINS``, one
+folder per skill. They are read from there, never stored as items and never
+synced: each device lists its own release's, with the origin ``builtin``,
+read-only, and clients get them like the user's items. A **fork** is an
+ordinary skill of the user's with a built-in's name; while it is not removed
+it holds the name, so clients get the fork instead of the built-in, and it
+syncs like any other item. It remembers the hash of the built-in it was made
+from (``forked_from``), so a release that changes the built-in is noticed.
+Disabling a built-in is kept as a record of its own (a marker, under the
+built-in's id, which is the same on every device), and that record syncs.
 """
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
+import logging
 import re
 import sqlite3
 import time
 import uuid
 from contextlib import contextmanager
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 from . import config
 
@@ -38,6 +51,9 @@ KINDS = ('skill', 'persona')
 MAIN = {'skill': 'SKILL.md', 'persona': 'PERSONA.md'}
 STATES = ('active', 'disabled', 'retired')
 ORIGINS = ('user', 'adopted', 'client')
+# The origin of a built-in skill: shipped with the release, never stored.
+BUILTIN = 'builtin'
+BUILTINS = Path(__file__).resolve().parent / 'builtin_skills'
 # Agent Skills names: lower-case letters, digits and single hyphens, at most
 # 64 characters, the same as the folder's name (Cursor and Codex check it).
 NAME = re.compile(r'[a-z0-9]+(?:-[a-z0-9]+)*')
@@ -53,9 +69,13 @@ HISTORY = 10
 IGNORED = frozenset({'.DS_Store', 'Thumbs.db', 'desktop.ini', '__pycache__', '.git', 'node_modules'})
 _ID = re.compile(r'[0-9a-f]{32}')
 _FRONT = re.compile(r'\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)', re.S)
+_HASH = re.compile(r'[0-9a-f]{64}')
 _FIELDS = ('id', 'kind', 'name', 'description', 'files', 'hash', 'state', 'origin', 'device',
-           'created_at', 'updated_at')
+           'created_at', 'updated_at', 'forked_from')
+_MARKER_FIELDS = ('id', 'kind', 'name', 'state', 'device', 'created_at', 'updated_at')
 _READY: set[str] = set()
+_BUILTIN_CACHE: dict = {}
+log = logging.getLogger(__name__)
 
 
 @contextmanager
@@ -71,10 +91,17 @@ def _db():
             conn.execute('CREATE TABLE IF NOT EXISTS items (id TEXT PRIMARY KEY, kind TEXT NOT NULL, '
                          'name TEXT NOT NULL, description TEXT NOT NULL, files TEXT NOT NULL, hash TEXT NOT NULL, '
                          'state TEXT NOT NULL, origin TEXT NOT NULL, device TEXT NOT NULL, '
-                         'created_at REAL NOT NULL, updated_at REAL NOT NULL)')
+                         "created_at REAL NOT NULL, updated_at REAL NOT NULL, forked_from TEXT NOT NULL DEFAULT '')")
+            # A store made before built-in skills (ADR 0213) gains the fork's column.
+            if 'forked_from' not in {row[1] for row in conn.execute('PRAGMA table_info(items)')}:
+                conn.execute("ALTER TABLE items ADD COLUMN forked_from TEXT NOT NULL DEFAULT ''")
             conn.execute('CREATE TABLE IF NOT EXISTS versions (item_id TEXT NOT NULL, hash TEXT NOT NULL, '
                          'files TEXT NOT NULL, state TEXT NOT NULL, device TEXT NOT NULL, updated_at REAL NOT NULL, '
                          'replaced_at REAL NOT NULL, PRIMARY KEY (item_id, hash))')
+            # The user's choice to disable a built-in, under the built-in's id.
+            conn.execute('CREATE TABLE IF NOT EXISTS markers (id TEXT PRIMARY KEY, kind TEXT NOT NULL, '
+                         'name TEXT NOT NULL, state TEXT NOT NULL, device TEXT NOT NULL, '
+                         'created_at REAL NOT NULL, updated_at REAL NOT NULL)')
             conn.commit()
             _READY.add(str(path))
         yield conn
@@ -165,6 +192,14 @@ def _credentials(files: dict[str, str]) -> None:
 def validate(kind: str, files) -> dict:
     """``{name, description, files}`` of a valid item, or ValueError naming
     what is wrong."""
+    valid = _valid(kind, files)
+    _credentials(valid['files'])
+    return valid
+
+
+def _valid(kind: str, files) -> dict:
+    """``validate`` without the credential check, which a built-in skill,
+    shipped with the release, does not need."""
     if kind not in KINDS:
         raise ValueError(f'kind must be one of {", ".join(KINDS)}')
     files = _files(kind, files)
@@ -183,7 +218,6 @@ def validate(kind: str, files) -> dict:
         raise ValueError(f'The description has {len(description)} characters; at most {MAX_DESCRIPTION}')
     if not body.strip():
         raise ValueError(f'{MAIN[kind]} has no instructions after its front matter')
-    _credentials(files)
     return {'name': name, 'description': description, 'files': files}
 
 
@@ -202,7 +236,77 @@ def compose(kind: str, name: str, description: str, instructions: str) -> dict[s
     return {MAIN[kind]: f'---\n{meta}---\n\n{str(instructions or "").strip()}\n'}
 
 
+# ── Built-in skills (ADR 0213) ────────────────────────────────────
+
+def builtin_id(kind: str, name: str) -> str:
+    """A built-in's id, the same on every device: the record of its state
+    is then one record everywhere, and the newest change of it wins."""
+    return hashlib.sha256(f'{BUILTIN}\0{kind}\0{name}'.encode('utf-8')).hexdigest()[:32]
+
+
+def builtins() -> list[dict]:
+    """The release's built-in skills, ``{kind, name, description, files,
+    hash}``, read from ``BUILTINS``: one folder per skill, named as its
+    ``SKILL.md`` names it. One that clients could not read is left out and
+    logged."""
+    root = BUILTINS
+    try:
+        found = [p for p in sorted(root.rglob('*')) if p.is_file()]
+        key = (str(root), tuple((str(p), p.stat().st_mtime_ns, p.stat().st_size) for p in found))
+        folders = sorted(p for p in root.iterdir() if p.is_dir() and p.name not in IGNORED) if found else []
+    except OSError:
+        return []
+    if _BUILTIN_CACHE.get('key') != key:
+        specs = []
+        for folder in folders:
+            try:
+                files = {}
+                for file in sorted(folder.rglob('*')):
+                    relative = file.relative_to(folder)
+                    if file.is_file() and not any(part in IGNORED for part in relative.parts):
+                        files[relative.as_posix()] = file.read_bytes().decode('utf-8')
+                valid = _valid('skill', files)
+                if valid['name'] != folder.name:
+                    raise ValueError(f'its SKILL.md names it {valid["name"]}')
+            except (OSError, ValueError) as error:
+                log.warning('The built-in skill %s is left out: %s', folder.name, error)
+                continue
+            specs.append({'kind': 'skill', 'name': valid['name'], 'description': valid['description'],
+                          'files': valid['files'], 'hash': content_hash('skill', valid['files'])})
+        _BUILTIN_CACHE.update(key=key, specs=specs)
+    return [{**spec, 'files': dict(spec['files'])} for spec in _BUILTIN_CACHE['specs']]
+
+
+def _builtin(kind: str, name: str) -> dict | None:
+    return next((spec for spec in builtins() if spec['kind'] == kind and spec['name'] == name), None)
+
+
+def _builtin_item(spec: dict, marker, *, with_files: bool) -> dict:
+    """A built-in as the registry lists it; ``marker`` holds the user's
+    choice to disable it, if any."""
+    item = {'id': builtin_id(spec['kind'], spec['name']), 'kind': spec['kind'], 'name': spec['name'],
+            'description': spec['description'], 'hash': spec['hash'],
+            'state': marker['state'] if marker else 'active', 'origin': BUILTIN,
+            'device': marker['device'] if marker else '', 'created_at': 0.0,
+            'updated_at': float(marker['updated_at']) if marker else 0.0, 'forked_from': '',
+            'paths': list(spec['files']), 'size': sum(len(t.encode('utf-8')) for t in spec['files'].values())}
+    if with_files:
+        item['files'] = dict(spec['files'])
+    return item
+
+
 # ── Reads ─────────────────────────────────────────────────────────
+
+def _stored(kind: str | None = None) -> tuple[list, dict]:
+    """The stored items and the built-ins' markers, read without making
+    the store."""
+    if not exists():
+        return [], {}
+    with _db() as conn:
+        rows = conn.execute('SELECT * FROM items' + (' WHERE kind=?' if kind else ''), (kind,) if kind else ()).fetchall()
+        markers = {row['id']: row for row in conn.execute('SELECT * FROM markers')}
+    return rows, markers
+
 
 def _item(row, *, with_files: bool = True) -> dict:
     item = dict(row)
@@ -218,28 +322,49 @@ def _item(row, *, with_files: bool = True) -> dict:
 
 def list_all(kind: str | None = None, *, with_files: bool = False) -> list[dict]:
     """Items by kind and name, the active name holder first (``shadowed``
-    marks one that another item of its kind and name outranks)."""
-    with _db() as conn:
-        rows = conn.execute('SELECT * FROM items' + (' WHERE kind=?' if kind else ''), (kind,) if kind else ())
-        items = [_item(row, with_files=with_files) for row in rows]
+    marks one that another item of its kind and name outranks), with the
+    release's built-ins (origin ``builtin``). A built-in's fork names it in
+    ``fork_of`` and says in ``builtin_changed`` whether the release changed
+    the built-in since it was forked; a forked built-in names its fork in
+    ``fork``."""
+    rows, markers = _stored(kind)
+    items = [_item(row, with_files=with_files) for row in rows]
+    items += [_builtin_item(spec, markers.get(builtin_id(spec['kind'], spec['name'])), with_files=with_files)
+              for spec in builtins() if kind in (None, spec['kind'])]
     holders = {(i['kind'], i['name']): i['id'] for i in _holders(items)}
+    shipped = {(i['kind'], i['name']): i for i in items if i['origin'] == BUILTIN}
     for item in items:
-        item['shadowed'] = item['state'] != 'retired' and holders.get((item['kind'], item['name'])) != item['id']
+        key = (item['kind'], item['name'])
+        item['shadowed'] = item['state'] != 'retired' and holders.get(key) != item['id']
+        item.update(fork_of='', fork='', builtin_changed=False)
+        builtin = shipped.get(key)
+        if builtin is None or item['state'] == 'retired':
+            continue
+        if item is builtin:
+            item['fork'] = '' if holders[key] == item['id'] else holders[key]
+        else:
+            item['fork_of'] = builtin['id']
+            item['builtin_changed'] = bool(item['forked_from']) and item['forked_from'] != builtin['hash']
     order = {state: index for index, state in enumerate(STATES)}
     return sorted(items, key=lambda i: (i['kind'], order[i['state']], i['name'], i['created_at'], i['id']))
 
 
 def _holders(items) -> list[dict]:
-    """The item that holds each name among those not retired: the oldest,
-    then the smallest id, so every device picks the same one when two
-    devices created the same name before they synced."""
+    """The item that holds each name among those not retired: the user's
+    before a built-in (a fork replaces it), then the oldest, then the
+    smallest id, so every device picks the same one when two devices created
+    the same name before they synced."""
     best: dict[tuple, dict] = {}
+
+    def rank(item):
+        return item['origin'] == BUILTIN, item['created_at'], item['id']
+
     for item in items:
         if item['state'] == 'retired':
             continue
         key = (item['kind'], item['name'])
         held = best.get(key)
-        if held is None or (item['created_at'], item['id']) < (held['created_at'], held['id']):
+        if held is None or rank(item) < rank(held):
             best[key] = item
     return list(best.values())
 
@@ -250,9 +375,8 @@ def active(kind: str) -> list[dict]:
 
 
 def get(item_id: str) -> dict | None:
-    with _db() as conn:
-        row = conn.execute('SELECT * FROM items WHERE id=?', (item_id,)).fetchone()
-    return _item(row) if row else None
+    """An item with its files, as ``list_all`` lists it; None when unknown."""
+    return next((item for item in list_all(with_files=True) if item['id'] == item_id), None)
 
 
 def find(name: str, kind: str | None = None) -> dict:
@@ -307,14 +431,17 @@ def _stamp(previous: float) -> float:
 
 
 def create(kind: str, files, origin: str = 'user') -> dict:
-    """A new item, active at once."""
+    """A new item, active at once. One with a built-in's name is its fork,
+    and remembers the built-in it replaces."""
     if origin not in ORIGINS:
         raise ValueError(f'origin must be one of {", ".join(ORIGINS)}')
     valid = validate(kind, files)
     now = time.time()
+    builtin = _builtin(kind, valid['name'])
     record = {'id': uuid.uuid4().hex, 'kind': kind, 'name': valid['name'], 'description': valid['description'],
               'files': json.dumps(valid['files'], ensure_ascii=False), 'hash': content_hash(kind, valid['files']),
-              'state': 'active', 'origin': origin, 'device': _device(), 'created_at': now, 'updated_at': now}
+              'state': 'active', 'origin': origin, 'device': _device(), 'created_at': now, 'updated_at': now,
+              'forked_from': builtin['hash'] if builtin else ''}
     with _db() as conn:
         _name_free(conn, kind, valid['name'])
         conn.execute(f'INSERT INTO items ({", ".join(_FIELDS)}) VALUES ({", ".join("?" * len(_FIELDS))})',
@@ -327,9 +454,15 @@ def update(item_id: str, *, files=None, state: str | None = None, at: float | No
     ``retired``, which removes it from the clients and from every paired
     device). The version it replaces goes to this device's history. ``at``
     dates the change (an edit made in a client's folder); it is never dated
-    at or before the item's last change. KeyError for an unknown id."""
+    at or before the item's last change. KeyError for an unknown id.
+
+    A built-in skill is read-only and cannot be removed: only its state
+    changes, kept as its marker."""
     if state is not None and state not in STATES:
         raise ValueError(f'state must be one of {", ".join(STATES)}')
+    spec = next((s for s in builtins() if builtin_id(s['kind'], s['name']) == item_id), None)
+    if spec is not None:
+        return _change_builtin(spec, files, state)
     with _db() as conn:
         row = conn.execute('SELECT * FROM items WHERE id=?', (item_id,)).fetchone()
         if row is None:
@@ -344,7 +477,7 @@ def update(item_id: str, *, files=None, state: str | None = None, at: float | No
         if state is not None and state != row['state']:
             changes['state'] = state
         if not changes:
-            return _item(row)
+            return get(item_id)
         name = changes.get('name', row['name'])
         if changes.get('state', row['state']) != 'retired':
             _name_free(conn, row['kind'], name, item_id)
@@ -352,6 +485,79 @@ def update(item_id: str, *, files=None, state: str | None = None, at: float | No
         _keep(conn, row, now)
         changes.update(device=_device(), updated_at=max(at if at is not None else now, row['updated_at'] + 0.001))
         conn.execute(f'UPDATE items SET {", ".join(f"{k}=?" for k in changes)} WHERE id=?', [*changes.values(), item_id])
+    return get(item_id)
+
+
+def fork(name: str, kind: str = 'skill') -> dict:
+    """The user's own copy of a built-in, under its name: it replaces the
+    built-in in every client and on every paired device. KeyError when no
+    built-in has the name, ValueError when it is already forked."""
+    builtin = _builtin(kind, name)
+    if builtin is None:
+        raise KeyError(name)
+    if _forks(kind, name):
+        raise ValueError(f'{name} is already forked: change your fork, or reset it to the built-in')
+    return create(kind, builtin['files'])
+
+
+def reset(name: str, kind: str = 'skill') -> dict:
+    """Remove a built-in's fork, here and on every paired device, so the
+    built-in returns; returns the built-in. KeyError when no built-in has
+    the name, ValueError when it is not forked."""
+    if _builtin(kind, name) is None:
+        raise KeyError(name)
+    forks = _forks(kind, name)
+    if not forks:
+        raise ValueError(f'{name} is not forked: the clients already get the built-in')
+    for item in forks:  # Two devices may each have forked it before they synced.
+        update(item['id'], state='retired')
+    return get(builtin_id(kind, name))
+
+
+def difference(item_id: str) -> str:
+    """What resetting a fork would change: a unified diff of each file from
+    the fork to this release's built-in, empty when they are the same.
+    KeyError for anything but a fork of a built-in this release ships."""
+    item = get(item_id)
+    if item is None or not item['fork_of']:
+        raise KeyError(item_id)
+    mine, shipped = item['files'], get(item['fork_of'])['files']
+    lines: list[str] = []
+    for path in sorted(set(mine) | set(shipped)):
+        if mine.get(path) == shipped.get(path):
+            continue
+        lines += difflib.unified_diff(
+            (mine.get(path) or '').splitlines(), (shipped.get(path) or '').splitlines(),
+            f'fork/{path}' if path in mine else '/dev/null',
+            f'built-in/{path}' if path in shipped else '/dev/null', lineterm='')
+    return '\n'.join(lines) + '\n' if lines else ''
+
+
+def _forks(kind: str, name: str) -> list[dict]:
+    return [i for i in list_all(kind) if i['name'] == name and i['origin'] != BUILTIN and i['state'] != 'retired']
+
+
+def read_only(name: str) -> str:
+    """Why a built-in cannot be edited, and how to make it the user's."""
+    return (f'{name} is a built-in skill and read-only. Fork it to change it: `imprint skills fork {name}`, '
+            'or Fork on the Skills page, makes your own copy, which replaces the built-in on every device.')
+
+
+def _change_builtin(spec: dict, files, state: str | None) -> dict:
+    """A built-in's state, kept as its marker; its files never change."""
+    kind, name = spec['kind'], spec['name']
+    if files is not None and content_hash(kind, _files(kind, files)) != spec['hash']:
+        raise ValueError(read_only(name))
+    if state == 'retired':
+        raise ValueError(f'{name} is a built-in skill and cannot be removed: disable it, or fork it to change it')
+    item_id = builtin_id(kind, name)
+    if state is not None:
+        with _db() as conn:
+            held = conn.execute('SELECT * FROM markers WHERE id=?', (item_id,)).fetchone()
+            if state != (held['state'] if held else 'active'):
+                now = _stamp(float(held['updated_at']) if held else 0.0)
+                conn.execute(f'INSERT OR REPLACE INTO markers ({", ".join(_MARKER_FIELDS)}) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                             (item_id, kind, name, state, _device(), float(held['created_at']) if held else now, now))
     return get(item_id)
 
 
@@ -379,6 +585,10 @@ def restore(item_id: str, digest: str) -> dict:
 
 
 # ── Sync (ADR 0168): the newest change of each item wins ─────────
+#
+# Built-in skills never travel (ADR 0213). Their markers do, as records with
+# the origin ``builtin`` and no files: a device whose Imprint predates them
+# finds no valid files in one and skips it.
 
 def exists() -> bool:
     """Whether this device ever stored an item: the store is made on the first."""
@@ -387,29 +597,56 @@ def exists() -> bool:
 
 def manifest() -> dict[str, float]:
     with _db() as conn:
-        return {row['id']: float(row['updated_at']) for row in conn.execute('SELECT id, updated_at FROM items')}
+        found = {row['id']: float(row['updated_at']) for row in conn.execute('SELECT id, updated_at FROM items')}
+        found.update({row['id']: float(row['updated_at']) for row in conn.execute('SELECT id, updated_at FROM markers')})
+    return found
 
 
 def export(ids) -> list[dict]:
     wanted = set(ids)
     with _db() as conn:
         rows = [row for row in conn.execute('SELECT * FROM items') if row['id'] in wanted]
-    return [{**{f: row[f] for f in _FIELDS}, 'files': json.loads(row['files'])} for row in rows]
+        markers = [row for row in conn.execute('SELECT * FROM markers') if row['id'] in wanted]
+    return ([{**{f: row[f] for f in _FIELDS}, 'files': json.loads(row['files'])} for row in rows]
+            + [{**{f: row[f] for f in _MARKER_FIELDS}, 'origin': BUILTIN, 'files': {}} for row in markers])
+
+
+def _import_marker(conn, record: dict) -> str:
+    """Keep a built-in's marker a paired device sent, when it is newer."""
+    try:
+        item_id, kind, name, state = str(record['id']), record['kind'], record['name'], record['state']
+        if (kind not in KINDS or not isinstance(name, str) or not NAME.fullmatch(name) or len(name) > MAX_NAME
+                or item_id != builtin_id(kind, name) or state not in ('active', 'disabled')):
+            raise ValueError(item_id)
+        values = (item_id, kind, name, state, str(record.get('device') or '')[:128],
+                  float(record['created_at']), float(record['updated_at']))
+    except (KeyError, TypeError, ValueError):
+        return 'skipped'
+    held = conn.execute('SELECT updated_at FROM markers WHERE id=?', (item_id,)).fetchone()
+    if held is not None and held['updated_at'] >= values[-1]:
+        return 'skipped'
+    conn.execute(f'INSERT OR REPLACE INTO markers ({", ".join(_MARKER_FIELDS)}) VALUES (?, ?, ?, ?, ?, ?, ?)', values)
+    return 'updated' if held else 'inserted'
 
 
 def import_records(records: list[dict]) -> dict[str, int]:
     """Store items a paired device sent: new ones, and newer versions of
     held ones, whose replaced version goes to this device's history. An
     item that does not validate here, a credential in it included, is
-    skipped."""
+    skipped. A built-in's marker is kept as one; it never carries files."""
     stats = {'inserted': 0, 'updated': 0, 'skipped': 0}
     with _db() as conn:
         for record in records:
+            if isinstance(record, dict) and record.get('origin') == BUILTIN:
+                stats[_import_marker(conn, record)] += 1
+                continue
             try:
                 item_id, kind, state = str(record['id']), record['kind'], record['state']
                 if not _ID.fullmatch(item_id) or kind not in KINDS or state not in STATES:
                     raise ValueError(item_id)
                 valid = validate(kind, record['files'])
+                if item_id == builtin_id(kind, valid['name']):
+                    raise ValueError(item_id)  # A built-in's id is its marker's, never an item's.
                 values = {'id': item_id, 'kind': kind, 'name': valid['name'], 'description': valid['description'],
                           'files': json.dumps(valid['files'], ensure_ascii=False),
                           'hash': content_hash(kind, valid['files']), 'state': state,
@@ -420,6 +657,9 @@ def import_records(records: list[dict]) -> dict[str, int]:
                 stats['skipped'] += 1
                 continue
             held = conn.execute('SELECT * FROM items WHERE id=?', (item_id,)).fetchone()
+            # A device whose Imprint predates built-ins sends no forked_from: the held one stays.
+            sent = record.get('forked_from', held['forked_from'] if held is not None else '')
+            values['forked_from'] = sent if isinstance(sent, str) and _HASH.fullmatch(sent) else ''
             if held is not None and held['updated_at'] >= values['updated_at']:
                 stats['skipped'] += 1
                 continue

@@ -23,8 +23,10 @@ class RegistryTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.data = Path(directory.name)
+        # The release's built-in skills (ADR 0213) are tested in test_builtin_skills.
         for patcher in (patch.object(config, 'get_data_dir', return_value=self.data),
-                        patch.object(registry, '_device', return_value='device-a')):
+                        patch.object(registry, '_device', return_value='device-a'),
+                        patch.object(registry, 'BUILTINS', self.data / 'no-builtins')):
             patcher.start()
             self.addCleanup(patcher.stop)
 

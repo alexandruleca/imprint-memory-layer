@@ -412,7 +412,7 @@ export function changeCoreMemory(id: string, change: Partial<Pick<CoreMemory, "t
   return fetchAPI<CoreMemory>(`/api/core/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(change), ...init });
 }
 
-// ── Skills and personas (ADRs 0168, 0169) ───────────────────────
+// ── Skills and personas (ADRs 0168, 0169), built-in skills (ADR 0213) ──
 
 export type SkillKind = "skill" | "persona";
 export type SkillState = "active" | "disabled" | "retired";
@@ -423,15 +423,24 @@ export interface SkillItem {
   description: string;
   hash: string;
   state: SkillState;
-  /** user: written in Imprint; adopted: from a client's folder; client: first seen as an edit there. */
-  origin: "user" | "adopted" | "client";
+  /** user: written in Imprint; adopted: from a client's folder; client: first seen as an edit there;
+   * builtin: ships with this release, read-only and never synced. */
+  origin: "user" | "adopted" | "client" | "builtin";
   device: string;
   created_at: number;
   updated_at: number;
   paths: string[];
   size: number;
-  /** Another item of this kind and name holds it (two devices made it before they synced). */
+  /** Another item of this kind and name holds it (two devices made it before they synced, or a fork replaces a built-in). */
   shadowed?: boolean;
+  /** On a fork: the hash of the built-in it was made from. */
+  forked_from?: string;
+  /** On a fork: the id of the built-in it replaces. */
+  fork_of?: string;
+  /** On a built-in: the id of the fork that replaces it. */
+  fork?: string;
+  /** On a fork: this release changed the built-in since it was forked. */
+  builtin_changed?: boolean;
   /** Only on a single item: its files by path. */
   files?: Record<string, string>;
 }
@@ -486,8 +495,20 @@ export function applySkills() {
   return fetchAPI<{ items: SkillItem[]; report: SkillReport; found: FoundSkill[] }>("/api/skills/apply", { method: "POST" });
 }
 
+/** One item with its files and history; a fork with its unified diff from the built-in (`difference`). */
 export function getSkill(id: string) {
-  return fetchAPI<SkillItem & { files: Record<string, string>; history: SkillVersion[] }>(`/api/skills/${encodeURIComponent(id)}`);
+  return fetchAPI<SkillItem & { files: Record<string, string>; history: SkillVersion[]; difference: string }>(
+    `/api/skills/${encodeURIComponent(id)}`);
+}
+
+/** Fork a built-in skill: the user's own copy, which replaces it everywhere. Returns the fork. */
+export function forkSkill(id: string) {
+  return fetchAPI<SkillItem & { report: SkillReport }>(`/api/skills/${encodeURIComponent(id)}/fork`, { method: "POST" });
+}
+
+/** Reset to built-in: remove the fork (given the fork's or the built-in's id). Returns the built-in. */
+export function resetSkill(id: string) {
+  return fetchAPI<SkillItem & { report: SkillReport }>(`/api/skills/${encodeURIComponent(id)}/reset`, { method: "POST" });
 }
 
 export function addSkill(body: { kind: SkillKind; name: string; description: string; instructions: string }) {

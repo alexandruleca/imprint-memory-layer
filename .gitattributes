@@ -1,2 +1,4 @@
 # Third-party chat templates are checked byte for byte against their published SHA-256.
 tests/fixtures/chat_templates/** -text
+# Built-in skills hash the same on every platform: a fork remembers the hash it was made from (ADR 0213).
+imprint/builtin_skills/** text eol=lf
