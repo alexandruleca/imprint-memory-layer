@@ -3,9 +3,12 @@ title: ADR 0221 — Dispatched sessions review Tasks in Review, with another cli
 description: The Dispatcher starts a reviewer session for Tasks in Review that are not the person's, preferably in a different client from the one that did the work; a passing review moves the Task to Done, a failing one sends it back to Ready with the findings, and after two failed reviews the Task goes to the person.
 ---
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-27
-- Related: [ADR 0208](0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md) and [ADR 0211](0211-agents-take-ready-and-stale-tasks-unasked-within-their-project.md) (their rule that agents review only when asked is what this record would amend once accepted, for Dispatched sessions), [ADR 0220](0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md) (the Dispatcher), [ADR 0222](0222-only-clients-with-a-sandbox-or-a-check-of-each-action-are-dispatched.md) (which clients), [ADR 0223](0223-dispatched-sessions-work-in-a-worktree-outside-the-project-and-never-push-or-merge.md) (branches and merging)
+- Amends:
+  - [ADR 0208](0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md) — its "Agents review a Task when asked, never unasked": Dispatched sessions review Tasks in Review, and the holder of a Task in Review that did not do the work may move it to Done
+  - [ADR 0211](0211-agents-take-ready-and-stale-tasks-unasked-within-their-project.md) — its "Reviewing a Task in Review is never taken unasked": Dispatched sessions review Tasks in Review
+- Related: [ADR 0220](0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md) (the Dispatcher), [ADR 0222](0222-only-clients-with-a-sandbox-or-a-check-of-each-action-are-dispatched.md) (which clients), [ADR 0223](0223-dispatched-sessions-work-in-a-worktree-outside-the-project-and-never-push-or-merge.md) (branches and merging)
 
 ## Context
 
@@ -50,4 +53,7 @@ Interactive sessions keep reviewing only when asked.
 
 ## Validation
 
-Not implemented. The claim of a Task in Review and the Done rule were read in the code cited in Context on 2026-11-27.
+- Linux (WSL Ubuntu 26.04, Python 3.12 venv): the full suite, 1,691 tests, passed on 2026-11-27 with the Dispatcher's Tasks together.
+- Windows 11 (the installed runtime's Python 3.13, from a native copy of the repository): the `test_dispatch_*` modules (121 tests), `test_tasks*`, `test_cli_tasks`, `test_sync_pairs`, `test_builtin_skills`, `test_config_help`, `test_adr_records` and `test_docs_tables` passed.
+- `tests/test_dispatch_reviews.py`: reviews before other work, the cross-client choice both ways and the same-client fallback, a passing review to Done with the branch named to the person, a failing one back to Ready with the next worker on the same branch, two failed reviews to the person, an undecided review left in Review, and worktrees removed once their Tasks end (retried while in use).
+- Not run: a live review by a real client; the worker side ran for real with Claude Code and Codex ([ADR 0222](0222-only-clients-with-a-sandbox-or-a-check-of-each-action-are-dispatched.md)).

@@ -3,9 +3,10 @@ title: ADR 0220 — A Dispatcher starts agent sessions for Board Tasks when the 
 description: Each device's dashboard server runs a Dispatcher, plain code that starts one-shot agent sessions for open Tasks and Tasks waiting for Review by the Board's own rules, switched on per device and workspace by the person only, off by default, within limits on sessions, time and failures.
 ---
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-27
-- Related: [ADR 0211](0211-agents-take-ready-and-stale-tasks-unasked-within-their-project.md) (its "Imprint does not start agents" is what this record would amend once accepted), [ADR 0219](0219-agents-take-only-standalone-tasks-unasked.md) (only standalone Tasks), [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) (claims and their tokens), [ADR 0213](0213-built-in-skills-ship-with-each-release-and-a-fork-replaces-them.md) (built-in skills and forks), [ADR 0221](0221-dispatched-sessions-review-tasks-in-review-with-another-client.md) (reviews), [ADR 0222](0222-only-clients-with-a-sandbox-or-a-check-of-each-action-are-dispatched.md) (which clients), [ADR 0223](0223-dispatched-sessions-work-in-a-worktree-outside-the-project-and-never-push-or-merge.md) (where the work happens), [ADR 0224](0224-a-dispatched-session-starts-only-after-its-claim-has-reached-the-paired-devices.md) (claims across devices)
+- Amends: [ADR 0211](0211-agents-take-ready-and-stale-tasks-unasked-within-their-project.md) — its "Imprint does not start agents": a Dispatcher the person switches on starts agent sessions for Tasks
+- Related: [ADR 0219](0219-agents-take-only-standalone-tasks-unasked.md) (only standalone Tasks), [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) (claims and their tokens), [ADR 0213](0213-built-in-skills-ship-with-each-release-and-a-fork-replaces-them.md) (built-in skills and forks), [ADR 0221](0221-dispatched-sessions-review-tasks-in-review-with-another-client.md) (reviews), [ADR 0222](0222-only-clients-with-a-sandbox-or-a-check-of-each-action-are-dispatched.md) (which clients), [ADR 0223](0223-dispatched-sessions-work-in-a-worktree-outside-the-project-and-never-push-or-merge.md) (where the work happens), [ADR 0224](0224-a-dispatched-session-starts-only-after-its-claim-has-reached-the-paired-devices.md) (claims across devices)
 
 ## Context
 
@@ -92,4 +93,8 @@ Each session's output is kept under `data/dispatch/`. Its conversation is learne
 
 ## Validation
 
-Not implemented. Checked on 2026-11-27 (WSL Ubuntu 26.04 on Windows 11): the `--help` of Claude Code 2.1.332 and Codex 0.171.0-alpha.13.2, and the code paths cited in Context.
+- Linux (WSL Ubuntu 26.04, Python 3.12 venv): the full suite, 1,691 tests, passed on 2026-11-27 with the Dispatcher's Tasks together.
+- Windows 11 (the installed runtime's Python 3.13, from a native copy of the repository): the `test_dispatch_*` modules (121 tests), `test_tasks*`, `test_cli_tasks`, `test_sync_pairs`, `test_builtin_skills`, `test_config_help`, `test_adr_records` and `test_docs_tables` passed.
+- `tests/test_dispatch_run.py`, `test_dispatch_loop.py`, `test_dispatch_api.py` and `test_dispatch_guards.py`: one Task dispatched end to end with a fake client, the switch off by default and per workspace, the next-rules order, concurrency and time limits, stopping from the CLI and the Board, recovery of unwatched runs, the daily and failure limits, a Task failing twice going to the person, and Dispatched sessions' own Tasks kept out.
+- Real runs on Windows 11 against throwaway repositories and workspaces: Claude Code 2.1.302 took a Task from Ready to Review in 35 s; the dashboard's strip was rendered in both dashboards (Playwright, Chromium) against a throwaway server.
+- Not run: macOS; the loop running for days on the owner's own Boards.

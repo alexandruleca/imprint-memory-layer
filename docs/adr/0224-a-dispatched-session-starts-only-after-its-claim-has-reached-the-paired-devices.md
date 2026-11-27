@@ -3,9 +3,10 @@ title: ADR 0224 — A Dispatched session starts only after its claim has reached
 description: Before starting a client, the Dispatcher has sync exchange its claim at once and waits until an exchange begun after the claim has completed with every paired device seen recently; while the session runs it checks the claim, and stops the session itself the moment the claim is lost.
 ---
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-27
-- Related: [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) (concurrent claims and its invalidation condition on a claim check), [ADR 0209](0209-a-tasks-history-is-a-log-of-events-that-devices-merge-by-union.md) (the order that decides between claims), [ADR 0220](0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md) (the Dispatcher), [ADR 0223](0223-dispatched-sessions-work-in-a-worktree-outside-the-project-and-never-push-or-merge.md) (worktrees)
+- Amends: [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) — its "Concurrent claims": a Dispatched session's claim must reach the paired devices before its client starts, and the Dispatcher stops a session whose claim an earlier one beat
+- Related: [ADR 0209](0209-a-tasks-history-is-a-log-of-events-that-devices-merge-by-union.md) (the order that decides between claims), [ADR 0220](0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md) (the Dispatcher), [ADR 0223](0223-dispatched-sessions-work-in-a-worktree-outside-the-project-and-never-push-or-merge.md) (worktrees)
 
 ## Context
 
@@ -51,4 +52,7 @@ A pair not seen in the last 10 minutes is not waited for.
 
 ## Validation
 
-Not implemented. The claim order, lost-claim notices and sync timing were read in the code cited in Context on 2026-11-27, with `tests/test_tasks.py` covering the earlier of two claims winning.
+- Linux (WSL Ubuntu 26.04, Python 3.12 venv): the full suite, 1,691 tests, passed on 2026-11-27 with the Dispatcher's Tasks together.
+- Windows 11 (the installed runtime's Python 3.13, from a native copy of the repository): the `test_dispatch_*` modules (121 tests), `test_tasks*`, `test_cli_tasks`, `test_sync_pairs`, `test_builtin_skills`, `test_config_help`, `test_adr_records` and `test_docs_tables` passed.
+- `tests/test_dispatch_claims.py`: the exchange-now request and its expiry, no wait without recently seen peers, the client starting after the peer's exchange, nothing started when an earlier claim won, the wait limit, and a running session stopped by the Dispatcher when another device's earlier claim arrives. `tests/test_sync_pairs.py`: the start of a completed exchange recorded through a real relay, for a transfer and for an idle exchange.
+- Not run: two real devices dispatching the same Task.

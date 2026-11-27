@@ -3,7 +3,7 @@ title: ADR 0223 — Dispatched sessions work in a worktree outside the project a
 description: Each Dispatched session works on its Task's branch in a git worktree that Imprint makes outside the project, starting from the branch checked out in the project; it commits there and never pushes, merges or touches the person's checkout, and merging stays the person's.
 ---
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-27
 - Related: [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) (Task branches and pushing), [ADR 0220](0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md) (the Dispatcher), [ADR 0221](0221-dispatched-sessions-review-tasks-in-review-with-another-client.md) (reviews), [ADR 0224](0224-a-dispatched-session-starts-only-after-its-claim-has-reached-the-paired-devices.md) (lost claims)
 
@@ -49,4 +49,7 @@ Dispatched sessions run while the person may be working in the same project, and
 
 ## Validation
 
-Not implemented. The branch convention and push rule were read in [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) and the built-in `imprint-tasks` skill; Codex's options in `codex exec --help` on 2026-11-27.
+- Linux (WSL Ubuntu 26.04, Python 3.12 venv): the full suite, 1,691 tests, passed on 2026-11-27 with the Dispatcher's Tasks together.
+- Windows 11 (the installed runtime's Python 3.13, from a native copy of the repository): the `test_dispatch_*` modules (121 tests), `test_tasks*`, `test_cli_tasks`, `test_sync_pairs`, `test_builtin_skills`, `test_config_help`, `test_adr_records` and `test_docs_tables` passed.
+- `tests/test_dispatch_run.py`, `test_dispatch_takeover.py` and `test_dispatch_reviews.py`: the worktree outside the project on the Task's branch from the checked-out branch, the project's checkout untouched, a later dispatch continuing on the branch, a takeover continuing at the Handoff's commit or skipped with one comment when that commit is not here, and removal once the Task ends.
+- Real runs: the worktrees were made under the Windows and the WSL homes, and the commits landed on the task branches.

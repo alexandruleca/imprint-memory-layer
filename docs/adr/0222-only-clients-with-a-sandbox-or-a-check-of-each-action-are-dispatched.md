@@ -3,7 +3,7 @@ title: ADR 0222 — Only clients with a sandbox or a check of each action are di
 description: The Dispatcher starts a client only through a one-shot mode with an OS sandbox or a check of each action and none of its bypass flags, finds the clients available on each device and WSL distro itself, and ships runners for Claude Code and Codex first.
 ---
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-27
 - Related: [ADR 0220](0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md) (the Dispatcher), [ADR 0053](0053-connect-clients-without-touching-the-runtime.md) (the client table), [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) (sessions and claim tokens)
 
@@ -95,4 +95,8 @@ Reviews follow [ADR 0221](0221-dispatched-sessions-review-tasks-in-review-with-a
 
 ## Validation
 
-Not implemented. On 2026-11-27, `--help` was read for Claude Code 2.1.302 and 2.1.332 and for Codex 0.166.0 and 0.171.0-alpha.13.2; the other clients' rows come from their official documentation. The installation checks were read in `cmd/setup*.go` and `cmd/cleanup.go`.
+- Linux (WSL Ubuntu 26.04, Python 3.12 venv): the full suite, 1,691 tests, passed on 2026-11-27 with the Dispatcher's Tasks together.
+- Windows 11 (the installed runtime's Python 3.13, from a native copy of the repository): the `test_dispatch_*` modules (121 tests), `test_tasks*`, `test_cli_tasks`, `test_sync_pairs`, `test_builtin_skills`, `test_config_help`, `test_adr_records` and `test_docs_tables` passed.
+- `tests/test_dispatch_clients.py` and `test_dispatch_wsl.py`: detection by setting, PATH and VS Code bundle, refusal of a version without the safety flags or without Imprint, OpenCode listed but never started, routing by assignee and default, every runner's command line checked against the bypass flags, and the command built for a project in WSL.
+- Real runs on Windows 11: Codex 0.166 first refused `--sandbox` beside `--approve-for-me`, then could not commit until told to escalate `git add` and `git commit`, then took a Task from Ready to Review in 63 s; with the runtime on Windows and the project in Ubuntu-26.04, VS Code's Claude Code 2.1.332 took a Task from Ready to Review in 34 s, and Stop ended the session's process group inside WSL in 1.2 s.
+- Not run: Cursor CLI and Copilot CLI (no runner yet); clients installed on PATH inside WSL rather than bundled.
