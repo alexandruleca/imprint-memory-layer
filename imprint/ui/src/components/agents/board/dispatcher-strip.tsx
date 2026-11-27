@@ -30,8 +30,10 @@ const OUTCOMES: Record<string, { label: string; tone: string }> = {
  */
 /** The clients the Dispatcher may start here: tick or untick each, and choose the default (ADR 0222). */
 function ClientsPicker({ data, onChanged }: { data: DispatchStatus; onChanged: () => void }) {
-  const allowed = data.clients.filter((c) => c.allowed);
-  const chosen = allowed.find((c) => c.default);
+  // Ticks and the default are per client, wherever it was found; the list shows each place.
+  const allowed = [...new Map(data.clients.filter((c) => c.allowed).map((c) => [c.client, c])).values()];
+  const chosen = data.clients.find((c) => c.allowed && c.default && !c.where) ?? allowed.find((c) => c.default) ?? allowed[0];
+  const places = [...new Set(data.clients.map((c) => c.where))];
   async function save(key: string, value: string, done: string) {
     try { await setConfigValue(key, value); onChanged(); toast.success(done); }
     catch (e) { toast.error("Not changed", { description: e instanceof Error ? e.message : String(e) }); }
@@ -51,18 +53,23 @@ function ClientsPicker({ data, onChanged }: { data: DispatchStatus; onChanged: (
           Clients this device can start unattended: each runs in its own sandbox or checks each action, never with its
           safety switched off. A task assigned to a client goes to that client.
         </p>
-        <ul className="grid gap-2" aria-label="Clients">
-          {data.clients.map((c) => (
-            <li key={c.client} className="flex items-start gap-2">
-              <Checkbox aria-label={`Allow ${c.label}`} checked={c.allowed} disabled={!c.available}
-                onCheckedChange={(on) => tick(c.client, on === true)} />
-              <div className="min-w-0">
-                <div className="font-medium">{c.label}{c.version && <span className="ml-1 font-normal text-muted-foreground">{c.version}</span>}</div>
-                {!c.available && c.reason && <div className="text-muted-foreground">{c.reason}</div>}
-              </div>
-            </li>
-          ))}
-        </ul>
+        {places.map((where) => (
+          <div key={where ?? "here"} className="grid gap-2">
+            {places.length > 1 && <div className="font-medium text-muted-foreground">{where ? `In WSL: ${where}` : "On this system"}</div>}
+            <ul className="grid gap-2" aria-label={where ? `Clients in ${where}` : "Clients on this system"}>
+              {data.clients.filter((c) => c.where === where).map((c) => (
+                <li key={`${where}:${c.client}`} className="flex items-start gap-2">
+                  <Checkbox aria-label={`Allow ${c.label}${where ? ` in ${where}` : ""}`} checked={c.allowed} disabled={!c.available}
+                    onCheckedChange={(on) => tick(c.client, on === true)} />
+                  <div className="min-w-0">
+                    <div className="font-medium">{c.label}{c.version && <span className="ml-1 font-normal text-muted-foreground">{c.version}</span>}</div>
+                    {!c.available && c.reason && <div className="text-muted-foreground">{c.reason}</div>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
         {allowed.length > 1 && (
           <label className="flex flex-wrap items-center gap-2">
             <span>For tasks assigned to no client:</span>

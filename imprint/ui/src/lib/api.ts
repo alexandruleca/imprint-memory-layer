@@ -1314,7 +1314,9 @@ export type DispatchStatus = {
   next: { id: string; title: string; project: string; client: string }[];
   /** The clients it can start here (ADR 0222): available ones with a version, the rest with the reason. */
   clients: { client: string; label: string; available: boolean; version: string | null; reason: string | null;
-    allowed: boolean; default: boolean }[];
+    allowed: boolean; default: boolean;
+    /** The WSL distribution it was found in, or null for this system. */
+    where: string | null }[];
   /** Other paired devices whose Dispatcher is on for this workspace. */
   devices: { device: string; name: string; on: boolean; at: number }[];
 };
