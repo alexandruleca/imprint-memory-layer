@@ -67,6 +67,18 @@ FAKE_CLAUDE = textwrap.dedent('''\
 ''')
 
 
+def executable(path: Path, script: str) -> Path:
+    """A fake client a Popen can start: the script itself where a shebang
+    runs it, else (Windows) a .cmd beside it that runs it with this Python."""
+    path.write_text(script)
+    path.chmod(path.stat().st_mode | stat.S_IEXEC)
+    if sys.platform != 'win32':
+        return path
+    launcher = path.with_suffix('.cmd')
+    launcher.write_text(f'@"{sys.executable}" "{path}" %*\r\n')
+    return launcher
+
+
 def _git(folder, *args):
     subprocess.run(['git', '-C', str(folder), *args], check=True, capture_output=True,
                    env={**os.environ, 'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t',
@@ -81,10 +93,8 @@ class DispatchCase(unittest.TestCase):
         self.home = self.root / 'home'
         self.home.mkdir()
         self.record = self.root / 'record.json'
-        fake = self.root / 'bin' / 'claude'
-        fake.parent.mkdir()
-        fake.write_text(FAKE_CLAUDE.format(python=sys.executable, repo=str(REPO)))
-        fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+        (self.root / 'bin').mkdir()
+        fake = executable(self.root / 'bin' / 'claude', FAKE_CLAUDE.format(python=sys.executable, repo=str(REPO)))
         env = patch.dict(os.environ, {'IMPRINT_DATA_DIR': str(self.root / 'data'), 'IMPRINT_WORKSPACE': 'default',
                                       'IMPRINT_DISPATCH_CLAUDE_CODE_COMMAND': str(fake), 'HOME': str(self.home),
                                       'USERPROFILE': str(self.home), 'FAKE_RECORD': str(self.record),

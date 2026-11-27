@@ -11,7 +11,7 @@ from unittest.mock import patch
 from imprint import tasks
 from imprint.dispatch import clients, dispatched, loop, runners, status, store
 
-from test_dispatch_run import DispatchCase, REPO
+from test_dispatch_run import DispatchCase, REPO, executable
 
 FAKE_CODEX = textwrap.dedent('''\
     #!{python}
@@ -59,13 +59,13 @@ class ClientsCase(DispatchCase):
         self.write_codex(CODEX_HELP)
         (self.home / '.codex').mkdir()
         (self.home / '.codex' / 'config.toml').write_text('[mcp_servers.imprint]\ncommand = "imprint"\n')
-        env = patch.dict(os.environ, {'IMPRINT_DISPATCH_CODEX_COMMAND': str(self.codex)})
+        env = patch.dict(os.environ, {'IMPRINT_DISPATCH_CODEX_COMMAND': str(self.codex_command)})
         env.start()
         self.addCleanup(env.stop)
 
     def write_codex(self, help_text, version='0.171.0'):
-        self.codex.write_text(FAKE_CODEX.format(python=sys.executable, repo=str(REPO), help=help_text, version=version))
-        self.codex.chmod(self.codex.stat().st_mode | stat.S_IEXEC)
+        self.codex_command = executable(self.codex, FAKE_CODEX.format(python=sys.executable, repo=str(REPO),
+                                                                      help=help_text, version=version))
         clients._cache.clear()
 
 
