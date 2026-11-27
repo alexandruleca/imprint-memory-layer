@@ -1214,6 +1214,69 @@ export function getAgents({ limit = 50, before, client, q }: { limit?: number; b
   if (q) qs.set("q", q);
   return fetchAPI<AgentsPage>(`/api/agents?${qs}`);
 }
+// ── The Board (ADRs 0208-0216) ─────────────────────────────────
+
+export const TASK_STATUSES = ["backlog", "ready", "in_progress", "review", "done", "cancelled"] as const;
+export type TaskStatus = (typeof TASK_STATUSES)[number];
+export type TaskPriority = "P0" | "P1" | "P2" | "P3";
+/** Who wrote something on the Board: the user, or an agent session with its name and client. */
+export type TaskPerson = { kind: "user" | "agent"; device?: string; session?: string; name?: string | null; client?: string | null };
+export type TaskHolder = { session: string; name: string | null; client: string | null; device: string; since: number; progress_at?: number };
+export type TaskComment = { id: string; text: string; to: string[]; by: TaskPerson; at: number };
+export type TaskCheckpoint = { text: string; next?: string; branch?: string; commit?: string; files?: string[]; by: TaskPerson; at: number };
+export type BoardTask = {
+  id: string; title: string; description: string; project: string; status: TaskStatus; priority: TaskPriority;
+  position: number | null; acceptance: string[]; tags: string[]; assignees: string[];
+  feature: string | null; feature_title: string | null; blockers: string[]; open_blockers: string[]; tasks: string[];
+  blocked: { reason: string; by: TaskPerson; at: number } | null;
+  holder: TaskHolder | null; previous_holder: TaskHolder | null; stalling: boolean; stale: boolean; worked_by: string | null;
+  last_checkpoint: TaskCheckpoint | null; checkpoints: number; comments: TaskComment[]; comment_count: number;
+  created_at: number; created_by: TaskPerson; updated_at: number; ended_at: number | null; status_at: number;
+};
+export type BoardOptions = { projects: string[]; tags: string[]; assignees: string[]; holders: string[]; features: { id: string; title: string }[] };
+export type Autonomy = "off" | "stale" | "ready";
+export type BoardData = { workspace: string; columns: Record<TaskStatus, BoardTask[]>; total: number; options: BoardOptions; autonomy: Autonomy };
+export type BoardFilters = { project?: string; feature?: string; tag?: string; priority?: string; assignee?: string; holder?: string; text?: string; archived?: boolean };
+export type TaskEvent = { id: string; kind: string; data: Record<string, unknown>; hlc: string; device: string; actor: "user" | "agent";
+  session: string | null; agent: string | null; client: string | null; recorded_at: number };
+export type TaskHandoff = { previous_holder: TaskHolder | null; last_checkpoint: TaskCheckpoint | null; checkpoints: TaskCheckpoint[];
+  branch: string | null; commit: string | null; files: string[]; conversation: string | null };
+export type TaskDetails = { task: BoardTask; history: TaskEvent[]; handoff: TaskHandoff };
+export type NewTask = { title: string; project: string; description?: string; status?: "backlog" | "ready"; priority?: TaskPriority;
+  acceptance?: string[]; tags?: string[]; assignees?: string[]; feature?: string };
+export type TaskAction = "move" | "edit" | "append" | "comment" | "tags" | "assignees" | "link" | "block" | "unblock" | "release";
+export type TaskInbox = { comments: (TaskComment & { task: string; title: string })[]; review: BoardTask[] };
+
+/** The workspace's Board by status, filtered, with what every filter offers. */
+export function getBoard(filters: BoardFilters = {}) {
+  const qs = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) if (value) qs.set(key, String(value));
+  return fetchAPI<BoardData>(`/api/tasks/board${qs.size ? `?${qs}` : ""}`);
+}
+export function getTask(id: string) {
+  return fetchAPI<TaskDetails>(`/api/tasks/${encodeURIComponent(id)}`);
+}
+export function createTask(task: NewTask) {
+  return fetchAPI<{ task: BoardTask }>("/api/tasks", { method: "POST", body: JSON.stringify(task) });
+}
+/** A change to one Task as the user; the API refuses one that breaks the Board's rules, saying why. */
+export function changeTask(id: string, action: TaskAction, body: Record<string, unknown> = {}) {
+  return fetchAPI<{ task: BoardTask }>(`/api/tasks/${encodeURIComponent(id)}/${action}`, { method: "POST", body: JSON.stringify(body) });
+}
+export function deleteTask(id: string) {
+  return fetchAPI<{ id: string; deleted: boolean }>(`/api/tasks/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+export function setAutonomy(value: Autonomy) {
+  return fetchAPI<{ autonomy: Autonomy }>("/api/tasks/autonomy", { method: "PUT", body: JSON.stringify({ value }) });
+}
+/** Comments agents addressed to the user, unread, and the Tasks waiting in Review. */
+export function getTaskInbox() {
+  return fetchAPI<TaskInbox>("/api/tasks/inbox");
+}
+export function markTaskCommentsRead(ids: string[]) {
+  return fetchAPI<{ read: number }>("/api/tasks/inbox/read", { method: "POST", body: JSON.stringify({ ids }) });
+}
+
 /** Rename an agent on its workspace's Board; refused when another live session has the name. */
 export function renameAgent(sessionId: string, name: string) {
   return fetchAPI<{ name: string }>(`/api/agents/${encodeURIComponent(sessionId)}/name`, { method: "POST", body: JSON.stringify({ name }) });

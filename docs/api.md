@@ -211,6 +211,21 @@ curl -s "http://localhost:8420/api/search?q=chunking&project=imprint&type=decisi
 | GET | `/api/recordings/{id}/transcript`, `/api/recordings/{id}/audio` | The transcript text; the raw audio (`?download=1` sends it as a file named after the recording). |
 | DELETE | `/api/recordings/{id}/audio`, `/api/recordings/{id}` | Delete the audio only, or the recording with its transcript and memories. |
 
+### The Board
+
+The active workspace's [Tasks](tasks.md) ([ADRs 0208-0212](adr/0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md)). Every change is the user's; a change that breaks the Board's rules is refused with `{error}` and 400 (403 for what only the user or another session may do, 404 for an unknown or deleted Task).
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/tasks/board` | `{workspace, columns, total, options, autonomy}`: Tasks by status, filtered by `project`, `feature`, `tag`, `status`, `priority`, `assignee`, `holder` and `text`; `archived=true` adds Tasks that ended over 14 days ago. `options` lists every project, tag, assignee, holder and Feature for the filters. |
+| POST | `/api/tasks` | Create: `{title, project, description?, status? (backlog or ready), priority?, acceptance?, tags?, assignees?, feature?, blockers?}`. Returns `{task}`. |
+| GET | `/api/tasks/{id}` | `{task, history, handoff}`. |
+| POST | `/api/tasks/{id}/{action}` | `move` `{status, position?}`, `edit` (any of `title`, `description`, `project`, `priority`, `acceptance`, `position`), `append` `{text}`, `comment` `{text, to?}`, `tags` and `assignees` `{add, remove}`, `link` `{feature?, add_blockers?, remove_blockers?}`, `block` `{reason}`, `unblock`, `release`. Returns `{task}`. |
+| DELETE | `/api/tasks/{id}` | Delete, leaving a tombstone. |
+| GET | `/api/tasks/inbox` | `{comments, review}`: unread comments agents addressed to the user, and Tasks in Review. |
+| POST | `/api/tasks/inbox/read` | `{ids}`: mark those comments read. |
+| PUT | `/api/tasks/autonomy` | `{value}`: `off`, `stale` or `ready` for this workspace. |
+
 ### Reminders, timers and scheduled jobs
 
 Device-local entries the dashboard API's scheduler fires ([ADR 0158](adr/0158-reminders-timers-and-scheduled-jobs-fire-from-the-api-process.md)). Refused requests answer 400 (409 for done or snooze with nothing waiting) with `{error}` saying why.
@@ -264,6 +279,7 @@ already waiting: `job_id` is that job and nothing new is queued
 | POST | `/api/queue/background/resume` | Start background work (tagging, then background Organize) again after a cancel or a failure. |
 | GET | `/api/queue/history` | Finished jobs a page at a time, newest first (`limit`, `before` cursor, `status`), with counts per period for `bounds` and each job's waiting or running `twin` ([queue](queue.md#http-api)). |
 | GET | `/api/agents` | The MCP sessions of every client ([ADR 0117](adr/0117-the-dashboard-shows-each-agent-session-and-its-calls.md)), one page at a time ([ADR 0151](adr/0151-agent-sessions-page-by-last-activity-with-a-cursor.md)): `running` (connected sessions, on the first page only), `sessions` (the others, most recently active first), `next` (a cursor, or `null` on the last page), `total` (finished sessions that match) and `clients` (every session totalled by client). `?limit=` (default 50, at most 500), `?before=<next>` for the following page (400 when malformed), `?client=` (a name as `clients` gives it, `Unknown client` for none) and `?q=` (text in the folder, workspace or client). |
+| POST | `/api/agents/{id}/name` | `{name}`: rename that session's agent on its workspace's Board ([ADR 0216](adr/0216-agents-choose-their-own-names.md)); 400 when the name is invalid, reserved or taken. |
 | GET | `/api/agents/{id}/calls` | One session and its tool calls, newest first: tool, start, duration, outcome, shortened and redacted arguments. `?limit=` (default 200) and `?before=<call id>` page back. |
 | GET | `/api/jobs/{id}` | Job status + exit code, named like the queue's jobs. |
 | GET | `/api/jobs/{id}/stream` | SSE stream of live stdout/stderr. |

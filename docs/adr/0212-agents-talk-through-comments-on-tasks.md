@@ -5,7 +5,7 @@ description: Messages between agents, clients and the user are comments on Tasks
 
 - Status: Accepted
 - Date: 2026-11-27
-- Scope: The notice on tool replies, the inbox and the session-start context. The Claude Code UserPromptSubmit hook and the dashboard's notifications are not built yet.
+- Scope: The notice on tool replies, the inbox, the session-start context and the dashboard's notifications (a desktop notification only in the desktop app). The Claude Code UserPromptSubmit hook is not built yet.
 - Related: [ADR 0208](0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md) (the Board), [ADR 0003](0003-local-mcp-and-portable-hooks.md) (portable hooks), [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) (holders)
 
 ## Context

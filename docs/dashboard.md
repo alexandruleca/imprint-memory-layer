@@ -160,7 +160,9 @@ Imprint runs one job at a time ([ADR 0064](adr/0064-single-slot-command-queue-an
 
 ### Agents
 
-Every AI client that uses Imprint starts its own MCP server, and each one is a session here ([ADR 0117](adr/0117-the-dashboard-shows-each-agent-session-and-its-calls.md)).
+The page has two tabs, **Sessions** and **Board**; the address keeps the open one (`/agents/#board`).
+
+Every AI client that uses Imprint starts its own MCP server, and each one is a session here ([ADR 0117](adr/0117-the-dashboard-shows-each-agent-session-and-its-calls.md)). A session that used the Board shows the name its agent chose, which **Rename** in its panel changes ([ADR 0216](adr/0216-agents-choose-their-own-names.md)).
 
 - **Clients** totals every recorded session by client: sessions, how many run now, calls, errors and last activity. Clicking a client shows only its sessions; clicking it again shows all. On a phone the clients scroll sideways.
 - **Filter** narrows the sessions to a folder, client or workspace name; Escape clears it.
@@ -168,6 +170,17 @@ Every AI client that uses Imprint starts its own MCP server, and each one is a s
 - **History** lists finished sessions by when they were last active, under Today, Yesterday, This week, Last week, This month, Last month and then each earlier month, in this computer's time zone and week. Each heading counts its sessions and stays at the top while its sessions scroll. A row shows the folder, client, calls, errors and how long the session ran; times are short within a group and full on hover.
 - The history loads 50 sessions at a time: the next page loads when the end of the list scrolls into view, or with **Load older sessions**. The page refreshes the newest sessions every 3 seconds without dropping pages already loaded or moving the list ([ADR 0151](adr/0151-agent-sessions-page-by-last-activity-with-a-cursor.md)).
 - A session opens a panel with its totals, folder, workspace, times and process, and its tool calls, newest first, with shortened and redacted arguments, errors, duration and time; calls from more than one day are grouped the same way. A running session's calls update live, and older calls load 100 at a time.
+
+**Board** shows the workspace's [Tasks](tasks.md) in a column per status and refreshes every 5 seconds while agents work ([ADR 0208](adr/0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md)).
+
+- A card shows the Task's id, priority, project, title, Feature, tags and assignees, who holds it and when it last made progress, a **Stalling**, **Stale**, **Blocked** or **Waits on** mark, and its comments.
+- **Find tasks** searches ids, titles, descriptions, criteria and tags; the filters narrow to a project, Feature, tag, priority, assignee or agent, and **Group by** splits each column by project or Feature. The filters and grouping are kept in this browser.
+- Drag a card to another column, or onto a card to place it above, or use the card's menu. A move the Board refuses, such as Ready without an acceptance criterion, says why and offers to add criteria.
+- **New task** puts one in Backlog, or in Ready with criteria.
+- A card opens the Task: status, priority, Feature, the agent working on it with a **Release** button, the Blocked mark, criteria, description, tags and assignees, where the work stands (last checkpoint, branch and commit, files, the previous agent's conversation), comments with a box to address an agent, the history, **Cancel task** and **Delete**. The address opens it too (`/agents/?task=T-…#board`).
+- The advanced dashboard sets what agents take unasked in this workspace (`tasks.autonomy`).
+- On any page, a comment an agent addressed to you, or a Task reaching Review, shows a toast with **Open**; in the desktop app it is also a native notification while the dashboard is not in front.
+- The simple dashboard shows the Board without the history, lease times, branch and files.
 
 ### Commands
 

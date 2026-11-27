@@ -120,6 +120,8 @@ from .voice_api import router as voice_router
 app.include_router(voice_router)
 from .schedule_api import router as schedule_router
 app.include_router(schedule_router)
+from .tasks_api import router as tasks_router
+app.include_router(tasks_router)
 
 
 @app.middleware("http")

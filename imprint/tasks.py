@@ -270,7 +270,7 @@ def _created(state: dict | None, event: dict) -> dict:
         'holder': None, 'previous_holder': None, 'worked_by': None, 'lost_claims': [],
         'last_checkpoint': None, 'checkpoints': 0, 'comments': [], 'comment_count': 0,
         'created_at': event['recorded_at'], 'created_hlc': event['hlc'], 'created_by': _who(event),
-        'updated_at': event['recorded_at'], 'ended_at': None,
+        'updated_at': event['recorded_at'], 'ended_at': None, 'status_at': event['recorded_at'],
     }
 
 
@@ -314,6 +314,8 @@ def _moved(state: dict, event: dict) -> dict:
         state['ended_at'] = event['recorded_at']
     elif status not in ('done', 'cancelled'):
         state['ended_at'] = None
+    if status != state['status']:
+        state['status_at'] = event['recorded_at']
     state['status'] = status
     if 'position' in event['data']:
         state['position'] = event['data']['position']
@@ -370,7 +372,7 @@ def _claimed(state: dict, event: dict) -> dict:
                        'client': event['client'], 'device': event['device'], 'since': event['recorded_at'],
                        'token_hash': data.get('token_hash'), 'progress_at': event['recorded_at']}
     if state['status'] in ('backlog', 'ready'):
-        state['status'] = 'in_progress'
+        state['status'], state['status_at'] = 'in_progress', event['recorded_at']
     return state
 
 
@@ -379,8 +381,8 @@ def _released(state: dict, event: dict) -> dict:
     if holder and holder['claim'] == event['data'].get('claim'):
         state['previous_holder'] = _short(holder)
         state['holder'] = None
-        if event['data'].get('status'):
-            state['status'] = event['data']['status']
+        if event['data'].get('status') and event['data']['status'] != state['status']:
+            state['status'], state['status_at'] = event['data']['status'], event['recorded_at']
     return state
 
 
@@ -1359,3 +1361,9 @@ def user_inbox(*, mark: bool = True, workspace: str | None = None) -> list[dict]
     if mark and found:
         take_unseen('user', [f"read:{item['id']}" for item in found], workspace=workspace)
     return found
+
+
+
+def mark_user_read(ids: list[str], workspace: str | None = None) -> int:
+    """Mark these comments to the user read; returns how many were unread."""
+    return len(take_unseen('user', [f'read:{i}' for i in ids if isinstance(i, str) and i], workspace=workspace))
