@@ -39,3 +39,16 @@ When your prompt says you are to **review** the Task, another session did the wo
 4. **Do not change the work.** Reviewing is reading and running, not fixing; make no commits.
 5. **Pass**: when every criterion holds and you found no defect, comment what you checked and how, then `task_edit(action="move", task="T-…", status="Done")`. The Dispatcher tells the person the branch is ready to merge.
 6. **Fail**: comment your findings to `holder`, each with where it is (file and line) and what would fix it, then `task_edit(action="move", task="T-…", status="Ready")`. The next worker continues on the same branch from your comment.
+
+## Refining
+
+When your prompt says you are to **refine** the Task, it waits in Backlog without acceptance criteria, and you make it ready for the person to decide on. Your worktree is a throwaway copy of the project: read it, change nothing in it, make no commits. The Task stays in Backlog; the person moves it on.
+
+1. **Name yourself** and **take over the claim** with your token, as above.
+2. **Read the Task**, its comments and its Feature if it has one (`tasks(action="get", task="T-…")`), and search Imprint for earlier decisions about what it touches.
+3. **Read the code** the Task touches in your worktree, so that what you write matches what is there. Run read-only commands only.
+4. **Edit the Task**: `task_edit(action="edit", task="T-…", acceptance=[…], description="…", priority="P…")`. Write acceptance criteria someone can check. Keep the person's words in the description and add what you found: the files involved and how the code behaves now. Change the priority only when the Task's own words make it clear. Add or remove tags with `task_edit(action="tag", task="T-…", add=[…], remove=[…])`.
+5. **A Task too large for one session**: create a smaller Task for each part, each with criteria, in Backlog and in the same Feature (`feature="T-…"` when it has one), then comment on the original which Task took which part.
+6. **A duplicate, or work that looks done already**: comment to `user` naming the other Task or the code that does it. Never cancel or delete a Task.
+7. **Never move a Task's status or release your claim**: the Dispatcher puts the Task back in Backlog when you end. Never edit files, commit or push.
+8. **Finish** with a comment to `user` that sums up what you changed and what you could not decide, then end the run.
