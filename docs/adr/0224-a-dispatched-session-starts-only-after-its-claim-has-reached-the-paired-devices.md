@@ -3,9 +3,10 @@ title: ADR 0224 — A Dispatched session starts only after its claim has reached
 description: Before starting a client, the Dispatcher has sync exchange its claim at once and waits until an exchange begun after the claim has completed with every paired device seen recently; while the session runs it checks the claim, and stops the session itself the moment the claim is lost.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-27
 - Amends: [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) — its "Concurrent claims": a Dispatched session's claim must reach the paired devices before its client starts, and the Dispatcher stops a session whose claim an earlier one beat
+- Amended by: [ADR 0225](0225-a-running-dispatched-session-stops-when-it-no-longer-holds-its-claim.md) — its "While the session runs", for claims that end without another claim winning, and its consequence that exactly one of two devices starts its client
 - Related: [ADR 0209](0209-a-tasks-history-is-a-log-of-events-that-devices-merge-by-union.md) (the order that decides between claims), [ADR 0220](0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md) (the Dispatcher), [ADR 0223](0223-dispatched-sessions-work-in-a-worktree-outside-the-project-and-never-push-or-merge.md) (worktrees)
 
 ## Context

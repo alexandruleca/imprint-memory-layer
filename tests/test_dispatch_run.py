@@ -49,9 +49,11 @@ FAKE_CLAUDE = textwrap.dedent('''\
         import subprocess
         gone = subprocess.Popen([sys.executable, '-c', 'pass'])
         gone.wait()
-        tasks.claim(task, actor=me, token=token, pid=gone.pid)
         if mode == 'release-and-hang':
+            tasks.claim(task, actor=me, token=token)  # a live lease: only a live holder can release
             tasks.release(task, actor=me)
+        else:
+            tasks.claim(task, actor=me, token=token, pid=gone.pid)
         open(os.environ['FAKE_RECORD'] + '.took', 'w').write('1')
         time.sleep(600)
     tasks.claim(task, actor=me, token=token)

@@ -7,8 +7,8 @@ exchange that began after its claim has completed with every enabled pair
 of the Task's workspace seen in the last ``SEEN_WITHIN`` seconds; a pair
 not seen that recently is not waited for. Then it starts the client only
 if its claim still holds. While the session runs, the Dispatcher checks
-the claim, and stops the session itself when another device's earlier
-claim won.
+the claim and stops the session itself when it no longer holds it: lost
+to another session's claim, released, or ended by the person (ADR 0225).
 """
 
 from __future__ import annotations
@@ -31,26 +31,65 @@ def peers(workspace: str, now: float | None = None) -> list[dict]:
             and pair.get('last_seen') and now - float(pair['last_seen']) < SEEN_WITHIN]
 
 
-def holder(task: str, workspace: str) -> dict | None:
-    return tasks.get(task, workspace=workspace).get('holder')
+HELD, LOST, FINISHED, RELEASED, ENDED = 'held', 'lost', 'finished', 'released', 'ended'
+_MOVES = {'review': 'moved the Task to Review', 'done': 'moved the Task to Done', 'cancelled': 'cancelled the Task'}
 
 
-def ours(task: str, workspace: str, sessions: set[str]) -> tuple[bool, str | None]:
-    """Whether the Task's claim is still one of ``sessions``; else who holds it, as people read it."""
-    held = holder(task, workspace)
-    if held and held.get('session') in sessions:
-        return True, None
+def _who(event: dict) -> str:
+    if event['actor'] == 'user':
+        return 'the person'
+    if event['actor'] == 'system':
+        return 'Imprint'
+    return tasks.label({'name': event.get('agent'), 'client': event.get('client'), 'session': event['session']})
+
+
+def standing(task: str, workspace: str, sessions: set[str]) -> tuple[str, str | None]:
+    """How a Dispatched session's claim stands, ``sessions`` being the Board
+    sessions that hold it for the run (ADR 0225):
+
+    - (HELD, None): one of them holds it, live or Stale;
+    - (LOST, winner): another session's claim holds or took the Task (ADR 0224);
+    - (FINISHED, None): one of them ended it by moving the Task to Review, Done or Cancelled;
+    - (RELEASED, None): one of them released it unfinished;
+    - (ENDED, what happened): the person, Imprint or another agent released
+      it, or moved the Task to Review, Done or Cancelled.
+
+    Raises LookupError when the Task was deleted."""
     state = tasks.get(task, workspace=workspace)
-    if not held and state['status'] in ('review', 'done', 'cancelled'):
-        return True, None  # finished: nothing to lose any more
-    return False, (f"{tasks.label(held)} on {held.get('device') or 'another device'}" if held else 'nobody')
+    held = state.get('holder') or (state.get('previous_holder') if state.get('stale') else None)
+    if held and held.get('session') in sessions:
+        return HELD, None
+    if held:
+        return LOST, f"{tasks.label(held)} on {held.get('device') or 'another device'}"
+    claims, ending = set(), None
+    for event in tasks.history(task, workspace=workspace):
+        kind, data = event['kind'], event['data']
+        if kind == 'claimed' and event['session'] in sessions:
+            claims.add(event['id'])
+            ending = None
+        elif not claims or ending is not None:
+            continue
+        elif kind == 'claimed' and data.get('replaces') in claims:
+            ending = event  # another agent took it over, then let it go
+        elif kind == 'released' and data.get('claim') in claims:
+            ending = event
+        elif kind == 'moved' and data.get('status') in _MOVES:
+            ending = event
+    if ending is None:
+        return ENDED, 'its claim ended'
+    if ending['kind'] == 'claimed':
+        return LOST, f"{_who(ending)} on {ending.get('device') or 'another device'}"
+    if ending['session'] in sessions and ending['actor'] == 'agent':
+        return (RELEASED, None) if ending['kind'] == 'released' else (FINISHED, None)
+    what = 'released its claim' if ending['kind'] == 'released' else _MOVES[ending['data']['status']]
+    return ENDED, f'{_who(ending)} {what}'
 
 
 def confirm(task: str, workspace: str, session: str, claimed_at: float, *, on_wait=None,
-            wait: float = WAIT_SECONDS) -> tuple[bool, str | None]:
+            wait: float = WAIT_SECONDS) -> tuple[str, str | None]:
     """Wait until the claim ``session`` made at ``claimed_at`` has reached
-    the paired devices to wait for, then say whether it still holds:
-    (True, None), or (False, the winner)."""
+    the paired devices to wait for, then say how it stands (``standing``):
+    (HELD, None) when the client may start."""
     from .. import sync_pairs
     waiting = peers(workspace)
     if waiting:
@@ -64,4 +103,4 @@ def confirm(task: str, workspace: str, session: str, claimed_at: float, *, on_wa
             if on_wait:
                 on_wait()
             time.sleep(POLL)
-    return ours(task, workspace, {session})
+    return standing(task, workspace, {session})

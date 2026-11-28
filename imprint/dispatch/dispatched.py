@@ -303,10 +303,13 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
                          actor=actor, workspace=workspace)
         # The claim must reach the paired devices before the client starts (ADR 0224).
         from . import claimcheck
-        held, winner = claimcheck.confirm(state['id'], workspace, session_of(run_id), claimed_at, on_wait=on_wait)
-        if not held:
-            finish(run_id, None, lost=winner, started=False)
-            raise ClaimLost(f"{state['id']} was claimed first by {winner}: no session started")
+        verdict, who = claimcheck.confirm(state['id'], workspace, session_of(run_id), claimed_at, on_wait=on_wait)
+        if verdict == claimcheck.LOST:
+            finish(run_id, None, lost=who, started=False)
+            raise ClaimLost(f"{state['id']} was claimed first by {who}: no session started")
+        if verdict != claimcheck.HELD:
+            finish(run_id, None, reason=f'was not started: {who or "its claim ended"}', stopped=True, started=False)
+            raise ClaimLost(f"{state['id']}: {who or 'its claim ended'} before the session started")
         base = None
         if role == 'review':
             from . import guards
@@ -365,8 +368,8 @@ class Session:
         if self.running():
             if time.time() - self.run['started_at'] > self.limit:
                 self.stop(f'ran past its {self.limit / 60:g}-minute limit and was stopped', stopped=False)
-            elif time.monotonic() - self.checked >= LOST_CHECK and self._claim_lost():
-                self.stop(f'lost its claim to {self.lost}, whose claim was earlier, and was stopped', stopped=False)
+            elif time.monotonic() - self.checked >= LOST_CHECK and (ended := self._claim_ended()):
+                self.stop(ended[0], stopped=ended[1])
             elif time.monotonic() - self.renewed >= RENEW_EVERY:
                 tasks.renew(self.run['session'], pid=self.pid)
                 self.renewed = time.monotonic()
@@ -375,15 +378,22 @@ class Session:
         code = self.proc.wait() if self.proc else None  # An adopted session's exit code is not known.
         return finish(self.run['id'], code, reason=self.reason, stopped=self.stopped, lost=self.lost)
 
-    def _claim_lost(self) -> bool:
-        """Whether another device's earlier claim took the Task from this session (ADR 0224)."""
+    def _claim_ended(self) -> tuple[str, bool] | None:
+        """Why the session must stop because it no longer holds its claim,
+        and whether that is a stop rather than a failure; None while it
+        holds it or has finished with it (ADRs 0224, 0225)."""
         from . import claimcheck
         self.checked = time.monotonic()
-        held, winner = claimcheck.ours(self.run['task'], self.run['workspace'],
-                                       _our_sessions(self.run['task'], self.run['id'], self.run['workspace']))
-        if not held:
-            self.lost = winner
-        return not held
+        task, workspace = self.run['task'], self.run['workspace']
+        verdict, who = claimcheck.standing(task, workspace, _our_sessions(task, self.run['id'], workspace))
+        if verdict == claimcheck.LOST:
+            self.lost = who
+            return f'lost its claim to {who} and was stopped', False
+        if verdict == claimcheck.RELEASED:
+            return 'released its claim without finishing and was stopped', False
+        if verdict == claimcheck.ENDED:
+            return f'was stopped: {who}', True
+        return None
 
 
 def watch(run: dict, proc: subprocess.Popen, *, minutes: float | None = None) -> dict:
@@ -414,7 +424,7 @@ def request_stop(run_id: str, reason: str = 'was stopped by the person') -> dict
 def _lost(run: dict, winner: str, started: bool) -> str:
     """Record a run whose claim another device's earlier claim beat
     (ADR 0224): its worktree goes, its commits stay on the branch."""
-    detail = (f'lost its claim to {winner}, whose claim was earlier, and was stopped' if started else
+    detail = (f'lost its claim to {winner} and was stopped' if started else
               f'was not started: {winner} claimed the Task first')
     if started:
         try:

@@ -98,9 +98,29 @@ class BeforeStartingTests(DispatchCase):
 
     def test_waiting_ends_after_its_limit_when_the_peer_does_not_answer(self):
         _pair(seen=30)
+        actor = tasks.agent('dispatch:waiting', client='claude-code')
+        claimed_at = time.time()
+        tasks.claim(self.task, actor=actor)
+        begun = time.monotonic()
         with patch.object(claimcheck, 'POLL', 0.05):
-            held, winner = claimcheck.confirm(self.task, 'default', 'nobody', time.time(), wait=0.3)
-        self.assertFalse(held)  # 'nobody' holds nothing, but the wait itself ended
+            verdict, _ = claimcheck.confirm(self.task, 'default', 'dispatch:waiting', claimed_at, wait=0.3)
+        self.assertLess(time.monotonic() - begun, 2)  # the peer never answered, and the wait still ended
+        self.assertEqual(verdict, claimcheck.HELD)
+
+    def test_a_claim_the_person_released_while_waiting_starts_nothing(self):
+        pair = _pair(seen=30)
+
+        def person():
+            while not (sync_pairs.get(pair['id']) or {}).get('exchange_requested'):
+                time.sleep(0.05)
+            tasks.release(self.task, actor=tasks.USER)
+            sync_pairs.update(pair['id'], last_exchange_began=time.time())
+        threading.Thread(target=person, daemon=True).start()
+        with patch.object(claimcheck, 'POLL', 0.05), self.assertRaises(dispatched.ClaimLost):
+            dispatched.run(self.task)
+        self.assertFalse(self.record.exists())
+        run = store.recent(1)[0]
+        self.assertEqual((run['outcome'], run['detail']), ('stopped', 'was not started: the person released its claim'))
 
     def test_a_pair_of_another_workspace_is_not_waited_for(self):
         _pair(seen=30, workspace='other')
@@ -178,6 +198,56 @@ class WhileRunningTests(DispatchCase):
         self.assertEqual(ended['outcome'], 'lost')
         self.assertEqual(guards.failures_in_a_row(), 0)
         self.assertNotIn('user', tasks.get(self.task)['assignees'])
+
+
+
+class ClaimEndedTests(DispatchCase):
+    """A running session whose claim ends without another claim winning (ADR 0225)."""
+
+    def _run_until(self, mode, act):
+        with patch.dict(os.environ, {'FAKE_MODE': mode}), patch.object(dispatched, 'LOST_CHECK', 0.1):
+            run, proc = dispatched.start(self.task)
+            session = dispatched.Session(run, proc)
+            took = Path(str(self.record) + '.took')
+            deadline = time.monotonic() + 20
+            while mode != 'hang' and not took.exists() and time.monotonic() < deadline:
+                self.assertIsNone(session.step())
+                time.sleep(0.05)
+            if act:
+                act()
+            while (ended := session.step()) is None and time.monotonic() < deadline + 20:
+                time.sleep(0.1)
+        self.assertIsNotNone(proc.poll(), 'the session was not stopped')
+        return run, ended
+
+    def test_a_session_that_releases_its_own_claim_has_failed_and_keeps_its_worktree(self):
+        from imprint.dispatch import guards
+        run, ended = self._run_until('release-and-hang', None)
+        self.assertEqual((ended['outcome'], ended['detail']),
+                         ('failed', 'released its claim without finishing and was stopped'))
+        self.assertEqual(guards.failures_in_a_row(), 1)
+        self.assertTrue(Path(run['worktree']).exists())
+
+    def test_the_persons_release_stops_the_session_without_a_failure(self):
+        from imprint.dispatch import guards
+        run, ended = self._run_until('hang', lambda: tasks.release(self.task, actor=tasks.USER))
+        self.assertEqual((ended['outcome'], ended['detail']), ('stopped', 'was stopped: the person released its claim'))
+        self.assertEqual(guards.failures_in_a_row(), 0)
+        self.assertTrue(Path(run['worktree']).exists())
+
+    def test_the_persons_cancel_stops_the_session(self):
+        run, ended = self._run_until('take-and-hang', lambda: tasks.move(self.task, 'cancelled', actor=tasks.USER))
+        self.assertEqual((ended['outcome'], ended['detail']), ('stopped', 'was stopped: the person cancelled the Task'))
+        self.assertTrue(Path(run['worktree']).exists())  # cleanup removes it later, keeping the branch
+
+    def test_the_persons_done_stops_the_session(self):
+        run, ended = self._run_until('hang', lambda: tasks.move(self.task, 'done', actor=tasks.USER))
+        self.assertEqual((ended['outcome'], ended['detail']), ('stopped', 'was stopped: the person moved the Task to Done'))
+
+    def test_a_lost_claim_removes_the_worktree(self):
+        run, ended = self._run_until('hang', lambda: _earlier_claim(self.task))
+        self.assertEqual(ended['outcome'], 'lost')
+        self.assertFalse(Path(run['worktree']).exists())
 
 
 if __name__ == '__main__':
