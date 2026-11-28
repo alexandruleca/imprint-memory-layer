@@ -1770,7 +1770,7 @@ def task_edit(
         task: The Task to change, e.g. "T-7f3kq"
         title: The title
         description: What and why, in Markdown (edit replaces it; append adds to it)
-        project: The project (create's default: this session's)
+        project: The project's name, not its folder (create's default: this session's)
         status: For create, "Backlog" (default) or "Ready" (needs criteria); for move, the new status
         priority: P0 (most urgent) to P3; default P2
         position: For edit or move, its place within its status (lower is higher)

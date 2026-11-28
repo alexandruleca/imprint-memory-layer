@@ -120,6 +120,8 @@ export function BoardView() {
   const [attention, setAttention] = useState<Attention | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<TaskStatus | null>(null);
+  // The Tasks the drawer came through, to go back to: opening a linked Task adds one.
+  const [trail, setTrail] = useState<string[]>([]);
 
   const setFilter = (name: keyof BoardFilters, value: string) =>
     setView((v) => ({ ...v, filters: { ...v.filters, [name]: value || undefined } }));
@@ -132,6 +134,19 @@ export function BoardView() {
     if (id) url.searchParams.set("task", id); else url.searchParams.delete("task");
     window.history.replaceState(null, "", url);
     window.dispatchEvent(new Event(TASK_EVENT));
+    if (!id) setTrail([]);
+  }
+
+  /** Open a Task the open one links to, remembering the way back. */
+  function openLinked(id: string) {
+    if (openTask && openTask !== id) setTrail((t) => [...t, openTask]);
+    open(id);
+  }
+
+  function back() {
+    const previous = trail.at(-1);
+    setTrail((t) => t.slice(0, -1));
+    open(previous ?? null);
   }
 
   async function move(task: BoardTask, status: TaskStatus, position?: number) {
@@ -278,6 +293,7 @@ export function BoardView() {
           <div className="flex snap-x gap-3 overflow-x-auto px-4 pb-2 sm:px-8" data-tour="board-columns">
             {TASK_STATUSES.map((status) => (
               <Column key={status} status={status} tasks={shownIn(status)} group={view.group} now={now} simple={simple}
+                showProject={view.group !== "project" && options.projects.length > 1}
                 folded={FOLDABLE.includes(status) && !view.unfolded.includes(status) && over !== status}
                 onFold={(unfold) => fold(status, unfold)} dragging={dragging} over={over === status}
                 onOver={(on) => setOver(on ? status : null)} onDrop={(before) => drop(status, before)}
@@ -321,7 +337,8 @@ export function BoardView() {
         onCreated={(task) => { void board.refresh(); open(task.id); }} />
       <Sheet open={!!openTask} onOpenChange={(o) => { if (!o) open(null); }}>
         <SheetContent className="gap-0 data-[side=right]:w-full data-[side=right]:sm:max-w-2xl">
-          {openTask && <TaskDrawer key={openTask} taskId={openTask} options={options} now={now} simple={simple}
+          {openTask && <TaskDrawer key={openTask} taskId={openTask} options={options} known={everything} now={now} simple={simple}
+            backTo={trail.at(-1)} onOpenTask={openLinked} onBack={back}
             onChanged={() => void board.refresh()} onClose={() => open(null)} />}
         </SheetContent>
       </Sheet>
@@ -350,8 +367,8 @@ function Filter({ label, all, value, items, onChange, inline }: {
 
 /** One status of the Board, its Tasks grouped as the viewer chose; a drop
  * target. Done and Cancelled fold to a narrow strip that still takes drops. */
-function Column({ status, tasks, group, now, simple, folded, onFold, dragging, over, onOver, onDrop, onOpen, onMove, onDragStart, onDragEnd }: {
-  status: TaskStatus; tasks: BoardTask[]; group: Group; now: Date; simple: boolean; folded: boolean; onFold: (open: boolean) => void;
+function Column({ status, tasks, group, now, simple, showProject, folded, onFold, dragging, over, onOver, onDrop, onOpen, onMove, onDragStart, onDragEnd }: {
+  status: TaskStatus; tasks: BoardTask[]; group: Group; now: Date; simple: boolean; showProject: boolean; folded: boolean; onFold: (open: boolean) => void;
   dragging: string | null; over: boolean; onOver: (on: boolean) => void; onDrop: (before?: BoardTask) => void; onOpen: (id: string) => void;
   onMove: (task: BoardTask, status: TaskStatus) => void; onDragStart: (task: BoardTask, event: React.DragEvent) => void; onDragEnd: () => void;
 }) {
@@ -405,7 +422,8 @@ function Column({ status, tasks, group, now, simple, folded, onFold, dragging, o
             <ul className="space-y-2">
               {list.map((task) => (
                 <TaskCard key={task.id} task={task} now={now} simple={simple} dragging={dragging === task.id}
-                  onOpen={() => onOpen(task.id)} onMove={(to) => onMove(task, to)}
+                  showProject={showProject} showFeature={group !== "feature"}
+                  onOpen={() => onOpen(task.id)} onOpenTask={onOpen} onMove={(to) => onMove(task, to)}
                   onDragStart={(e) => onDragStart(task, e)} onDragEnd={onDragEnd}
                   onDragOver={(e) => { if (dragging && dragging !== task.id) e.preventDefault(); }}
                   onDrop={(e) => { e.preventDefault(); e.stopPropagation(); onDrop(task); }} />

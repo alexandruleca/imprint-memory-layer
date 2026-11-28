@@ -81,6 +81,11 @@ class TasksApiTests(unittest.TestCase):
         self.assertEqual(details['task']['holder']['name'], 'grimforge')
         self.assertEqual([e['kind'] for e in details['history']], ['created', 'claimed', 'checkpoint'])
         self.assertEqual(details['handoff']['branch'], 'task/x')
+        self.assertEqual(details['related'], {})
+        later = self.create('Ship it', blockers=[made['id']])
+        details = self.api.get(f"/api/tasks/{made['id']}").json()
+        self.assertEqual(details['task']['blocking'], [later['id']])
+        self.assertEqual(details['related'][later['id']]['title'], 'Ship it')
 
     def test_the_user_shapes_comments_and_ends_tasks(self):
         made = self.create()

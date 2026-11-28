@@ -162,9 +162,10 @@ async def create(request: Request):
 
 @router.get("/{task_id}")
 def details(task_id: str):
-    """One Task, its history and its handoff."""
+    """One Task, its history, its handoff and the Tasks it links to."""
     try:
-        return {'task': tasks.get(task_id), 'history': tasks.history(task_id), 'handoff': tasks.handoff(task_id)}
+        return {'task': tasks.get(task_id), 'history': tasks.history(task_id), 'handoff': tasks.handoff(task_id),
+                'related': tasks.related(task_id)}
     except (ValueError, LookupError) as error:
         return _refused(error)
 

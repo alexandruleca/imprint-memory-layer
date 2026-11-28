@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import time
 
+from .validation import project_filter
 from .view import listing
 
 PACE_DAYS = 14
@@ -46,6 +47,7 @@ def progress(*, project: str | None = None, feature: str | None = None, workspac
     included. ``feature`` gives that Feature alone; ``project`` that project
     and its Features."""
     states = listing(archived=True, workspace=workspace)
+    project = project_filter(project)
     now = time.time()
     features = [s for s in states if s['tasks']]
     leaves = [s for s in states if not s['tasks']]

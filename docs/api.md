@@ -219,7 +219,7 @@ The active workspace's [Tasks](tasks.md) ([ADRs 0208-0212](adr/0208-agents-track
 |---|---|---|
 | GET | `/api/tasks/board` | `{workspace, columns, total, options, autonomy}`: Tasks by status, filtered by `project`, `feature`, `tag`, `status`, `priority`, `assignee`, `holder` and `text`; `archived=true` adds Tasks that ended over 14 days ago. `options` lists every project, tag, assignee, holder and Feature for the filters. |
 | POST | `/api/tasks` | Create: `{title, project, description?, status? (backlog or ready), priority?, acceptance?, tags?, assignees?, feature?, blockers?}`. Returns `{task}`. |
-| GET | `/api/tasks/{id}` | `{task, history, handoff}`. |
+| GET | `/api/tasks/{id}` | `{task, history, handoff, related}`; `related` maps the id of each Task it links to (its Feature, the Feature's Tasks, the Tasks it waits on and those in `task.blocking`, waiting on it) to `{title, status, priority, project, stale, blocked}`. |
 | POST | `/api/tasks/{id}/{action}` | `move` `{status, position?}`, `edit` (any of `title`, `description`, `project`, `priority`, `acceptance`, `position`), `append` `{text}`, `comment` `{text, to?}`, `tags` and `assignees` `{add, remove}`, `link` `{feature?, add_blockers?, remove_blockers?}`, `block` `{reason}`, `unblock`, `release`. Returns `{task}`. |
 | DELETE | `/api/tasks/{id}` | Delete, leaving a tombstone. |
 | GET | `/api/tasks/progress` | `{projects, features}`: each project's and Feature's `total`, `done`, `cancelled`, `counts` by status, `blocked`, `stale`, `finished_recently` (last 14 days), `pace` (a day) and `days_left` (null until 3 were finished in that time; 0 when all are done). `project` or `feature` narrows it. |

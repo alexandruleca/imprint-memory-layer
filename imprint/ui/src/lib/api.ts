@@ -1238,14 +1238,16 @@ export type BoardTask = {
   id: string; title: string; description: string; project: string; status: TaskStatus; priority: TaskPriority;
   position: number | null; acceptance: string[]; tags: string[]; assignees: string[];
   feature: string | null; feature_title: string | null; blockers: string[]; open_blockers: string[]; tasks: string[];
+  /** The Tasks that wait on this one. */
+  blocking: string[];
   blocked: { reason: string; by: TaskPerson; at: number } | null;
   holder: TaskHolder | null; previous_holder: TaskHolder | null; stalling: boolean; stale: boolean; worked_by: string | null;
   last_checkpoint: TaskCheckpoint | null; checkpoints: number; comments: TaskComment[]; comment_count: number;
   created_at: number; created_by: TaskPerson; updated_at: number; ended_at: number | null; status_at: number;
   /** Ids it had before another device's Task with the same id made it take a new one. */
   former_ids?: string[];
-  /** On a Feature: its Done Tasks out of all but the Cancelled ones. */
-  progress?: { done: number; total: number } | null;
+  /** On a Feature: its Done Tasks, and those In progress or in Review, out of all but the Cancelled ones. */
+  progress?: { done: number; working?: number; total: number } | null;
 };
 /** How far a project or Feature is; `days_left` is null until 3 Tasks were finished in the last 14 days. */
 export type ProgressEntry = {
@@ -1265,7 +1267,11 @@ export type TaskEvent = { id: string; kind: string; data: Record<string, unknown
   session: string | null; agent: string | null; client: string | null; recorded_at: number };
 export type TaskHandoff = { previous_holder: TaskHolder | null; last_checkpoint: TaskCheckpoint | null; checkpoints: TaskCheckpoint[];
   branch: string | null; commit: string | null; files: string[]; conversation: string | null };
-export type TaskDetails = { task: BoardTask; history: TaskEvent[]; handoff: TaskHandoff };
+/** A Task another one links to, as a link shows it. */
+export type RelatedTask = { title: string; status: TaskStatus; priority: TaskPriority; project: string; stale: boolean; blocked: boolean };
+export type TaskDetails = { task: BoardTask; history: TaskEvent[]; handoff: TaskHandoff;
+  /** Its Feature, the Feature's Tasks, the Tasks it waits on and those waiting on it, by id. */
+  related?: Record<string, RelatedTask> };
 export type NewTask = { title: string; project: string; description?: string; status?: "backlog" | "ready"; priority?: TaskPriority;
   acceptance?: string[]; tags?: string[]; assignees?: string[]; feature?: string };
 export type TaskAction = "move" | "edit" | "append" | "comment" | "tags" | "assignees" | "link" | "block" | "unblock" | "release";

@@ -375,6 +375,8 @@ def detail(state: dict) -> str:
         open_ones = set(state.get('open_blockers') or [])
         lines.append('Blocked by: ' + ', '.join(f"{b} ({'open' if b in open_ones else 'done'})"
                                                 for b in state['blockers']))
+    if state.get('blocking'):
+        lines.append('Blocks: ' + ', '.join(state['blocking']))
     if state.get('blocked'):
         lines.append(f"Blocked: {state['blocked']['reason']} ({_who(state['blocked']['by'])})")
     holder = state.get('holder')

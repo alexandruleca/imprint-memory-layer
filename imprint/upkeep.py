@@ -23,6 +23,11 @@ Steps, each finite, resumable and safe to repeat:
   block, whether its agents still search Imprint first, and the decision to
   keep the block or restore the full one (``search_first``). It belongs to
   the device, not a workspace, and never reads the vector store.
+- ``board-projects`` (ADR 0226): Board Tasks whose project was stored as a
+  folder (an agent's working directory) take the name of the project it
+  holds, as one change by Imprint that syncs like any other. A folder this
+  device cannot name waits a week, or until the Task's project changes. It
+  reads the Board, never the vector store.
 
 A device-local ledger, ``data/upkeep.json``, keeps each workspace's finished
 step versions, a step's resume point and the files a step could not handle
@@ -155,6 +160,7 @@ class Step:
     due: Callable[[str, dict], bool]
     run: Callable[[str, dict, Pass], bool]   # True once finished; False when halted
     device: bool = False                     # once per device, with the active workspace's name
+    vectors: bool = True                     # works on the workspace's collection, so needs it to exist
 
 
 # ── timestamps (ADR 0200) ─────────────────────────────────────────────
@@ -442,12 +448,60 @@ def _search_first_run(workspace: str, entry: dict, run: Pass) -> bool:
     return True
 
 
+# ── board-projects (ADR 0226) ─────────────────────────────────────────
+
+def _board_folders(workspace: str, entry: dict) -> list[dict]:
+    """The workspace's Tasks whose project is a folder, less those this
+    device could not name in the last week, unless their project changed."""
+    from . import tasks
+    from .tasks.validation import is_folder
+    now, waiting = time.time(), entry.get('waiting') or {}
+    found = []
+    for state in tasks.listing(archived=True, workspace=workspace):
+        if not is_folder(state['project']):
+            continue
+        tried = waiting.get(state['id'])
+        if (isinstance(tried, dict) and tried.get('project') == state['project']
+                and now - (_time(tried.get('at')) or 0) < RETRY_DAYS * 86400):
+            continue
+        found.append(state)
+    return found
+
+
+def _board_due(workspace: str, entry: dict) -> bool:
+    return bool(_board_folders(workspace, entry))
+
+
+def _board_run(workspace: str, entry: dict, run: Pass) -> bool:
+    from . import tasks
+    from .tasks.actors import SYSTEM
+    from .tasks.validation import folder_project
+    waiting = entry.setdefault('waiting', {})
+    for state in _board_folders(workspace, entry):
+        if run.halt():
+            return False
+        name = folder_project(state['project'])
+        if not name:
+            waiting[state['id']] = {'project': state['project'], 'at': time.time()}
+            print(f"  {state['id']}: no project found for {state['project']} on this device", flush=True)
+        elif run.dry_run:
+            print(f"  would name {state['id']}'s project {name}, not {state['project']}", flush=True)
+        else:
+            tasks.edit(state['id'], project=name, actor=SYSTEM, workspace=workspace)
+            waiting.pop(state['id'], None)
+            print(f"  {state['id']}: project {name}, not {state['project']}", flush=True)
+        run.save()
+    return True
+
+
 STEPS: tuple[Step, ...] = (
     Step('timestamps', 'memories from paired devices dated to when they were first stored',
          _timestamps_due, _timestamps_run),
     Step('data-files', 'large data files kept whole', _data_due, _data_run),
     Step('search-first', 'whether agents still search Imprint first with the short rules block',
          _search_first_due, _search_first_run, device=True),
+    Step('board-projects', 'Board Tasks named by a folder take its project\'s name',
+         _board_due, _board_run, vectors=False),
 )
 _BY_NAME = {step.name: step for step in STEPS}
 
@@ -575,9 +629,10 @@ def _run(stop, *, budget, dry_run, background, lower_priority) -> int:
     for workspace, name in pending:
         step = _BY_NAME[name]
         entry = _entry(work.ledger, workspace, name)
-        if not step.device:
+        needs_vectors = step.vectors and not step.device
+        if needs_vectors:
             client = client or vs._get_client()
-        if not step.device and not client.collection_exists(config.collection_name(workspace)):
+        if needs_vectors and not client.collection_exists(config.collection_name(workspace)):
             _settle(name, workspace, entry)
             work.save()
             continue

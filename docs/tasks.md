@@ -24,6 +24,8 @@ A Task belongs to one workspace and one project, and has:
 | Assignees | `user`, a client (`codex`), a device (`@bedrock`) or a client on a device (`codex@bedrock`) |
 | Blocked | A mark with a reason; the Task keeps its status |
 
+The project is a name. A folder given for it, as an agent passing its working directory does, becomes the name of the project that folder holds, named as the session's own project is (`/home/alex/code/imprint` is `imprint`); a folder that holds no project is refused. Tasks stored with a folder before this get their project's name from upkeep, as an edit by Imprint ([ADR 0226](adr/0226-a-tasks-project-is-a-name-and-a-folder-given-for-it-is-named.md)).
+
 Every change is an event in the Task's history (`imprint tasks history T-…`). Text is redacted before it is stored, like every other write ([secret redaction](redaction.md)). Agents can cancel a Task; only you delete one, and a deletion leaves only a tombstone. Done and Cancelled Tasks leave the Board 14 days after they end and stay readable with `--archived`.
 
 ## Claims

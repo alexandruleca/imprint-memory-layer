@@ -456,6 +456,57 @@ class BackgroundTests(Store):
         self.assertEqual(upkeep.due(fresh=True), [('default', 'timestamps')])
 
 
+class BoardProjectStepTests(Store):
+    """Tasks stored with a folder as their project take the name of the
+    project it holds (ADR 0226)."""
+
+    def folder_task(self, folder, task=None):
+        """A Task whose project is a folder, as agents stored them before
+        names were checked."""
+        from imprint import tasks
+        from imprint.tasks import store
+        task = task or tasks.create('Send mail', project='placeholder', workspace='default')['id']
+        with store._writing('default') as conn:
+            uid = store._uid(conn, task)
+            store._append(conn, uid, 'edited', {'project': folder}, tasks.actors._actor(None))
+            store._project(conn, uid)
+        return task
+
+    def test_a_folder_project_takes_its_name_once_as_imprint_without_reaching_the_store(self):
+        from imprint import tasks
+        task = self.folder_task('/home/alex/code/gdpr-web-compliance')
+        named = tasks.create('Already named', project='gdpr-web-compliance', workspace='default')['id']
+        self.assertEqual(upkeep.due(fresh=True), [('default', 'board-projects')])
+        with patch.object(vs, '_get_client', side_effect=AssertionError('store reached')):
+            code, out = self.run_upkeep()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(tasks.get(task, workspace='default')['project'], 'gdpr-web-compliance')
+        self.assertEqual(tasks.history(task, workspace='default')[-1]['actor'], 'system')
+        self.assertEqual(len(tasks.history(named, workspace='default')), 1)
+        self.assertEqual(upkeep.due(fresh=True), [])
+
+    def test_a_dry_run_names_the_project_and_changes_nothing(self):
+        from imprint import tasks
+        task = self.folder_task('/home/alex/code/gdpr-web-compliance')
+        code, out = self.run_upkeep(dry_run=True)
+        self.assertIn(f"would name {task}'s project gdpr-web-compliance", out)
+        self.assertEqual(tasks.get(task, workspace='default')['project'], '/home/alex/code/gdpr-web-compliance')
+
+    def test_a_folder_this_device_cannot_name_waits_a_week_or_until_the_project_changes(self):
+        from imprint import tasks
+        with tempfile.TemporaryDirectory() as plain:  # no manifest, and not a code folder in a home
+            task = self.folder_task(plain)
+            code, out = self.run_upkeep()
+            self.assertIn('no project found', out)
+            self.assertEqual(tasks.get(task, workspace='default')['project'], plain)
+            self.assertEqual(upkeep.due(fresh=True), [])
+            later = time.time() + (upkeep.RETRY_DAYS + 1) * 86400
+            with patch.object(upkeep.time, 'time', return_value=later):
+                self.assertEqual(upkeep.due(fresh=True), [('default', 'board-projects')])
+            self.folder_task(os.path.join(plain, 'elsewhere'), task)
+            self.assertEqual(upkeep.due(fresh=True), [('default', 'board-projects')])
+
+
 class CommandTests(unittest.TestCase):
     def test_the_dashboard_queues_it_with_its_dry_run(self):
         from imprint import commands

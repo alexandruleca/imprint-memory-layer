@@ -1,21 +1,26 @@
 "use client";
 
-import ReactMarkdown from "react-markdown";
+import type { ReactNode } from "react";
+import ReactMarkdown, { type Options } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 type Props = {
   text: string;
   className?: string;
+  /** More remark plugins, after GFM's. */
+  remarkPlugins?: NonNullable<Options["remarkPlugins"]>;
+  /** A link of its own for an address it recognises; null for an ordinary link. */
+  renderLink?: (href: string | undefined, children: ReactNode) => ReactNode | null;
 };
 
 /** Render markdown for chat bubbles. Tight spacing, inline `code`,
  *  fenced code blocks with horizontal scroll, and GFM tables/task-lists.
  *  Links open in a new tab. Safe for streamed partial text. */
-export function Markdown({ text, className }: Props) {
+export function Markdown({ text, className, remarkPlugins = [], renderLink }: Props) {
   return (
     <div className={className}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, ...remarkPlugins]}
         components={{
           p: ({ children }) => <p className="my-1 leading-relaxed">{children}</p>,
           ul: ({ children }) => (
@@ -34,7 +39,7 @@ export function Markdown({ text, className }: Props) {
           h3: ({ children }) => (
             <h3 className="text-sm font-semibold mt-2 mb-1">{children}</h3>
           ),
-          a: ({ href, children }) => (
+          a: ({ href, children }) => renderLink?.(href, children) ?? (
             <a
               href={href}
               target="_blank"
