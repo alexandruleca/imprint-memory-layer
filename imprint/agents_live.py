@@ -180,27 +180,48 @@ def _imprint_activity(tool: str | None) -> dict:
     return {'kind': action.get('kind', 'imprint'), 'label': action.get('label', 'Using Imprint'), 'detail': action.get('detail', '')}
 
 
-def activity(state: live_transcripts.State | None, session: dict, now: float) -> tuple[str, dict]:
-    """``(state, activity)``: working, waiting or idle, and what it is doing.
+ANSWER_HINTS = {'choice': 'Answer it in its terminal', 'permission': 'May be waiting for your permission in its terminal',
+                'question': 'Asked you something'}
 
-    From the transcript when there is one: the newest tool call in flight
-    (one without a result for :data:`LONG_TOOL` may be waiting for your
-    approval, which the transcript cannot tell apart), else Thinking while a
-    turn runs, else Waiting for you for :data:`WAITING_MINUTES` after a turn
-    ends, then Idle. Without one, a recent Imprint call, else Idle since the
-    session was last seen."""
+
+def _needs_answer(current: dict, since: float, rule: str, question: str | None) -> tuple[str, dict]:
+    """The session waits for the person's answer, by one of ADR 0246's rules."""
+    labels = {'choice': 'Asks you to choose', 'permission': 'May need your permission', 'question': 'Asked you something'}
+    return 'needs_answer', {**{k: current.get(k) for k in ('kind', 'label', 'detail')}, 'label': labels[rule],
+                            'since': since, 'long': rule == 'permission', 'rule': rule, 'hint': ANSWER_HINTS[rule],
+                            'question': question, 'options': current.get('options') or []}
+
+
+def activity(state: live_transcripts.State | None, session: dict, now: float) -> tuple[str, dict]:
+    """``(state, activity)``: needs_answer, working, waiting or idle, and
+    what it is doing.
+
+    From the transcript when there is one, a session needs the person's
+    answer (ADR 0246) when a choice question is pending, when a tool call the
+    client usually asks to approve has had no result for :data:`LONG_TOOL`,
+    or when its turn ended on a question. Otherwise the newest tool call in
+    flight, else Thinking while a turn runs, else Waiting for you for
+    :data:`WAITING_MINUTES` after a turn ends, then Idle. Without a
+    transcript, a recent Imprint call, else Idle since the session was last
+    seen."""
     if state is not None and (state.turn_changed or state.last_at):
         running = sorted(state.pending.values(), key=lambda a: a.get('at') or 0, reverse=True)
         if running:
             current = running[0]
             since = current.get('at') or state.last_at or now
             if current['kind'] == 'asking':
-                return 'waiting', {**current, 'since': since, 'long': False}
+                return _needs_answer(current, since, 'choice', current.get('question') or 'It asks you to choose.')
+            if current.get('tool') in live_transcripts.APPROVAL_TOOLS and now - since > LONG_TOOL:
+                said = f"{current['label']}: {current['detail']}" if current.get('detail') else current['label']
+                return _needs_answer(current, since, 'permission', said)
             return 'working', {**current, 'since': since, 'long': now - since > LONG_TOOL}
         if state.turn_running:
             return 'working', {'kind': 'thinking', 'label': 'Thinking', 'detail': '',
                                'since': state.last_at or state.turn_changed or now, 'long': False}
         ended = state.turn_changed or state.last_at or now
+        question = live_transcripts.ending_question(state.last_text)
+        if question:
+            return _needs_answer({'kind': 'asking', 'detail': ''}, ended, 'question', question)
         if now - ended <= WAITING_MINUTES * 60:
             return 'waiting', {'kind': 'waiting', 'label': 'Waiting for you', 'detail': '', 'since': ended, 'long': False}
         return 'idle', {'kind': 'idle', 'label': 'Idle', 'detail': '', 'since': ended, 'long': False}
@@ -319,6 +340,9 @@ def live(now: float | None = None) -> dict:
             'project': _project(session.get('directory')), 'workspace': session.get('workspace'),
             'pid': session.get('pid'), 'started_at': session['started_at'], 'last_seen': session['last_seen'],
             'state': status, 'activity': doing,
+            # What it waits for the person to answer, for Needs you (ADRs 0241, 0246).
+            'question': doing.get('question') if status == 'needs_answer' else None,
+            'since': doing.get('since') if status == 'needs_answer' else None,
             'task': _task(held.get(session.get('board_session')), run),
             'dispatched': {'run': run['id'], 'role': run.get('role')} if run else None,
             'actions': state.actions(now) if state else [],
@@ -328,7 +352,7 @@ def live(now: float | None = None) -> dict:
             'messages': [{key: m[key] for key in ('id', 'text', 'sent_at', 'state', 'via', 'delivered_at', 'note', 'task')}
                          for m in sent.get(session['board_session'], [])],
         })
-    order = {'waiting': 0, 'working': 1, 'idle': 2}
+    order = {'needs_answer': 0, 'waiting': 1, 'working': 2, 'idle': 3}
     agents.sort(key=lambda a: (a['project'] or '~', order[a['state']], -(a['activity'].get('since') or 0)))
     others = [{'name': t['holder'].get('name'), 'client': t['holder'].get('client'), 'device': t['holder'].get('device'),
                'task': t['id'], 'title': t['title'], 'project': t['project'], 'status': t['status'],
@@ -343,12 +367,13 @@ def live(now: float | None = None) -> dict:
 
 def waiting(now: float | None = None) -> dict:
     """The agents waiting for you, by Live's rules: ``{count, agents}``,
-    each with its name, client, project, Task and since when (ADR 0232)."""
+    each with its name, client, project, Task and since when (ADR 0232);
+    those that need your answer first, with what they ask (ADR 0246)."""
     report = live(now)
     found = [{'id': a['id'], 'name': a['name'], 'client': a['client'], 'project': a['project'],
               'task': {'id': a['task']['id'], 'title': a['task']['title']} if a['task'] else None,
-              'since': a['activity']['since']}
-             for a in report['agents'] if a['state'] == 'waiting']
+              'since': a['activity']['since'], 'question': a.get('question')}
+             for a in report['agents'] if a['state'] in ('needs_answer', 'waiting')]
     return {'count': len(found), 'agents': found}
 
 

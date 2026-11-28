@@ -146,15 +146,93 @@ class ClaudeStateTests(unittest.TestCase):
         self.assertEqual(state.model, 'claude-opus-5-5')
         self.assertEqual(state.day_tokens(time.strftime('%Y-%m-%d', time.localtime(t)))['output'], 80)
 
-    def test_an_interrupted_turn_waits_and_a_question_counts_as_waiting(self):
+    def test_an_interrupted_turn_waits_and_a_question_needs_your_answer(self):
         t = 1_800_000_000.0
         state = fold([prompt('Go', t), tool_use('c1', 'Bash', {'command': 'sleep 100'}, t + 1),
                       prompt('[Request interrupted by user for tool use]', t + 5)])
         self.assertEqual(agents_live.activity(state, {}, t + 6)[0], 'waiting')
         asking = fold([prompt('Plan it', t), tool_use('c1', 'AskUserQuestion', {'questions': []}, t + 2)])
         status, doing = agents_live.activity(asking, {}, t + 500)
-        self.assertEqual((status, doing['label']), ('waiting', 'Asking you'))
+        self.assertEqual((status, doing['label'], doing['rule']), ('needs_answer', 'Asks you to choose', 'choice'))
 
+
+class NeedsAnswerTests(unittest.TestCase):
+    """When a session needs the person's answer, by ADR 0246's rules."""
+
+    def said(self, text, at):
+        return claude('assistant', at, id='m9', model='claude-opus-5-5', stop_reason='end_turn',
+                      usage={'input_tokens': 1, 'output_tokens': 1}, content=[{'type': 'text', 'text': text}])
+
+    def test_a_pending_choice_question_shows_the_question_and_its_options(self):
+        t = 1_800_000_000.0
+        state = fold([prompt('Plan it', t), tool_use('c1', 'AskUserQuestion', {'questions': [
+            {'question': 'Which database should it use?', 'header': 'Database',
+             'options': [{'label': 'Postgres', 'description': 'x'}, {'label': 'SQLite', 'description': 'y'}]},
+            {'question': 'And the cache?', 'options': []}]}, t + 2)])
+        status, doing = agents_live.activity(state, {}, t + 3)
+        self.assertEqual((status, doing['rule'], doing['hint']), ('needs_answer', 'choice', 'Answer it in its terminal'))
+        self.assertEqual(doing['question'], 'Which database should it use? (and 1 more)')
+        self.assertEqual(doing['options'], ['Postgres', 'SQLite'])
+        plan = fold([prompt('Plan it', t), tool_use('c2', 'ExitPlanMode', {'plan': '1. Do it'}, t + 2)])
+        self.assertEqual(agents_live.activity(plan, {}, t + 3)[1]['question'], 'Approve its plan?')
+
+    def test_a_turn_that_ends_on_a_question_needs_your_answer_until_you_answer(self):
+        t = 1_800_000_000.0
+        state = fold([prompt('Fix it', t), self.said('Fixed the rounding.\n\nShould I also update the docs?', t + 5)])
+        status, doing = agents_live.activity(state, {}, t + 3600)  # still asked, an hour later
+        self.assertEqual((status, doing['rule'], doing['question'], doing['since']),
+                         ('needs_answer', 'question', 'Should I also update the docs?', t + 5))
+        state.feed(prompt('Yes please', t + 4000))
+        self.assertEqual(agents_live.activity(state, {}, t + 4001)[0], 'working')
+        state.feed(answer(t + 4010))
+        self.assertEqual(agents_live.activity(state, {}, t + 4011)[0], 'waiting')
+
+    def test_only_a_message_that_ends_by_asking_counts(self):
+        cases = {
+            'Done. Tests pass.': None,
+            'Is this right? I went ahead anyway.': None,
+            'I changed two files. Want me to push it?': 'Want me to push it?',
+            '**Shall I merge it?**': 'Shall I merge it?',
+            'Options:\n- A\n- B\n\nWhich one do you prefer? ': 'Which one do you prefer?',
+            f'Use token {GITHUB_TOKEN}?': None,
+        }
+        for text, question in cases.items():
+            with self.subTest(text=text):
+                found = lt.ending_question(text)
+                if text.startswith('Use token'):
+                    self.assertNotIn(GITHUB_TOKEN, found)
+                else:
+                    self.assertEqual(found, question)
+
+    def test_a_call_that_usually_needs_approval_may_be_waiting_for_permission(self):
+        t = 1_800_000_000.0
+        state = fold([prompt('Go', t), tool_use('c1', 'Edit', {'file_path': 'shop/cart.py'}, t + 1)])
+        self.assertEqual(agents_live.activity(state, {}, t + 30)[0], 'working')
+        status, doing = agents_live.activity(state, {}, t + 1 + lt_long())
+        self.assertEqual((status, doing['rule'], doing['hint']),
+                         ('needs_answer', 'permission', 'May be waiting for your permission in its terminal'))
+        self.assertIn('cart.py', doing['question'])
+        reading = fold([prompt('Go', t), tool_use('c1', 'Read', {'file_path': 'a.py'}, t + 1)])
+        status, doing = agents_live.activity(reading, {}, t + 1 + lt_long())
+        self.assertEqual((status, doing['long']), ('working', True))
+
+    def test_codex_asks_by_request_user_input_and_by_its_last_message(self):
+        t = 1_800_000_000.0
+        state = fold([
+            codex('event_msg', t, sub='task_started'),
+            codex('response_item', t + 1, {'call_id': 'q1', 'name': 'request_user_input', 'arguments': json.dumps(
+                {'questions': [{'question': 'Run the migration now?', 'options': [{'label': 'Yes'}, {'label': 'Later'}]}]})},
+                  'function_call'),
+        ], client='codex')
+        status, doing = agents_live.activity(state, {}, t + 2)
+        self.assertEqual((status, doing['question'], doing['options']), ('needs_answer', 'Run the migration now?', ['Yes', 'Later']))
+        state.feed(codex('response_item', t + 3, {'call_id': 'q1', 'output': 'Yes'}, 'function_call_output'))
+        state.feed(codex('event_msg', t + 4, {'message': 'Migrated. Should I drop the old table?'}, 'agent_message'))
+        state.feed(codex('event_msg', t + 5, sub='task_complete'))
+        status, doing = agents_live.activity(state, {}, t + 6)
+        self.assertEqual((status, doing['question']), ('needs_answer', 'Should I drop the old table?'))
+        state.feed(codex('event_msg', t + 7, sub='task_started'))
+        self.assertEqual(agents_live.activity(state, {}, t + 8)[0], 'working')
 
 def lt_long():
     return agents_live.LONG_TOOL + 1
@@ -292,7 +370,7 @@ class LiveTests(LiveCase):
         self.assertEqual((agent['state'], agent['activity']['label']), ('working', 'Testing'))
         self.assertEqual((agent['task']['id'], agent['task']['role'], agent['task']['next']), (made['id'], 'working', 'Run the tests'))
         self.assertEqual(agent['tokens']['context'], 1103)
-        self.assertEqual(report['counts'], {'waiting': 0, 'working': 1, 'idle': 0, 'others': 0})
+        self.assertEqual(report['counts'], {'needs_answer': 0, 'waiting': 0, 'working': 1, 'idle': 0, 'others': 0})
         self.assertEqual(report['today'][0]['client'], 'claude-code')
 
     def test_a_dispatched_review_shows_as_reviewing(self):
@@ -366,6 +444,20 @@ class LiveTests(LiveCase):
         [agent] = found['agents']
         self.assertEqual(agent['name'], 'quill')
         self.assertAlmostEqual(agent['since'], now - 60, places=2)  # transcripts keep milliseconds
+
+    def test_agents_that_need_your_answer_sort_first_and_count_as_waiting_for_you(self):
+        now = time.time()
+        self.session('claude-code', '/home/alex/code/shop', board='conversation:w8', name='quill')
+        self.session('claude-code', '/home/alex/code/shop', board='conversation:q7', name='anvil')
+        projects = self.home / '.claude' / 'projects' / '-home-alex-code-shop'
+        self.transcript(projects / 'w8.jsonl', [prompt('Go', now - 100), answer(now - 60)])
+        self.transcript(projects / 'q7.jsonl', [prompt('Go', now - 100), NeedsAnswerTests.said(None, 'Ship it now?', now - 90)])
+        with patch.object(agents_live, '_runs', return_value=[]):
+            report = agents_live.live(now)
+            found = agents_live.waiting(now)
+        self.assertEqual([(a['name'], a['state']) for a in report['agents']], [('anvil', 'needs_answer'), ('quill', 'waiting')])
+        self.assertEqual((report['agents'][0]['question'], report['counts']['needs_answer']), ('Ship it now?', 1))
+        self.assertEqual([(a['name'], a['question']) for a in found['agents']], [('anvil', 'Ship it now?'), ('quill', None)])
 
     def test_live_calls_no_model(self):
         with patch('imprint.tagger.build_payload_tags', side_effect=AssertionError('model')), \

@@ -1221,6 +1221,8 @@ export type LiveActivity = {
   label: string; detail: string; since: number;
   /** A call without a result for a minute: it may be waiting for approval. */
   long: boolean;
+  /** When it needs the person's answer (ADR 0246): by which rule, what it asks, its choices and where to answer. */
+  rule?: "choice" | "permission" | "question"; question?: string | null; options?: string[]; hint?: string;
 };
 export type LiveAction = { kind: LiveActivity["kind"]; label: string; detail: string; at: number | null; running: boolean };
 export type LiveTokens = {
@@ -1231,7 +1233,9 @@ export type LiveTokens = {
 export type LiveAgent = {
   id: string; board_session: string | null; name: string | null; client: string; client_version: string | null;
   model: string | null; directory: string | null; project: string; workspace: string | null; pid: number;
-  started_at: number; last_seen: number; state: "working" | "waiting" | "idle"; activity: LiveActivity;
+  started_at: number; last_seen: number; state: "needs_answer" | "working" | "waiting" | "idle"; activity: LiveActivity;
+  /** What it asks the person, while it needs their answer (ADR 0246). */
+  question?: string | null; since?: number | null;
   task: { id: string; title: string; status: TaskStatus; role: "working" | "reviewing" | "taking-over" | "refining";
     stalling: boolean; next: string | null; checkpoint_at: number | null } | null;
   dispatched: { run: string; role: string | null } | null;
@@ -1257,7 +1261,7 @@ export type LiveOther = { name: string | null; client: string | null; device: st
   project: string; status: TaskStatus; next: string | null; progress_at: number | null; stalling: boolean };
 export type LiveReport = {
   now: number; device: string; agents: LiveAgent[]; others: LiveOther[];
-  counts: { working: number; waiting: number; idle: number; others: number };
+  counts: { needs_answer?: number; working: number; waiting: number; idle: number; others: number };
   today: { client: string; new_input: number; cached_input: number; output: number }[];
 };
 

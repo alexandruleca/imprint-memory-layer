@@ -61,6 +61,11 @@ _WEB_TOOLS = {'WebFetch', 'WebSearch', 'web_search', 'web_fetch'}
 _DELEGATE_TOOLS = {'Task', 'Agent'}
 _ASK_TOOLS = {'AskUserQuestion', 'ExitPlanMode', 'request_user_input'}
 _SHELL_TOOLS = {'Bash', 'shell', 'exec_command', 'local_shell_call', 'container.exec', 'unified_exec'}
+# Tools a client usually asks the person to approve: a call to one without a
+# result for a while may be waiting in its terminal (ADR 0246).
+APPROVAL_TOOLS = _SHELL_TOOLS | {'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'apply_patch', 'WebFetch', 'web_fetch'}
+QUESTION_CHARS = 300           # a question as Live and Needs you quote it
+OPTIONS = 6                    # a choice question's options shown
 
 
 def _short(text: str, limit: int = DETAIL_CHARS) -> str:
@@ -159,6 +164,51 @@ def _int(value) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
 
 
+def asked(tool: str, payload) -> dict:
+    """What an asking tool asks the person (ADR 0246): ``{question,
+    options}``, redacted and shortened. Claude Code's AskUserQuestion takes
+    ``questions``, each with ``options`` labelled; ExitPlanMode asks to
+    approve a plan; Codex's request_user_input names a prompt."""
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except ValueError:
+            payload = {'question': payload}
+    payload = payload if isinstance(payload, dict) else {}
+    question, options = None, []
+    questions = payload.get('questions')
+    if isinstance(questions, list) and questions and isinstance(questions[0], dict):
+        first = questions[0]
+        question = first.get('question') or first.get('header')
+        options = [o.get('label') if isinstance(o, dict) else str(o) for o in first.get('options') or []]
+        if len(questions) > 1 and question:
+            question = f'{question} (and {len(questions) - 1} more)'
+    elif tool == 'ExitPlanMode':
+        question = 'Approve its plan?'
+    else:
+        question = next((payload[k] for k in ('question', 'prompt', 'message', 'text') if isinstance(payload.get(k), str)), None)
+    return {'question': _short(redact(str(question)), QUESTION_CHARS) if question else None,
+            'options': [_short(redact(str(o)), DETAIL_CHARS) for o in options if o][:OPTIONS]}
+
+
+_TRAILING = re.compile(r'[\s*_`"\')\]]+$')
+
+
+def ending_question(text: str | None) -> str | None:
+    """The question a message ends with, quoted as its last sentence, or
+    None when it does not end by asking something (ADR 0246)."""
+    if not text:
+        return None
+    trimmed = _TRAILING.sub('', text)
+    if not trimmed.endswith('?'):
+        return None
+    line = trimmed.splitlines()[-1].strip().lstrip('-*#> ').strip()
+    starts = [m.end() for m in re.finditer(r'[.!?](?:\s+|$)', line[:-1])]
+    sentence = line[starts[-1]:] if starts else line
+    sentence = sentence.strip().strip('*_`').strip()
+    return _short(redact(sentence), QUESTION_CHARS) if sentence else None
+
+
 class State:
     """What one transcript says so far."""
 
@@ -175,6 +225,7 @@ class State:
         self.done: deque[dict] = deque(maxlen=ACTIONS)
         self.turn_running = False
         self.turn_changed: float | None = None  # when the latest turn started or ended
+        self.last_text: str | None = None  # the agent's last message of the turn, to see whether it asked something
         self.last_at: float | None = None
         self.partial = False  # a first read began past the start of a large file
 
@@ -196,8 +247,9 @@ class State:
                                 + _int(usage.get('cache_read_input_tokens')))
             for block in message.get('content') or []:
                 if isinstance(block, dict) and block.get('type') == 'tool_use' and block.get('id'):
-                    action = classify(block.get('name') or '', block.get('input'))
-                    self.pending[block['id']] = {**action, 'at': at}
+                    self._call(block['id'], block.get('name') or '', block.get('input'), at)
+                elif isinstance(block, dict) and block.get('type') == 'text' and str(block.get('text') or '').strip():
+                    self.last_text = str(block['text'])
             if message.get('stop_reason') in ('end_turn', 'stop_sequence', 'max_tokens', 'refusal') and not self.pending:
                 self._turn(False, at)
             elif not self.turn_running:
@@ -209,6 +261,7 @@ class State:
                 self._finish(block.get('tool_use_id'), at)
             if not results and not record.get('isMeta') and not record.get('isCompactSummary') and content:
                 self.pending.clear()  # a new prompt: anything unanswered was interrupted
+                self.last_text = None  # and whatever it asked was answered
                 text = content if isinstance(content, str) else ' '.join(
                     b.get('text', '') for b in content if isinstance(b, dict) and b.get('type') == 'text')
                 self._turn(not text.lstrip().startswith(_INTERRUPTED), at)
@@ -221,7 +274,15 @@ class State:
         if kind == 'turn_context':
             self.model = payload.get('model') or self.model
         elif sub == 'task_started':
+            self.last_text = None
             self._turn(True, at)
+        elif sub == 'agent_message' and isinstance(payload.get('message'), str) and payload['message'].strip():
+            self.last_text = payload['message']
+        elif kind == 'response_item' and sub == 'message' and payload.get('role') == 'assistant':
+            text = ' '.join(b.get('text', '') for b in payload.get('content') or []
+                            if isinstance(b, dict) and b.get('type') in ('output_text', 'text'))
+            if text.strip():
+                self.last_text = text
         elif sub in ('task_complete', 'turn_aborted'):
             self.pending.clear()
             self._turn(False, at)
@@ -253,14 +314,20 @@ class State:
                     body = json.loads(body)
                 except ValueError:
                     pass
-            action = classify(payload.get('name') or sub, body)
-            self.pending[payload['call_id']] = {**action, 'at': at}
+            self._call(payload['call_id'], payload.get('name') or sub, body, at)
             if not self.turn_running:
                 self._turn(True, at)
         elif sub in ('function_call_output', 'custom_tool_call_output', 'local_shell_call_output'):
             self._finish(payload.get('call_id'), at)
 
     # ── Shared ───────────────────────────────────────────────────────────
+
+    def _call(self, call_id: str, tool: str, payload, at: float | None) -> None:
+        """A tool call in flight: its activity, its tool, and what an asking tool asks."""
+        action = {**classify(tool, payload), 'tool': tool, 'at': at}
+        if action['kind'] == 'asking':
+            action.update(asked(tool, payload))
+        self.pending[call_id] = action
 
     def _turn(self, running: bool, at: float | None) -> None:
         if running != self.turn_running or self.turn_changed is None:

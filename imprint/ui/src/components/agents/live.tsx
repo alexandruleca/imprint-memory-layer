@@ -36,10 +36,10 @@ const ACTIVITY_ICONS: Record<string, LucideIcon> = {
   waiting: Hourglass, idle: Moon, other: Bot,
 };
 const STATE_TONE: Record<LiveAgent["state"], string> = {
-  waiting: "bg-amber-500", working: "bg-emerald-500", idle: "bg-muted-foreground/40",
+  needs_answer: "bg-rose-500", waiting: "bg-amber-500", working: "bg-emerald-500", idle: "bg-muted-foreground/40",
 };
-/** Agents waiting for you first, then working, then idle. */
-const STATE_ORDER: Record<LiveAgent["state"], number> = { waiting: 0, working: 1, idle: 2 };
+/** Agents that need your answer first, then those waiting for you, then working, then idle (ADR 0246). */
+const STATE_ORDER: Record<LiveAgent["state"], number> = { needs_answer: 0, waiting: 1, working: 2, idle: 3 };
 const ROLE_LABELS: Record<NonNullable<LiveAgent["task"]>["role"], string> = {
   working: "Working on", reviewing: "Reviewing", "taking-over": "Taking over", refining: "Refining",
 };
@@ -170,6 +170,7 @@ export function LiveView() {
 
 function Summary({ data, simple }: { data: LiveReport; simple: boolean }) {
   const chips: { key: string; count: number; label: string; tone: string }[] = [
+    { key: "needs_answer", count: data.counts.needs_answer ?? 0, label: "need your answer", tone: "text-rose-700 dark:text-rose-300" },
     { key: "waiting", count: data.counts.waiting, label: "waiting for you", tone: "text-amber-700 dark:text-amber-300" },
     { key: "working", count: data.counts.working, label: "working", tone: "text-emerald-700 dark:text-emerald-300" },
     { key: "idle", count: data.counts.idle, label: "idle", tone: "text-muted-foreground" },
@@ -213,7 +214,7 @@ function AgentCard({ agent, now, simple, onChanged }: { agent: LiveAgent; now: D
   return (
     <li data-agent={agent.id} aria-label={`${name}, ${agent.activity.label}`}
       className={cn("flex min-w-0 flex-col gap-2.5 rounded-xl border border-border bg-card p-3.5 shadow-xs transition-opacity",
-        agent.state === "waiting" && "border-amber-500/40", dim && "opacity-60")}>
+        agent.state === "waiting" && "border-amber-500/40", agent.state === "needs_answer" && "border-rose-500/50", dim && "opacity-60")}>
       <div className="flex min-w-0 items-start gap-2">
         <span className={cn("mt-1.5 size-2 shrink-0 rounded-full", STATE_TONE[agent.state], agent.state === "working" && "animate-pulse")} aria-hidden />
         <div className="min-w-0 flex-1">
@@ -228,7 +229,8 @@ function AgentCard({ agent, now, simple, onChanged }: { agent: LiveAgent; now: D
       </div>
 
       <div className={cn("flex min-w-0 items-start gap-2 rounded-lg px-2.5 py-2 text-sm",
-        agent.state === "waiting" ? "bg-amber-500/10" : agent.state === "working" ? "bg-emerald-500/10" : "bg-muted/60")}>
+        agent.state === "needs_answer" ? "bg-rose-500/10" : agent.state === "waiting" ? "bg-amber-500/10"
+          : agent.state === "working" ? "bg-emerald-500/10" : "bg-muted/60")}>
         <Icon className="mt-0.5 size-4 shrink-0" aria-hidden />
         <div className="min-w-0 flex-1">
           <p className="font-medium">
@@ -237,8 +239,10 @@ function AgentCard({ agent, now, simple, onChanged }: { agent: LiveAgent; now: D
               {agent.state === "idle" ? ` ${lasting(seconds - agent.activity.since)}` : ` · ${lasting(seconds - agent.activity.since)}`}
             </span>
           </p>
-          {agent.activity.detail && <p className="truncate font-mono text-xs text-muted-foreground" title={agent.activity.detail}>{agent.activity.detail}</p>}
-          {agent.activity.long && <p className="text-xs text-amber-800 dark:text-amber-200">No result for a while: it may be waiting for your approval.</p>}
+          {agent.state === "needs_answer" ? <NeedsAnswer activity={agent.activity} /> : <>
+            {agent.activity.detail && <p className="truncate font-mono text-xs text-muted-foreground" title={agent.activity.detail}>{agent.activity.detail}</p>}
+            {agent.activity.long && <p className="text-xs text-amber-800 dark:text-amber-200">No result for a while: it may be waiting for your approval.</p>}
+          </>}
         </div>
       </div>
 
@@ -321,6 +325,22 @@ function AgentCard({ agent, now, simple, onChanged }: { agent: LiveAgent; now: D
         </AlertDialog>
       )}
     </li>
+  );
+}
+
+/** What an agent asks the person, and where to answer (ADR 0246). */
+function NeedsAnswer({ activity }: { activity: LiveAgent["activity"] }) {
+  return (
+    <div className="grid gap-1" data-testid="needs-answer">
+      {activity.question && <p className="text-sm break-words whitespace-pre-wrap">{activity.question}</p>}
+      {activity.options && activity.options.length > 0 && (
+        <ul className="flex flex-wrap gap-1" aria-label="Its choices">
+          {activity.options.map((option) => <li key={option}><Badge variant="outline" className="h-5 font-normal">{option}</Badge></li>)}
+        </ul>
+      )}
+      {activity.rule !== "question" && activity.hint && <p className="text-xs text-rose-800 dark:text-rose-200">{activity.hint}.</p>}
+      {activity.rule === "question" && <p className="text-xs text-muted-foreground">Answer it in its terminal, or send it a message.</p>}
+    </div>
   );
 }
 

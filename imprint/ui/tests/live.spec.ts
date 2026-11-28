@@ -20,7 +20,8 @@ function agent(over: Record<string, unknown>) {
 
 const report = (agents: { state: unknown }[], others: unknown[] = []) => ({
   now, device: 'device-a', agents, others,
-  counts: { working: agents.filter(a => a.state === 'working').length, waiting: agents.filter(a => a.state === 'waiting').length,
+  counts: { needs_answer: agents.filter(a => a.state === 'needs_answer').length,
+    working: agents.filter(a => a.state === 'working').length, waiting: agents.filter(a => a.state === 'waiting').length,
     idle: agents.filter(a => a.state === 'idle').length, others: others.length },
   today: [{ client: 'claude-code', new_input: 1_000_000, cached_input: 19_000_000, output: 100_000 }],
 });
@@ -180,4 +181,27 @@ test("a card shows the person's last messages and how far each got (ADR 0245)", 
   await expect(sent.getByRole('listitem').first()).toContainText('Told after its next tool call');
   await expect(sent.getByRole('listitem').first()).toContainText('also on T-aaaa1');
   await expect(sent.getByRole('listitem').last()).toContainText('Waiting for its next Imprint call');
+});
+
+test('an agent that needs your answer comes first and says what it asks (ADR 0246)', async ({ page }) => {
+  await base(page, { mode: 'advanced', tutorials: false });
+  const list: { state: unknown; [key: string]: unknown }[] = agents();
+  list.push(agent({ id: 'n1', name: 'anvil', state: 'needs_answer', question: 'Which database should it use?', since: now - 50,
+    activity: { kind: 'asking', label: 'Asks you to choose', detail: '', since: now - 50, long: false, rule: 'choice',
+      question: 'Which database should it use?', options: ['Postgres', 'SQLite'], hint: 'Answer it in its terminal' } }));
+  list.push(agent({ id: 'n2', name: 'quartz', state: 'needs_answer', question: 'Should I also update the docs?', since: now - 20,
+    activity: { kind: 'asking', label: 'Asked you something', detail: '', since: now - 20, long: false, rule: 'question',
+      question: 'Should I also update the docs?', options: [], hint: 'Asked you something' } }));
+  await mockLive(page, report(list));
+  await page.goto('/agents/#live');
+  await expect(page.getByRole('group', { name: 'Agents right now' })).toContainText('2 need your answer');
+  const shop = page.getByRole('region', { name: /^shop,/ });
+  await expect(shop.locator('li[data-agent]').first()).toHaveAttribute('data-agent', /^n[12]$/);
+  const choosing = page.locator('li[data-agent="n1"]').getByTestId('needs-answer');
+  await expect(choosing).toContainText('Which database should it use?');
+  await expect(choosing.getByRole('list', { name: 'Its choices' }).getByRole('listitem')).toHaveText(['Postgres', 'SQLite']);
+  await expect(choosing).toContainText('Answer it in its terminal.');
+  const asked = page.locator('li[data-agent="n2"]').getByTestId('needs-answer');
+  await expect(asked).toContainText('Should I also update the docs?');
+  await expect(asked).toContainText('Answer it in its terminal, or send it a message.');
 });
