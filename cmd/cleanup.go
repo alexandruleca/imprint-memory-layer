@@ -117,10 +117,17 @@ func clineRegistrations() []clientCleanup {
 
 // openCodeRegistrations: OpenCode's global config (its "mcp" entry and the
 // listed instructions file), the instructions file and Imprint's plugin.
+// Setup writes the entry at "mcp.imprint", the layout OpenCode 1 reads and
+// OpenCode 2 still reads and converts. OpenCode 2's own layout,
+// "mcp.servers.imprint", where `opencode mcp add` and its documentation put
+// servers, is read and cleaned too (verified against both releases' source,
+// 1.19.6 and 2.4.2, 2026-11-28).
 func openCodeRegistrations() []clientCleanup {
-	return []clientCleanup{{registry: platform.OpenCodeConfigPath(), keys: []string{"mcp"},
+	config := platform.OpenCodeConfigPath()
+	return []clientCleanup{{registry: config, keys: []string{"mcp"},
 		rules: platform.OpenCodeRulePath(), rule: instructions.OpenCodeRule, short: instructions.Rule("opencode", false),
-		owned: platform.OpenCodePluginPath(), instruction: platform.OpenCodeRulePath()}}
+		owned: platform.OpenCodePluginPath(), instruction: platform.OpenCodeRulePath()},
+		{registry: config, keys: []string{"mcp", "servers"}}}
 }
 
 func openClawRegistrations() []clientCleanup {
