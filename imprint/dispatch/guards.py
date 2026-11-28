@@ -1,8 +1,9 @@
 """What bounds the Dispatcher's spending (ADR 0220, "Limits", "Failures", "Its own Tasks").
 
 - ``dispatch.daily_limit`` sessions start a day on this device;
-- after ``dispatch.failure_limit`` failures in a row the Dispatcher switches
-  itself off and tells the person;
+- after ``dispatch.failure_limit`` failures in a row, sessions that failed
+  to start included, the Dispatcher switches itself off and tells the
+  person (ADR 0228);
 - a Task whose Dispatched sessions fail twice goes to the person;
 - a Task a Dispatched session created, or took out of Backlog, is never
   worked on or reviewed until the person moves it, so dispatched work
@@ -60,8 +61,10 @@ def failures_in_a_row() -> int:
 
 
 def after_failure(run: dict) -> None:
-    """A Task whose Dispatched sessions failed twice goes to the person."""
-    failed = sum(1 for r in store.runs_of(run['task']) if r['outcome'] == 'failed')
+    """A Task whose Dispatched sessions failed twice goes to the person. A
+    session that never started (no client process) says nothing about the
+    Task and is not counted (ADR 0228)."""
+    failed = sum(1 for r in store.runs_of(run['task']) if r['outcome'] == 'failed' and r['pid'])
     if failed < TASK_FAILURES:
         return
     state = tasks.get(run['task'], workspace=run['workspace'])

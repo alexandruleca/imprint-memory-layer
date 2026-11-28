@@ -1,8 +1,10 @@
 """Guards against runaway dispatched work (ADR 0220, Dispatcher 10)."""
 
+import io
 import os
 import time
 import unittest
+from contextlib import redirect_stderr
 from unittest.mock import patch
 
 from imprint import tasks, tasks_tool
@@ -74,6 +76,35 @@ class FailuresInARowTests(LoopCase):
         _ended('T-b', 'stopped', started=now + 2)
         _ended('T-c', 'failed', started=now + 3)
         self.assertEqual(guards.failures_in_a_row(), 2)
+
+
+
+class FailedStartTests(LoopCase):
+    """A claimed Task whose session would not start (ADR 0228)."""
+
+    def setUp(self):
+        super().setUp()
+        for n in range(4):
+            tasks.create(f'More {n}', project='shop', status='ready', acceptance=['ok'])
+        status.switch('default', True)
+        broken = patch.object(dispatched, 'instructions', side_effect=RuntimeError('the skill is unreadable'))
+        broken.start()
+        self.addCleanup(broken.stop)
+
+    def test_a_failed_start_ends_the_pass(self):
+        with redirect_stderr(io.StringIO()):
+            self.assertIsNone(self.dispatcher.dispatch())
+        self.assertEqual([r['outcome'] for r in store.recent(10)], ['failed'])
+        self.assertIn('could not start: the skill is unreadable', store.recent(1)[0]['detail'])
+
+    def test_failed_starts_switch_it_off_at_the_limit_and_hand_no_task_to_the_person(self):
+        with redirect_stderr(io.StringIO()):
+            for _ in range(5):
+                self.dispatcher.dispatch()
+        self.assertEqual(len(store.recent(10)), 3)  # it switched itself off after the third
+        self.assertFalse(store.switched_on('default'))
+        self.assertFalse(any('user' in s['assignees'] for s in tasks.listing(workspace='default')))
+        self.assertTrue(any('switched itself off' in c['text'] for c in tasks.user_inbox()))
 
 
 class TaskFailingTwiceTests(LoopCase):

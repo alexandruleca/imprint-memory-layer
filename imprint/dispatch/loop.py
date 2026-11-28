@@ -239,6 +239,12 @@ class Dispatcher:
                     run, proc = dispatched.start(state['id'], workspace=workspace, client=state['client'],
                                                  role=state['role'],
                                                  on_wait=self.watch)  # its sessions are watched while the claim travels
+                except dispatched.StartFailed as failed:
+                    # A claimed Task that would not start: it counts toward switching off, and ends
+                    # the pass, so a broken setup fails one Task a pass, not every one (ADR 0228).
+                    print(f"[imprint] dispatcher {failed}", file=sys.stderr, flush=True)
+                    guards.switch_off_after_failures(failed.run)
+                    return None
                 except (LookupError, PermissionError, ValueError, OSError, RuntimeError) as error:
                     print(f"[imprint] dispatcher passed over {state['id']}: {error}", file=sys.stderr, flush=True)
                     continue

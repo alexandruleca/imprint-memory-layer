@@ -39,6 +39,15 @@ class ClaimLost(LookupError):
     """Another device's earlier claim on the Task won (ADR 0224)."""
 
 
+class StartFailed(RuntimeError):
+    """The session could not start after its Task was claimed: its run is
+    recorded as failed (``run``), and the claim released (ADR 0228)."""
+
+    def __init__(self, message: str, run: dict):
+        super().__init__(message)
+        self.run = run
+
+
 LOST_CHECK = 10.0  # How often a running session's claim is checked, in seconds.
 
 
@@ -319,6 +328,7 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
                      'branch': worktree['branch'], 'base': worktree['base'], 'started_at': time.time(),
                      'watcher': os.getpid(), 'watcher_started': processes.started(os.getpid()), 'distro': distro})
     claimed_at = time.time()
+    proc = None
     try:
         claimed = tasks.claim(state['id'], actor=actor, pid=os.getpid(), workspace=workspace)
     except (PermissionError, ValueError) as error:
@@ -368,8 +378,10 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
     except ClaimLost:
         raise
     except Exception as error:
-        finish(run_id, None, reason=f'could not start: {error}')
-        raise
+        if proc is not None:
+            kill(proc.pid, proc)  # it started, but what had to follow did not
+        ended = finish(run_id, None, reason=f'could not start: {error}')
+        raise StartFailed(f"{state['id']} could not start: {error}", ended) from error
     return {**run, 'pid': proc.pid, 'pid_started': identity}, proc
 
 
