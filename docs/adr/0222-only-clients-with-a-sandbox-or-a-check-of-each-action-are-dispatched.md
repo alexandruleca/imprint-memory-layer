@@ -51,7 +51,7 @@ The first version ships two runners. Both take the model and effort from the cli
 | Runner | Command |
 | --- | --- |
 | Claude Code | `claude -p --permission-mode auto --session-id <uuid> --output-format stream-json` |
-| Codex | `codex exec --approve-for-me -C <worktree> -c sandbox_workspace_write.writable_roots=['<the repository's git folder>'] --json --output-last-message <file>` |
+| Codex | `codex exec --approve-for-me -C <worktree> -c sandbox_workspace_write.writable_roots=["<the repository's git folder>"] --json --output-last-message <file>` |
 
 Cursor CLI and Copilot CLI get runners once a device can test them.
 

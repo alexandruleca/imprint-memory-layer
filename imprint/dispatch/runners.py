@@ -101,13 +101,21 @@ class ClaudeCode(Runner):
                 '--output-format', 'stream-json', '--verbose']
 
 
+def toml_string(text: str) -> str:
+    """``text`` as a TOML basic string, for a value Codex parses as TOML
+    (``-c key=value``): a path with a quote or a backslash stays one string."""
+    escaped = ''.join('\\' + char if char in '"\\' else f'\\u{ord(char):04x}' if char < ' ' or char == '\x7f'
+                      else char for char in text)
+    return f'"{escaped}"'
+
+
 class Codex(Runner):
     def argv(self, binary: str, context: dict) -> list[str]:
         # The prompt goes in on stdin. --approve-for-me runs commands in the
         # workspace-write sandbox and has approval requests reviewed for it
         # (Codex refuses --sandbox beside it). The sandbox writes in the
         # worktree only, plus the repository's git folder its commits go to.
-        writable = f"sandbox_workspace_write.writable_roots=['{context['git_dir']}']"
+        writable = f"sandbox_workspace_write.writable_roots=[{toml_string(context['git_dir'])}]"
         return [binary, 'exec', '--approve-for-me', '-C', context['cwd'], '-c', writable, '--json',
                 '--output-last-message', context['last_message']]
 

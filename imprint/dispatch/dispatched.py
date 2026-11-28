@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -74,6 +75,24 @@ def instructions() -> str:
     return text.strip()
 
 
+# Line breaks and other control characters, which Board text could use to
+# start a line of the prompt's own header (T-8a38x).
+_BREAKS = re.compile(r'[\x00-\x1f\x7f-\x9f\u2028\u2029]+')
+
+
+def _line(text) -> str:
+    """Board text kept on its one line of the prompt: a title cannot add a
+    token, role or Task line."""
+    return _BREAKS.sub(' ', str(text)).strip()
+
+
+def _block(text) -> str:
+    """Board text that may span lines, kept under its bullet: each further
+    line is indented, so none of it starts a line of the prompt's own."""
+    lines = [_BREAKS.sub(' ', line).rstrip() for line in str(text).strip().splitlines()]
+    return '\n'.join([lines[0], *(f'  {line}' if line else '' for line in lines[1:])]) if lines else ''
+
+
 def handoff_lines(handoff: dict | None, project: str) -> list[str]:
     """Earlier work on the Task, from its Handoff: where the session continues."""
     if not handoff or not handoff.get('checkpoints'):
@@ -81,19 +100,19 @@ def handoff_lines(handoff: dict | None, project: str) -> list[str]:
     lines = ['', 'Earlier work on this Task (its Handoff): continue from it.']
     previous = handoff.get('previous_holder')
     if previous:
-        lines.append(f"- Previous holder: {tasks.label(previous)} on {previous.get('device') or 'a device'}")
+        lines.append(f"- Previous holder: {_line(tasks.label(previous))} on {_line(previous.get('device') or 'a device')}")
     last = handoff.get('last_checkpoint') or {}
     if last.get('text'):
-        lines.append(f"- Last checkpoint: {last['text']}")
+        lines.append(f"- Last checkpoint: {_block(last['text'])}")
     if last.get('next'):
-        lines.append(f"- Its next step: {last['next']}")
+        lines.append(f"- Its next step: {_block(last['next'])}")
     if handoff.get('branch') or handoff.get('commit'):
-        lines.append('- Work: ' + ' @ '.join(p for p in (handoff.get('branch'), handoff.get('commit')) if p))
+        lines.append('- Work: ' + ' @ '.join(_line(p) for p in (handoff.get('branch'), handoff.get('commit')) if p))
     if handoff.get('files'):
-        lines.append('- Files: ' + ', '.join(handoff['files'][:30]))
+        lines.append('- Files: ' + ', '.join(_line(f) for f in handoff['files'][:30]))
     if handoff.get('conversation'):
-        lines.append(f"- Its conversation: read_source(source=\"{handoff['conversation']}\", project=\"{project}\"), "
-                     'if Imprint has learned it')
+        lines.append(f"- Its conversation: read_source(source=\"{_line(handoff['conversation'])}\", "
+                     f"project=\"{_line(project)}\"), if Imprint has learned it")
     return lines
 
 
@@ -103,6 +122,7 @@ def prompt(state: dict, *, workspace: str, worktree: dict, token: str, role: str
     token, its Handoff when it was worked on before, its client's ``note``
     about its own sandbox, and the instructions of ``imprint-dispatch``."""
     doing = {'work': 'work on', 'review': 'review', 'refine': 'refine'}[role]
+    project = _line(state['project'])
     if worktree.get('scratch'):
         where = (f"- Your worktree: {worktree['cwd']}, a throwaway copy of {worktree['base']} at "
                  f"{worktree['base_commit']}: read it, change nothing")
@@ -114,9 +134,9 @@ def prompt(state: dict, *, workspace: str, worktree: dict, token: str, role: str
         f"You are a Dispatched session. Imprint's Dispatcher started you, without the person, to {doing} "
         'one Task of its Board.',
         '',
-        f"- Task: {state['id']}: {state['title']}",
+        f"- Task: {state['id']}: {_line(state['title'])}",
         f'- Workspace: {workspace}: pass workspace="{workspace}" on every Imprint call',
-        f"- Project: {state['project']}: pass project=\"{state['project']}\" when you create a Task",
+        f"- Project: {project}: pass project=\"{project}\" when you create a Task",
         where,
         f'- Your claim token: {token}',
         *([f'- Review against: {base} (`git diff {base}...HEAD` when it is a commit)',

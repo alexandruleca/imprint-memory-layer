@@ -5,6 +5,7 @@ import os
 import stat
 import sys
 import textwrap
+import tomllib
 from pathlib import Path
 from unittest.mock import patch
 
@@ -162,8 +163,9 @@ class CodexRunTests(ClientsCase):
         self.assertEqual(os.path.realpath(seen['argv'][3]), os.path.realpath(seen['cwd']))
         self.assertNotIn('--sandbox', seen['argv'])  # Codex refuses it beside --approve-for-me
         self.assertIn('escalated permissions', seen['prompt'])  # how to commit from its sandbox
-        git_dir = seen['argv'][seen['argv'].index('-c') + 1]
-        self.assertEqual(git_dir, f"sandbox_workspace_write.writable_roots=['{(self.repo / '.git').resolve()}']")
+        key, roots = seen['argv'][seen['argv'].index('-c') + 1].split('=', 1)
+        self.assertEqual(key, 'sandbox_workspace_write.writable_roots')
+        self.assertEqual(tomllib.loads(f'roots = {roots}')['roots'], [str((self.repo / '.git').resolve())])
         claims = [e for e in tasks.history(self.task) if e['kind'] == 'claimed']
         self.assertTrue(claims[-1]['session'].startswith('process:'))
         self.assertIn(claims[-1]['session'], tasks.dispatched_sessions())
