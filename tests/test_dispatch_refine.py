@@ -52,6 +52,10 @@ class ChoiceTests(RefineCase):
         self.assertEqual((run['task'], run['role']), (self.task, 'refine'))
         self.settle()
 
+    def test_a_feature_without_tasks_yet_is_not_refined(self):
+        feature = tasks.create('A Feature to come', project='shop', kind='feature', actor=tasks.USER)['id']
+        self.assertNotIn(feature, [s['id'] for s in loop.refinements('default')])
+
     def test_its_own_switch_refines_while_the_dispatcher_is_off(self):
         self.assertEqual(store.roles('default'), {'refine'})  # neither Work nor Review (ADR 0237)
         run = self.dispatcher.dispatch()

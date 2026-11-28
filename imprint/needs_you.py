@@ -74,8 +74,10 @@ def _task_rows(workspace: str) -> list[dict]:
                                   'or tick Review on a device.', state['status_at'], workspace))
     dispatched = tasks.dispatched_sessions(workspace)
     for state in open_states:
+        # A Feature's status follows its Tasks, so the person never moves one (ADR 0242).
         if state['status'] in ('ready', 'review', 'backlog') and not state.get('holder') \
-                and 'user' not in state['assignees'] and guards.fed_by_dispatched(state['id'], workspace, dispatched):
+                and state.get('kind') != 'feature' and 'user' not in state['assignees'] \
+                and guards.fed_by_dispatched(state['id'], workspace, dispatched):
             found.append(_row('fed', _versioned('fed', state), state['id'], state['title'],
                               'A Dispatched session made or moved it, so the Dispatcher leaves it until you move it.',
                               state['updated_at'], workspace))

@@ -110,7 +110,7 @@ def reviews(workspace: str, *, choices: list[str] | None = None) -> list[dict]:
     dispatched = tasks.dispatched_sessions(workspace)
     busy = _under_way(workspace)
     for state in tasks.listing(status='review', workspace=workspace):
-        if 'user' in state['assignees'] or state.get('feature') or state.get('tasks') or state.get('holder'):
+        if 'user' in state['assignees'] or state.get('feature') or state.get('kind') == 'feature' or state.get('holder'):
             continue
         if state.get('blocked') or state.get('open_blockers') or state['id'] in busy:
             continue
@@ -136,7 +136,8 @@ def refinements(workspace: str, *, choices: list[str] | None = None) -> list[dic
     found = []
     busy = _under_way(workspace)
     for state in tasks.listing(status='backlog', workspace=workspace):
-        if state['acceptance'] or 'user' in state['assignees'] or state.get('tasks') or state.get('holder'):
+        # A Feature, with Tasks or not yet, is worked through its Tasks (ADR 0242).
+        if state['acceptance'] or 'user' in state['assignees'] or state.get('kind') == 'feature' or state.get('holder'):
             continue
         if state['id'] in busy:
             continue

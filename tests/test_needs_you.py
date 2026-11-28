@@ -74,7 +74,9 @@ class ReasonTests(NeedsYouCase):
         agent = tasks.agent('conversation:' + record['argv'][record['argv'].index('--session-id') + 1],
                             client='claude-code')
         made = tasks.create('Found while working', project='shop', acceptance=['ok'], status='ready', actor=agent)['id']
+        grouping = tasks.create('Grouped while working', project='shop', kind='feature', actor=agent)['id']
         self.assertIn(made, [r['task'] for r in self.rows('fed')])
+        self.assertNotIn(grouping, [r['task'] for r in self.rows('fed')])  # a Feature is never moved by the person
         tasks.move(made, 'backlog', actor=tasks.USER)
         self.assertNotIn(made, [r['task'] for r in self.rows('fed')])
 
