@@ -77,6 +77,9 @@ def _command(value) -> str:
 
 
 def _command_kind(command: str) -> tuple[str, str]:
+    """Building, Testing or Running, from the command's first line: a heredoc's
+    body (a script the command feeds) is not what it runs."""
+    command = command.strip().splitlines()[0] if command.strip() else ''
     if _TEST.search(command):
         return 'testing', 'Testing'
     if _BUILD.search(command):

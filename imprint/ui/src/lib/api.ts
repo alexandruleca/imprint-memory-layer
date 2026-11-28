@@ -1207,6 +1207,42 @@ export type AgentCall = {
  * for the page after), `total` (matching history) and `clients` (totals of
  * every session). */
 export type AgentsPage = { running: AgentSession[]; sessions: AgentSession[]; next: string | null; total: number; clients: AgentClient[] };
+/** What a running agent is doing, by rule from its transcript (ADR 0233). */
+export type LiveActivity = {
+  kind: "editing" | "building" | "testing" | "running" | "reading" | "web" | "imprint" | "board" | "delegating" | "asking"
+    | "thinking" | "waiting" | "idle" | "other";
+  label: string; detail: string; since: number;
+  /** A call without a result for a minute: it may be waiting for approval. */
+  long: boolean;
+};
+export type LiveAction = { kind: LiveActivity["kind"]; label: string; detail: string; at: number | null; running: boolean };
+export type LiveTokens = {
+  context: number; window: number | null; new_input: number; cached_input: number; output: number; thinking: number;
+  cache_share: number | null; partial: boolean;
+  rate_limit: { used_percent: number; window_minutes: number | null; resets_at: number | null } | null;
+};
+export type LiveAgent = {
+  id: string; board_session: string | null; name: string | null; client: string; client_version: string | null;
+  model: string | null; directory: string | null; project: string; workspace: string | null; pid: number;
+  started_at: number; last_seen: number; state: "working" | "waiting" | "idle"; activity: LiveActivity;
+  task: { id: string; title: string; status: TaskStatus; role: "working" | "reviewing" | "taking-over" | "refining";
+    stalling: boolean; next: string | null; checkpoint_at: number | null } | null;
+  dispatched: { run: string; role: string | null } | null;
+  actions: LiveAction[]; tokens: LiveTokens | null; transcript: boolean; last_call_at: number | null;
+};
+export type LiveOther = { name: string | null; client: string | null; device: string | null; task: string; title: string;
+  project: string; status: TaskStatus; next: string | null; progress_at: number | null; stalling: boolean };
+export type LiveReport = {
+  now: number; device: string; agents: LiveAgent[]; others: LiveOther[];
+  counts: { working: number; waiting: number; idle: number; others: number };
+  today: { client: string; new_input: number; cached_input: number; output: number }[];
+};
+
+/** This device's running agents and what each is doing (ADR 0233). */
+export function getLive() {
+  return fetchAPI<LiveReport>("/api/agents/live");
+}
+
 export function getAgents({ limit = 50, before, client, q }: { limit?: number; before?: string; client?: string; q?: string } = {}) {
   const qs = new URLSearchParams({ limit: String(limit) });
   if (before) qs.set("before", before);

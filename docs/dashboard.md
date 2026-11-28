@@ -160,7 +160,21 @@ Imprint runs one job at a time ([ADR 0064](adr/0064-single-slot-command-queue-an
 
 ### Agents
 
-The page has two tabs, **Sessions** and **Board**; the address keeps the open one (`/agents/#board`).
+The page has three tabs, **Live**, **Sessions** and **Board**; the address keeps the open one (`/agents/#live`, `#sessions`, `#board`).
+
+**Live** shows what each agent on this device is doing right now ([ADR 0233](adr/0233-live-reads-running-agents-from-local-records-and-transcripts-without-a-model.md)). It reads Imprint's session records, the Board, the Dispatcher and the tail of each agent's own transcript every 3 seconds while open, and asks no model.
+
+- A strip counts the agents waiting for you, working, idle and on other devices, with today's tokens per client on this device and their cached share.
+- A card per agent, grouped by project, waiting for you first:
+  - its name, client and model, and how long it has run;
+  - what it is doing and for how long: Editing *file*, Building, Testing, Running *command*, Reading code, Searching the web, Searching or Saving to Imprint, Updating the Board, Delegating or Thinking, else Waiting for you (15 minutes after its turn ends), then Idle;
+  - the Task it holds, as Working on, Reviewing or Taking over, with its last checkpoint's next step;
+  - its context in use (with a bar where the client reports its window, as Codex does), its new, cached and output tokens, Codex's rate-limit use, and its last three actions.
+- A call without a result for a minute says it may be waiting for your approval, which the transcript cannot show.
+- **Open Task** opens it in the Board's drawer, **History** opens the session under Sessions, and **Message** comments on its Task, addressed to it. **Stop** appears only on a Dispatched session and asks first.
+- Agents idle for over 30 minutes (a client left open) fold under a line per project, dimmed.
+- Paired devices' agents are listed from the Board: name, client, device, Task and next step.
+- The simple dashboard shows Live and the Board, with token figures behind **Details**.
 
 Every AI client that uses Imprint starts its own MCP server, and each one is a session here ([ADR 0117](adr/0117-the-dashboard-shows-each-agent-session-and-its-calls.md)). A session that used the Board shows the name its agent chose, which **Rename** in its panel changes ([ADR 0216](adr/0216-agents-choose-their-own-names.md)).
 

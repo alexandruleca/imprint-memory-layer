@@ -81,6 +81,7 @@ class ClassifyTests(unittest.TestCase):
             ('Bash', {'command': 'python -m unittest tests.test_tasks'}, 'testing', 'Testing'),
             ('Bash', {'command': 'npx playwright test tests/board.spec.ts'}, 'testing', 'Testing'),
             ('Bash', {'command': 'git status --short'}, 'running', 'Running'),
+            ('Bash', {'command': "python3 - <<'EOF'\nimport unittest\nprint('pytest')\nEOF"}, 'running', 'Running'),
             ('Read', {'file_path': '/repo/a.py'}, 'reading', 'Reading code'),
             ('Grep', {'pattern': 'def live'}, 'reading', 'Reading code'),
             ('WebFetch', {'url': 'https://example.com'}, 'web', 'Searching the web'),

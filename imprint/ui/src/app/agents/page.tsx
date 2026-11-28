@@ -15,6 +15,7 @@ import { Timestamp, useNow } from "@/components/timestamp";
 import { clientName, folderName, plural, sessionLength, whenInGroup } from "@/components/agents/format";
 import { LoadMore } from "@/components/agents/load-more";
 import { BoardView } from "@/components/agents/board/board";
+import { LiveView } from "@/components/agents/live";
 import { SessionDetails } from "@/components/agents/session-details";
 import { SearchFirstPanel } from "@/components/agents/search-first";
 import { StatusDot } from "@/components/agents/status";
@@ -27,13 +28,28 @@ import { cn } from "@/lib/utils";
 const DESCRIPTION = "Every AI client that uses Imprint starts its own MCP server: each one is a session here, with the tools it called. Calls are kept for 30 days, with their arguments shortened and secrets redacted.";
 const BOARD_DESCRIPTION = "The workspace's Tasks, shared by every connected agent: what is ready, who is working on what, and what is stuck or waiting for you.";
 const SIMPLE_DESCRIPTION = "What your AI agents are working on, what is ready for them, and what waits for you.";
+const LIVE_DESCRIPTION = "What each agent on this device is doing right now, its Task and its tokens, read from its own transcript without asking any model.";
 /** The page's tabs; the address keeps the open one (/agents/#board). */
-const TABS = ["sessions", "board"] as const;
+const TABS = ["live", "sessions", "board"] as const;
 type Tab = (typeof TABS)[number];
+/** The simple dashboard's tabs: no session history (ADR 0217). */
+const SIMPLE_TABS: Tab[] = ["live", "board"];
 
 function onHashChange(changed: () => void) {
   window.addEventListener("hashchange", changed);
   return () => window.removeEventListener("hashchange", changed);
+}
+
+const SESSION_EVENT = "imprint:agents-session";
+
+function onSessionLink(changed: () => void) {
+  window.addEventListener(SESSION_EVENT, changed);
+  window.addEventListener("popstate", changed);
+  return () => { window.removeEventListener(SESSION_EVENT, changed); window.removeEventListener("popstate", changed); };
+}
+
+function linkedSession(): string | null {
+  return new URLSearchParams(window.location.search).get("session");
 }
 
 function linkedTab(): Tab {
@@ -43,32 +59,28 @@ function linkedTab(): Tab {
 
 export default function AgentsPage() {
   // The static page renders the first tab; the browser then opens the linked one.
-  const tab = useSyncExternalStore(onHashChange, linkedTab, () => "sessions" as Tab);
-  // The simple dashboard lists this page as Tasks: the Board alone, its sessions left to the advanced one (ADR 0217).
+  const linked = useSyncExternalStore(onHashChange, linkedTab, () => "sessions" as Tab);
+  // The simple dashboard lists this page as Tasks: Live and the Board, its session history left to the advanced one (ADR 0217).
   const { simple } = useUiMode();
-  if (simple) {
-    return (
-      <div className="mx-auto max-w-none">
-        <PageHeader title="Tasks" description={SIMPLE_DESCRIPTION} />
-        <BoardView />
-      </div>
-    );
-  }
+  const tab: Tab = simple && !SIMPLE_TABS.includes(linked) ? "board" : linked;
   function open(next: Tab) {
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${next}`);
     window.dispatchEvent(new HashChangeEvent("hashchange"));
   }
+  const description = simple ? SIMPLE_DESCRIPTION : tab === "board" ? BOARD_DESCRIPTION : tab === "live" ? LIVE_DESCRIPTION : DESCRIPTION;
   return (
-    <div className={cn("mx-auto", tab === "board" ? "max-w-none" : "max-w-5xl")}>
-      <PageHeader title="Agents" description={tab === "board" ? BOARD_DESCRIPTION : DESCRIPTION} />
+    <div className={cn("mx-auto", tab === "board" ? "max-w-none" : tab === "live" ? "max-w-7xl" : "max-w-5xl")}>
+      <PageHeader title={simple ? "Tasks" : "Agents"} description={description} />
       <Tabs value={tab} onValueChange={(value) => open(value as Tab)} className="gap-4">
         <div className="px-4 sm:px-8">
           <TabsList variant="line" data-tour="agents-tabs" className="w-full justify-start border-b border-border">
-            <TabsTrigger value="sessions" className="flex-none px-2.5 sm:px-3">Sessions</TabsTrigger>
+            <TabsTrigger value="live" className="flex-none px-2.5 sm:px-3">Live</TabsTrigger>
+            {!simple && <TabsTrigger value="sessions" className="flex-none px-2.5 sm:px-3">Sessions</TabsTrigger>}
             <TabsTrigger value="board" className="flex-none px-2.5 sm:px-3">Board</TabsTrigger>
           </TabsList>
         </div>
-        <TabsContent value="sessions"><SessionsView /></TabsContent>
+        <TabsContent value="live"><LiveView /></TabsContent>
+        {!simple && <TabsContent value="sessions"><SessionsView /></TabsContent>}
         <TabsContent value="board"><BoardView /></TabsContent>
       </Tabs>
     </div>
@@ -156,6 +168,18 @@ function SessionsView() {
   const { data, error, loadingOlder, olderFailed, loadOlder, retry } = useAgentSessions({ client, q });
   const now = useNow(15_000);
   const [open, setOpen] = useState<AgentSession | null>(null);
+  // Live's History action names a session in the address; closing it drops it from the address.
+  const asked = useSyncExternalStore(onSessionLink, linkedSession, () => null);
+  const linked = asked && data ? [...data.running, ...data.sessions].find((s) => s.id === asked) ?? null : null;
+  const shown = open ?? linked;
+  function close() {
+    setOpen(null);
+    if (!asked) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("session");
+    window.history.replaceState(null, "", url);
+    window.dispatchEvent(new Event(SESSION_EVENT));
+  }
 
   if (!data) return (
     <div className="mx-auto max-w-5xl">
@@ -278,9 +302,9 @@ function SessionsView() {
           </>
         )}
       </div>
-      <Sheet open={!!open} onOpenChange={(o) => { if (!o) setOpen(null); }}>
+      <Sheet open={!!shown} onOpenChange={(o) => { if (!o) close(); }}>
         <SheetContent className="gap-0 data-[side=right]:w-full data-[side=right]:sm:max-w-2xl">
-          {open && <SessionDetails key={open.id} session={open} />}
+          {shown && <SessionDetails key={shown.id} session={shown} />}
         </SheetContent>
       </Sheet>
     </div>
