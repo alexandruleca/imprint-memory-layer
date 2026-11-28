@@ -96,15 +96,29 @@ def open_projects(workspace: str | None = None) -> list[dict]:
     return [resolve(project, workspace) for project in projects]
 
 
-def distributions(workspace: str | None = None) -> list[str]:
+RUNNING_TTL = 30.0  # how stale the Board's strip, polling every 5 s, lets the list of running distributions be
+_running: dict = {'at': 0.0, 'names': None}
+
+
+def _running_distributions(max_age: float) -> list[str]:
+    import time
+    from ..wsl_paths import running_distributions
+    now = time.monotonic()
+    if _running['names'] is None or now - _running['at'] > max_age:
+        _running.update(at=now, names=running_distributions() or [])
+    return _running['names']
+
+
+def distributions(workspace: str | None = None, *, max_age: float = 0.0) -> list[str]:
     """The WSL distributions this device's projects live in, as their
     mappings and recent sessions name them; only running ones, since
-    looking into a stopped one starts it (ADR 0201)."""
-    from ..wsl_paths import running_distributions
+    looking into a stopped one starts it (ADR 0201). Which are running is
+    asked afresh unless ``max_age`` lets an answer that old stand: the
+    Board's strip only shows it; the Dispatcher acts on a fresh one."""
     places = set()
     for path in [*workspace_policy.mapped_roots(workspace), *agent_activity.recent_directories(RECENT_FOLDERS)]:
         located = windows_to_linux(path)
         if located:
             places.add(located[0])
-    running = running_distributions() or []
+    running = _running_distributions(max_age)
     return sorted(place for place in places if place in running)

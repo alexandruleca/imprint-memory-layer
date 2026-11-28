@@ -82,19 +82,25 @@ def progress(project: str = "", feature: str = ""):
 def inbox():
     """Comments agents addressed to the user, unread, and the Tasks waiting
     in Review: what the dashboard notifies about (ADR 0212)."""
+    active = config.get_active_workspace()
     try:
-        comments = tasks.user_inbox(mark=False)
+        # Comments from every workspace, each saying which (a Dispatcher's switch-off or hand-off
+        # elsewhere still tells); Tasks in Review from the workspace on show.
+        comments = [{**comment, 'workspace': workspace}
+                    for workspace in [active, *(w for w in config.get_known_workspaces() if w != active)]
+                    for comment in tasks.user_inbox(mark=False, workspace=workspace)]
         review = tasks.listing(status='review')
     except (ValueError, LookupError) as error:
         return _refused(error)
-    return {'comments': comments, 'review': review}
+    return {'workspace': active, 'comments': comments, 'review': review}
 
 
 @router.post("/inbox/read")
 async def inbox_read(request: Request):
     try:
         body = await _body(request)
-        return {'read': tasks.mark_user_read(_list(body, 'ids'))}
+        workspace = str(body.get('workspace') or '') or None
+        return {'read': tasks.mark_user_read(_list(body, 'ids'), workspace=workspace)}
     except (ValueError, LookupError) as error:
         return _refused(error)
 

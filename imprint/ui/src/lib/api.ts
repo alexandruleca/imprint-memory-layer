@@ -1322,7 +1322,8 @@ export type TaskDetails = { task: BoardTask; history: TaskEvent[]; handoff: Task
 export type NewTask = { title: string; project: string; description?: string; status?: "backlog" | "ready"; priority?: TaskPriority;
   acceptance?: string[]; tags?: string[]; assignees?: string[]; feature?: string };
 export type TaskAction = "move" | "edit" | "append" | "comment" | "tags" | "assignees" | "link" | "block" | "unblock" | "release";
-export type TaskInbox = { comments: (TaskComment & { task: string; title: string })[]; review: BoardTask[] };
+/** Comments to the user from every workspace (each names its own), and the Tasks in Review on the workspace on show. */
+export type TaskInbox = { workspace?: string; comments: (TaskComment & { task: string; title: string; workspace?: string })[]; review: BoardTask[] };
 
 /** The workspace's Board by status, filtered, with what every filter offers. */
 export function getBoard(filters: BoardFilters = {}) {
@@ -1366,6 +1367,8 @@ export type DispatchStatus = {
   refine: boolean;
   /** Why it starts nothing now although it is on, such as the daily limit. */
   held: string | null;
+  /** The clients the person unticked (dispatch.excluded_clients), also those this device cannot start right now. */
+  excluded?: string[];
   next: { id: string; title: string; project: string; client: string; role: "work" | "review" | "refine" }[];
   /** The clients it can start here (ADR 0222): available ones with a version, the rest with the reason. */
   clients: { client: string; label: string; available: boolean; version: string | null; reason: string | null;
@@ -1390,8 +1393,8 @@ export function stopDispatched(id: string) {
 export function getTaskInbox() {
   return fetchAPI<TaskInbox>("/api/tasks/inbox");
 }
-export function markTaskCommentsRead(ids: string[]) {
-  return fetchAPI<{ read: number }>("/api/tasks/inbox/read", { method: "POST", body: JSON.stringify({ ids }) });
+export function markTaskCommentsRead(ids: string[], workspace?: string) {
+  return fetchAPI<{ read: number }>("/api/tasks/inbox/read", { method: "POST", body: JSON.stringify({ ids, ...(workspace ? { workspace } : {}) }) });
 }
 
 /** Rename an agent on its workspace's Board; refused when another live session has the name. */

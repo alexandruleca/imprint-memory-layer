@@ -40,8 +40,15 @@ def status(workspace: str, *, projects: bool = True, refresh: bool = False) -> d
     found = {
         'workspace': workspace, 'on': store.switched_on(workspace), 'refine': store.refining(workspace),
         'server': loop.server_running(),
-        'autonomy': tasks.autonomy(workspace), 'running': loop.running_runs(), 'recent': store.recent(8),
-        'held': guards.held(), 'clients': clients.listing(refresh=refresh, places=folders.distributions(workspace)),
+        # Only this workspace's runs: the Board shows one workspace.
+        'autonomy': tasks.autonomy(workspace),
+        'running': [r for r in loop.running_runs() if r.get('workspace') in (workspace, None)],
+        'recent': [r for r in store.recent(40) if r.get('workspace') in (workspace, None)][:8],
+        'held': guards.held(),
+        'clients': clients.listing(refresh=refresh, places=folders.distributions(
+            workspace, max_age=0.0 if refresh else folders.RUNNING_TTL)),
+        # The person's exclusions as set, including clients this device cannot start right now.
+        'excluded': sorted(clients.excluded()),
         'next': [{'id': s['id'], 'title': s['title'], 'project': s['project'], 'client': s['client'], 'role': s['role']}
                  for s in [*loop.reviews(workspace), *loop.candidates(workspace),
                            *(loop.refinements(workspace) if store.refining(workspace) else [])]][:5],

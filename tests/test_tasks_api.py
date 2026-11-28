@@ -141,6 +141,16 @@ class TasksApiTests(unittest.TestCase):
         self.api.post('/api/tasks/inbox/read', json={'ids': [inbox['comments'][0]['id']]})
         self.assertEqual(self.api.get('/api/tasks/inbox').json()['comments'], [])
 
+    def test_comments_from_another_workspace_reach_the_inbox_and_are_read_there(self):
+        config.register_workspace('work')
+        made = tasks.create('Elsewhere', project='site', workspace='work')
+        tasks.comment(made['id'], 'The Dispatcher switched off', to=['user'], actor=AGENT, workspace='work')
+        inbox = self.api.get('/api/tasks/inbox').json()
+        self.assertEqual(inbox['workspace'], 'default')
+        self.assertEqual([(c['text'], c['workspace']) for c in inbox['comments']], [('The Dispatcher switched off', 'work')])
+        self.api.post('/api/tasks/inbox/read', json={'ids': [inbox['comments'][0]['id']], 'workspace': 'work'})
+        self.assertEqual(self.api.get('/api/tasks/inbox').json()['comments'], [])
+
     def test_the_workspaces_autonomy_is_set_from_the_dashboard(self):
         self.assertEqual(self.api.put('/api/tasks/autonomy', json={'value': 'stale'}).json(), {'autonomy': 'stale'})
         self.assertEqual(self.api.get('/api/tasks/board').json()['autonomy'], 'stale')

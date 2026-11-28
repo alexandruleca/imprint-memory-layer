@@ -31,6 +31,31 @@ class StripTests(DispatchApiCase):
         self.assertEqual([s['id'] for s in shown['next']], [self.task])
         self.assertEqual((shown['running'], shown['recent'], shown['devices']), ([], [], []))
 
+    def test_the_strip_shows_this_workspaces_runs_and_every_exclusion_the_person_set(self):
+        from imprint import config
+        config.register_workspace('other')
+        now = time.time()
+        for run_id, workspace in (('here1', 'default'), ('there1', 'other')):
+            store.add({'id': run_id, 'workspace': workspace, 'task': self.task, 'title': 't', 'project': 'shop',
+                       'client': 'claude-code', 'role': 'work', 'started_at': now, 'ended_at': now + 1,
+                       'outcome': 'review', 'detail': 'review'})
+        with patch.dict(os.environ, {'IMPRINT_DISPATCH_EXCLUDED_CLIENTS': 'codex,cursor'}):
+            shown = self.api.get('/api/tasks/dispatch').json()
+        self.assertEqual([r['id'] for r in shown['recent']], ['here1'])
+        self.assertEqual(shown['excluded'], ['codex', 'cursor'])  # cursor too, though not installed here
+
+    def test_the_strips_poll_asks_which_distributions_run_at_most_every_half_minute(self):
+        from imprint.dispatch import folders
+        with patch('imprint.wsl_paths.running_distributions', return_value=['Ubuntu']) as asked:
+            for _ in range(3):
+                self.api.get('/api/tasks/dispatch')
+            self.assertEqual(asked.call_count, 1)
+            folders._running['at'] -= folders.RUNNING_TTL + 1
+            self.api.get('/api/tasks/dispatch')
+            self.assertEqual(asked.call_count, 2)
+            folders.distributions('default')  # the Dispatcher itself asks afresh
+            self.assertEqual(asked.call_count, 3)
+
     def test_switching_on_the_board_is_switching_on_the_device(self):
         with patch.object(loop, 'poke') as poke:
             response = self.api.put('/api/tasks/dispatch', json={'on': True})

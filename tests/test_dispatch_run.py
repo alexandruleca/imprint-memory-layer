@@ -108,6 +108,8 @@ def _git(folder, *args):
 
 class DispatchCase(unittest.TestCase):
     def setUp(self):
+        from imprint.dispatch import folders
+        folders._running.update(at=0.0, names=None)  # which WSL distributions run: asked afresh in each test
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)

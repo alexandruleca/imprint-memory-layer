@@ -43,7 +43,8 @@ function ClientsPicker({ data, onChanged }: { data: DispatchStatus; onChanged: (
     catch (e) { toast.error("Not changed", { description: e instanceof Error ? e.message : String(e) }); }
   }
   function tick(client: string, on: boolean) {
-    const off = new Set(data.clients.filter((c) => c.available && !c.allowed).map((c) => c.client));
+    // From the saved list, so unticking one client keeps the exclusion of another this device cannot start right now.
+    const off = new Set(data.excluded ?? data.clients.filter((c) => c.available && !c.allowed).map((c) => c.client));
     if (on) off.delete(client); else off.add(client);
     void save("dispatch.excluded_clients", [...off].join(","), on ? "Client allowed" : "Client unticked");
   }
