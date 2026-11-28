@@ -38,10 +38,36 @@ def _view(conn: sqlite3.Connection | None) -> '_View':
     return _View(_states(conn), _leases(conn))
 
 
+STARTED = ('in_progress', 'review', 'done')
+
+
+def _follow(feature: dict, tasks: list[dict]) -> None:
+    """Give a Feature the status its Tasks add up to (ADR 0242): Backlog
+    with none or only Backlog ones, Ready once one is Ready, In progress
+    once one is started, Done once every Task not Cancelled is Done. A
+    Cancelled Feature stays Cancelled: that is the one status set by hand."""
+    if feature['status'] == 'cancelled':
+        return
+    live = [t for t in tasks if t['status'] != 'cancelled']
+    statuses = {t['status'] for t in live}
+    if live and statuses == {'done'}:
+        status = 'done'
+    elif statuses & set(STARTED):
+        status = 'in_progress'
+    elif 'ready' in statuses:
+        status = 'ready'
+    else:
+        status = 'backlog'
+    feature['status'] = status
+    feature['ended_at'] = max(t['ended_at'] or t['status_at'] for t in live) if status == 'done' else None
+    feature['status_at'] = max([feature['created_at'], *(t['status_at'] for t in tasks)])
+
+
 class _View:
     """Every Task of a store as read once, at one moment: uids resolve to
-    ids, Tasks look up their blockers and Features, and each claim is live,
-    Stalling or Stale by its lease (ADR 0210)."""
+    ids, Tasks look up their blockers and Features, each Feature has the
+    status its Tasks add up to (ADR 0242), and each claim is live, Stalling
+    or Stale by its lease (ADR 0210)."""
 
     def __init__(self, states: list[dict], leases: dict | None = None):
         self.by_uid = {state['uid']: state for state in states}
@@ -49,6 +75,15 @@ class _View:
         self.now = time.time()
         self.device = actors._device()
         self.limits = None
+        # A Feature is created as one, or is a Task other Tasks belong to.
+        self.tasks_of: dict[str, list[dict]] = {}
+        for state in states:
+            if state['feature'] in self.by_uid:
+                self.tasks_of.setdefault(state['feature'], []).append(state)
+        self.features = {uid for uid, state in self.by_uid.items()
+                         if state.get('kind') == 'feature' or uid in self.tasks_of}
+        for uid in self.features:
+            _follow(self.by_uid[uid], self.tasks_of.get(uid, []))
 
     def claim(self, state: dict) -> tuple[bool, bool]:
         """(stalling, stale) for the Task's claim."""
@@ -82,13 +117,15 @@ class _View:
         shown['blockers'] = [i for i in map(self.id, state['blockers']) if i]
         shown['open_blockers'] = [self.id(uid) for uid in state['blockers']
                                   if uid in self.by_uid and self.by_uid[uid]['status'] != 'done']
-        children = [s for s in self.by_uid.values() if s['feature'] == state['uid']]
+        children = self.tasks_of.get(state['uid'], [])
+        feature = state['uid'] in self.features
+        shown['kind'] = 'feature' if feature else 'task'
         shown['tasks'] = sorted(s['id'] for s in children)
         shown['blocking'] = sorted(s['id'] for s in self.by_uid.values() if state['uid'] in s['blockers'])
         live = [s for s in children if s['status'] != 'cancelled']
         shown['progress'] = {'done': sum(1 for s in live if s['status'] == 'done'),
                              'working': sum(1 for s in live if s['status'] in ('in_progress', 'review')),
-                             'total': len(live)} if children else None
+                             'total': len(live)} if feature else None
         stalling, stale = self.claim(state)
         holder = state.get('holder')
         shown['stalling'], shown['stale'] = stalling, stale
@@ -185,12 +222,17 @@ def listing(*, project: str | None = None, feature: str | None = None, tag: str 
 
 
 def board(*, project: str | None = None, workspace: str | None = None, **filters) -> dict:
-    """The workspace's Tasks laid out by status."""
+    """The workspace's Tasks laid out by status, and its Features beside
+    them: a Feature's status follows its Tasks, so it has no column (ADR 0242)."""
     name = _workspace(workspace)
     columns = {status: [] for status in STATUSES}
+    features = []
     for state in listing(project=project, workspace=name, **filters):
-        columns[state['status']].append(state)
-    return {'workspace': name, 'columns': columns}
+        if state['kind'] == 'feature':
+            features.append(state)
+        else:
+            columns[state['status']].append(state)
+    return {'workspace': name, 'columns': columns, 'features': features}
 
 
 def history(task: str, workspace: str | None = None) -> list[dict]:

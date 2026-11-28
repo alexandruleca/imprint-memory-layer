@@ -7,8 +7,9 @@ Usage:
     python -m imprint.cli_tasks history TASK [--json]
     python -m imprint.cli_tasks create TITLE [--project P] [--description D] [--ready] [--priority P0-P3]
                                       [--criterion C]... [--tag T]... [--assign A]... [--feature F] [--blocker B]...
+                                      [--kind task|feature]
     python -m imprint.cli_tasks edit TASK [--title T] [--description D] [--project P] [--priority P]
-                                    [--criterion C]... [--position N]
+                                    [--criterion C]... [--position N] [--kind task|feature]
     python -m imprint.cli_tasks append TASK TEXT
     python -m imprint.cli_tasks move TASK STATUS [--position N]
     python -m imprint.cli_tasks tag|assign TASK [--add X]... [--remove X]...
@@ -80,12 +81,15 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument('--assign', action='append', default=[], help='An assignee (repeatable)')
     create.add_argument('--feature', help='The Feature it belongs to')
     create.add_argument('--blocker', action='append', default=[], help='A Task that must be Done first (repeatable)')
+    create.add_argument('--kind', choices=tasks.KINDS, default='task',
+                        help='feature: a Feature, which groups Tasks and whose status follows theirs (ADR 0242)')
     edit = commands.add_parser('edit', parents=[common], help='Replace some of its fields')
     edit.add_argument('task')
     for name in ('title', 'description', 'project', 'priority'):
         edit.add_argument(f'--{name}')
     edit.add_argument('--criterion', action='append', help='Replaces the acceptance criteria (repeatable)')
     edit.add_argument('--position', type=float)
+    edit.add_argument('--kind', choices=tasks.KINDS, help='Make it a Feature, or a Feature without Tasks a Task')
     append = commands.add_parser('append', parents=[common], help='Add text to its description')
     append.add_argument('task')
     append.add_argument('text')
@@ -315,7 +319,7 @@ def _run(args, workspace: str | None, as_json: bool) -> None:
         state = tasks.create(args.title, project=project, description=args.description,
                              status='ready' if args.ready else 'backlog', priority=args.priority,
                              acceptance=args.criterion, tags=args.tag, assignees=args.assign,
-                             feature=args.feature, blockers=args.blocker, **user)
+                             feature=args.feature, blockers=args.blocker, kind=args.kind, **user)
         _print(state, as_json, f"Created {state['id']}.\n{tasks_tool.detail(state)}")
         return
     if command == 'delete':
@@ -328,7 +332,7 @@ def _run(args, workspace: str | None, as_json: bool) -> None:
     if command == 'edit':
         fields = {k: v for k, v in {'title': args.title, 'description': args.description, 'project': args.project,
                                     'priority': args.priority, 'acceptance': args.criterion,
-                                    'position': args.position}.items() if v is not None}
+                                    'position': args.position, 'kind': args.kind}.items() if v is not None}
         state = tasks.edit(args.task, **fields, **user)
     elif command == 'append':
         state = tasks.append(args.task, args.text, **user)

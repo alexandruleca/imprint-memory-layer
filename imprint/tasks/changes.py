@@ -9,7 +9,7 @@ import uuid
 from .actors import _actor
 from .state import _set_changes
 from .store import _append, _draw_id, _project, _state, _uid, _writing
-from .validation import ASSIGNEES, CRITERION_CHARS, TAGS, TEXT_CHARS, TITLE_CHARS, _assignees, _criteria, _limit, _priority, _project_name, _redacted, status_ref, _tags, _text
+from .validation import ASSIGNEES, CRITERION_CHARS, TAGS, TEXT_CHARS, TITLE_CHARS, _assignees, _criteria, _limit, _priority, _project_name, _redacted, STATUS_LABELS, status_ref, _tags, _text
 from .view import _view
 
 
@@ -30,16 +30,52 @@ def _change(task: str, kind: str, data, actor: dict | None, workspace: str | Non
     return view.public(view.by_uid[uid])
 
 
-def _check_feature(conn: sqlite3.Connection, uid: str, feature_uid: str | None) -> None:
+KINDS = ('task', 'feature')
+
+
+def _kind(value) -> str:
+    kind = str(value or 'task').strip().lower()
+    if kind not in KINDS:
+        raise ValueError('kind is "task" or "feature"')
+    return kind
+
+
+def _held(conn: sqlite3.Connection, uid: str) -> dict | None:
+    """The live claim on a Task, if any: a Stale one does not count."""
+    view = _view(conn)
+    state = view.by_uid[uid]
+    return state['holder'] if state['holder'] and not view.claim(state)[1] else None
+
+
+def _check_feature(conn: sqlite3.Connection, uid: str, feature_uid: str | None, kind: str | None = None) -> None:
     if not feature_uid:
         return
     if feature_uid == uid:
         raise ValueError('A Task cannot be a Feature of itself')
-    if _state(conn, feature_uid)['feature']:
+    feature = _state(conn, feature_uid)
+    if feature['feature']:
         raise ValueError("That Task belongs to a Feature, so it cannot be one: Features do not nest")
     has_tasks = any(json.loads(row['state'])['feature'] == uid for row in conn.execute('SELECT state FROM tasks'))
-    if has_tasks:
-        raise ValueError('This Task is a Feature with Tasks of its own, so it cannot belong to a Feature')
+    if has_tasks or (kind or 'task') == 'feature':
+        raise ValueError('This Task is a Feature, so it cannot belong to a Feature: Features do not nest')
+    if feature_uid not in _view(conn).features:
+        # Linking a Task to it would make a Task some agent is working on a Feature (ADR 0242).
+        holder = _held(conn, feature_uid)
+        if holder:
+            raise ValueError(f"{feature['id']} is held by {holder.get('name') or holder['session']}, so it cannot "
+                             'become a Feature until that claim ends')
+
+
+def _is_feature(conn: sqlite3.Connection, uid: str) -> bool:
+    return uid in _view(conn).features
+
+
+def _following(conn: sqlite3.Connection, uid: str) -> str:
+    """Why a Feature's status is not set by hand, with the status its Tasks give it."""
+    view = _view(conn)
+    state = view.by_uid[uid]
+    return (f"{state['id']} is a Feature: its status follows its Tasks (now {STATUS_LABELS[state['status']]}). "
+            'Move its Tasks instead, or cancel the Feature')
 
 
 def _check_blockers(conn: sqlite3.Connection, uid: str, blockers: list[str]) -> None:
@@ -57,28 +93,35 @@ def _check_blockers(conn: sqlite3.Connection, uid: str, blockers: list[str]) -> 
 
 
 def create(title: str, *, project: str, description: str = '', status: str = 'backlog', priority: str = 'P2',
-           acceptance=(), tags=(), assignees=(), feature: str | None = None, blockers=(),
+           acceptance=(), tags=(), assignees=(), feature: str | None = None, blockers=(), kind: str = 'task',
            actor: dict | None = None, workspace: str | None = None) -> dict:
-    """Put a new Task on the workspace's Board."""
+    """Put a new Task on the workspace's Board. A Feature (``kind='feature'``)
+    groups Tasks and its status follows theirs, so it starts in Backlog
+    whatever its criteria (ADR 0242)."""
     actor = _actor(actor)
     title = _text(title, 'title', TITLE_CHARS, required=True)
     project = _project_name(project)
     description = _text(description, 'description', TEXT_CHARS)
     criteria = _criteria(acceptance)
     status = status_ref(status)
+    kind = _kind(kind)
     if status not in ('backlog', 'ready'):
         raise ValueError('a new task starts in backlog or ready')
+    if kind == 'feature' and status != 'backlog':
+        raise ValueError("A Feature's status follows its Tasks: create it without a status, then its Tasks")
     if status == 'ready' and not criteria:
         raise ValueError('A task moves to ready only with at least one acceptance criterion')
     texts = _redacted([title, description, *criteria])
     data = {'title': texts[0], 'description': texts[1], 'project': project, 'status': status,
             'priority': _priority(priority), 'acceptance': texts[2:], 'tags': _tags(tags),
             'assignees': _assignees(assignees)}
+    if kind == 'feature':
+        data['kind'] = kind  # A Task's events stay as earlier releases wrote them.
     with _writing(workspace) as conn:
         uid = uuid.uuid4().hex
         if feature:
             data['feature'] = _uid(conn, feature)
-            _check_feature(conn, uid, data['feature'])
+            _check_feature(conn, uid, data['feature'], kind)
         if blockers:
             data['blockers'] = [_uid(conn, b) for b in blockers]
             _check_blockers(conn, uid, data['blockers'])
@@ -93,8 +136,9 @@ _UNSET = object()
 
 
 def edit(task: str, *, title=_UNSET, description=_UNSET, project=_UNSET, priority=_UNSET, acceptance=_UNSET,
-         position=_UNSET, actor: dict | None = None, workspace: str | None = None) -> dict:
-    """Replace some of a Task's fields; each field keeps its last edit."""
+         position=_UNSET, kind=_UNSET, actor: dict | None = None, workspace: str | None = None) -> dict:
+    """Replace some of a Task's fields; each field keeps its last edit.
+    ``kind`` makes a Task a Feature or a Feature without Tasks a Task again."""
     fields = {}
     if title is not _UNSET:
         fields['title'] = _redacted([_text(title, 'title', TITLE_CHARS, required=True)])[0]
@@ -108,11 +152,24 @@ def edit(task: str, *, title=_UNSET, description=_UNSET, project=_UNSET, priorit
         fields['acceptance'] = _redacted(_criteria(acceptance))
     if position is not _UNSET:
         fields['position'] = None if position is None else float(position)
+    if kind is not _UNSET:
+        fields['kind'] = _kind(kind)
     if not fields:
         raise ValueError('Nothing to change: pass a field to edit')
 
     def check(conn, uid, state):
-        if 'acceptance' in fields and not fields['acceptance'] and state['status'] == 'ready':
+        feature = _is_feature(conn, uid)
+        if fields.get('kind') == 'task' and feature and any(
+                json.loads(row['state'])['feature'] == uid for row in conn.execute('SELECT state FROM tasks')):
+            raise ValueError(f"{state['id']} has Tasks of its own, so it stays a Feature: take them out first")
+        if fields.get('kind') == 'feature' and not feature:
+            if state['feature']:
+                raise ValueError(f"{state['id']} belongs to a Feature, so it cannot be one: Features do not nest")
+            holder = _held(conn, uid)
+            if holder:
+                raise ValueError(f"{state['id']} is held by {holder.get('name') or holder['session']}, so it "
+                                 'cannot become a Feature until that claim ends')
+        if 'acceptance' in fields and not fields['acceptance'] and state['status'] == 'ready' and not feature:
             raise ValueError('A Ready task keeps at least one acceptance criterion')
     return _change(task, 'edited', fields, actor, workspace, check)
 
@@ -134,6 +191,11 @@ def move(task: str, status: str, *, position: float | None = None, actor: dict |
         data['position'] = float(position)
 
     def check(conn, uid, state):
+        if _is_feature(conn, uid):
+            # Only Cancelled is set by hand; a move out of it hands the status back to the Tasks (ADR 0242).
+            if status != 'cancelled' and state['status'] != 'cancelled':
+                raise ValueError(_following(conn, uid))
+            return
         if status == 'ready' and not state['acceptance']:
             raise ValueError('A task moves to ready only with at least one acceptance criterion')
         if status == 'done' and actor['kind'] == 'agent':
@@ -173,7 +235,7 @@ def link(task: str, *, feature=_UNSET, add_blockers=(), remove_blockers=(), acto
         data = {}
         if feature is not _UNSET:
             data['feature'] = _uid(conn, feature) if feature else None
-            _check_feature(conn, uid, data['feature'])
+            _check_feature(conn, uid, data['feature'], _state(conn, uid).get('kind'))
         if add_blockers:
             data['add_blockers'] = [_uid(conn, b) for b in add_blockers]
             _check_blockers(conn, uid, data['add_blockers'])

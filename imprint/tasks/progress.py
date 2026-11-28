@@ -13,7 +13,7 @@ from __future__ import annotations
 import time
 
 from .validation import project_filter
-from .view import listing
+from .view import _archived, _order, listing
 
 PACE_DAYS = 14
 ESTIMATE_AFTER = 3
@@ -49,8 +49,8 @@ def progress(*, project: str | None = None, feature: str | None = None, workspac
     states = listing(archived=True, workspace=workspace)
     project = project_filter(project)
     now = time.time()
-    features = [s for s in states if s['tasks']]
-    leaves = [s for s in states if not s['tasks']]
+    features = [s for s in states if s['kind'] == 'feature']
+    leaves = [s for s in states if s['kind'] != 'feature']
     projects = [] if feature else [
         {'name': name, **_summary([s for s in leaves if s['project'] == name], now)}
         for name in sorted({s['project'] for s in leaves}) if not project or name == project]
@@ -59,3 +59,35 @@ def progress(*, project: str | None = None, feature: str | None = None, workspac
         {'id': f['id'], 'title': f['title'], 'project': f['project'],
          **_summary([s for s in states if s['feature'] == f['id']], now)}
         for f in sorted(wanted, key=lambda f: f['title'].lower())]}
+
+
+def _working_order(members: list[dict]) -> list[dict]:
+    """A Feature's Tasks with each after the Tasks it waits on, and otherwise
+    in the Board's order: the order they can be worked in."""
+    ids = {m['id'] for m in members}
+    waits = {m['id']: {b for b in m['blockers'] if b in ids} for m in members}
+    left, placed, ordered = sorted(members, key=_order), set(), []
+    while left:
+        ready = next((m for m in left if waits[m['id']] <= placed), left[0])  # A cycle cannot be stored; just in case.
+        ordered.append(ready)
+        placed.add(ready['id'])
+        left.remove(ready)
+    return ordered
+
+
+def features(*, project: str | None = None, archived: bool = False, workspace: str | None = None) -> list[dict]:
+    """Every Feature with how far it is and its Tasks in working order
+    (ADR 0242): ``[{'feature', 'summary', 'tasks'}]``, in the Board's order.
+    A Feature that ended over 14 days ago is left out unless ``archived``;
+    its Tasks are counted whatever their age."""
+    states = listing(archived=True, workspace=workspace)
+    project = project_filter(project)
+    now = time.time()
+    members: dict[str, list[dict]] = {}
+    for state in states:
+        if state['feature']:
+            members.setdefault(state['feature'], []).append(state)
+    found = [f for f in states if f['kind'] == 'feature' and (not project or f['project'] == project)
+             and (archived or not _archived(f, now))]
+    return [{'feature': f, 'summary': _summary(members.get(f['id'], []), now),
+             'tasks': _working_order(members.get(f['id'], []))} for f in found]

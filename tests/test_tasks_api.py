@@ -167,5 +167,34 @@ class TasksApiTests(unittest.TestCase):
         self.assertEqual((only['projects'], len(only['features'])), ([], 1))
 
 
+    def test_features_are_created_with_their_kind_and_kept_out_of_the_columns(self):
+        """A Feature's status follows its Tasks, so the Board's columns hold only Tasks (ADR 0242)."""
+        feature = self.create('Checkout', kind='feature')
+        self.assertEqual((feature['kind'], feature['status']), ('feature', 'backlog'))
+        step = self.create('Total line', feature=feature['id'], acceptance=['Tax included'], status='ready')
+        board = self.api.get('/api/tasks/board').json()
+        self.assertEqual([t['id'] for t in board['columns']['ready']], [step['id']])
+        self.assertEqual(board['total'], 1)
+        self.assertEqual(board['options']['features'], [{'id': feature['id'], 'title': 'Checkout'}])
+        moved = self.api.post(f"/api/tasks/{feature['id']}/move", json={'status': 'done'})
+        self.assertEqual(moved.status_code, 400)
+        self.assertIn('its status follows its Tasks', moved.json()['error'])
+        cancelled = self.api.post(f"/api/tasks/{feature['id']}/move", json={'status': 'cancelled'})
+        self.assertEqual(cancelled.json()['task']['status'], 'cancelled')
+        empty = self.create('Search', kind='feature')
+        edited = self.api.post(f"/api/tasks/{empty['id']}/edit", json={'kind': 'task'})
+        self.assertEqual(edited.json()['task']['kind'], 'task')
+
+
+    def test_the_features_tab_reads_each_feature_with_its_tasks(self):
+        feature = self.create('Checkout', kind='feature')
+        step = self.create('Total line', feature=feature['id'])
+        listed = self.api.get('/api/tasks/features').json()
+        self.assertEqual(listed['workspace'], 'default')
+        [entry] = listed['features']
+        self.assertEqual((entry['feature']['id'], [t['id'] for t in entry['tasks']], entry['summary']['total']),
+                         (feature['id'], [step['id']], 1))
+        self.assertEqual(self.api.get('/api/tasks/features', params={'project': 'blog'}).json()['features'], [])
+
 if __name__ == '__main__':
     unittest.main()

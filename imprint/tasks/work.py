@@ -129,10 +129,11 @@ def _takeable(view: _View, state: dict, *, ready: bool) -> bool:
     return ready and not state['holder'] and state['status'] == 'ready'
 
 
-def _standalone(view: _View, state: dict, features: set[str]) -> bool:
-    """Neither a Feature (a Task other Tasks belong to) nor a Task of one
-    (ADR 0219); a Task whose Feature was deleted stands alone again."""
-    return state['uid'] not in features and state['feature'] not in view.by_uid
+def _standalone(view: _View, state: dict) -> bool:
+    """Neither a Feature (created as one, or a Task other Tasks belong to,
+    ADR 0242) nor a Task of one (ADR 0219); a Task whose Feature was deleted
+    stands alone again."""
+    return state['uid'] not in view.features and state['feature'] not in view.by_uid
 
 
 def takeable(*, projects=None, client: str | None = None, device: str | None = None,
@@ -148,9 +149,8 @@ def takeable(*, projects=None, client: str | None = None, device: str | None = N
         return []
     with _reading(workspace) as conn:
         view = _view(conn)
-    features = {s['feature'] for s in view.by_uid.values() if s['feature']}
     found = [s for s in view.by_uid.values()
-             if (projects is None or s['project'] in projects) and _standalone(view, s, features)
+             if (projects is None or s['project'] in projects) and _standalone(view, s)
              and _for_agent(s['assignees'], client, device) and _takeable(view, s, ready=mode == 'ready')]
     return [view.public(s) for s in sorted(found, key=_order)]
 

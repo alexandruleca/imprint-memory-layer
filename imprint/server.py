@@ -1741,6 +1741,7 @@ def task_edit(
     assignees: list[str] | None = None,
     feature: str | None = None,
     blockers: list[str] | None = None,
+    kind: str = "",
     add: list[str] | None = None,
     remove: list[str] | None = None,
     text: str = "",
@@ -1779,6 +1780,8 @@ def task_edit(
         assignees: For create, who it is for: "user", a client ("codex"), "@device" or "client@device"
         feature: The Feature (a Task id) it belongs to; for link, "" takes it out
         blockers: For create, the Tasks that must be Done first
+        kind: For create or edit, "feature" for a Feature, which groups Tasks and whose status
+              follows theirs (create it, then its Tasks with feature=its id); default "task"
         add: For tag, assign or link, the tags, assignees or blocking Tasks to add
         remove: For tag, assign or link, those to remove
         text: For append, the text; for block, the reason; for checkpoint, what is done
@@ -1800,11 +1803,12 @@ def task_edit(
         return tasks_tool.create(title=title or "", project=tasks_tool.project(project or "", _board_project()),
                                  description=description or "", status=status, priority=priority or "",
                                  acceptance=acceptance, tags=tags, assignees=assignees, feature=feature or "",
-                                 blockers=blockers, actor=who, workspace=workspace)
+                                 blockers=blockers, kind=kind, actor=who, workspace=workspace)
     return tasks_tool.change(action, task, actor=who, workspace=workspace, title=title, description=description,
                              project=project, status=status, priority=priority, position=position,
                              acceptance=acceptance, feature=feature, add=add, remove=remove, text=text,
-                             token=token, branch=branch, commit=commit, files=files, next_step=next_step, to=to)
+                             token=token, branch=branch, commit=commit, files=files, next_step=next_step, to=to,
+                             kind=kind or None)
 
 
 def _first_meaningful_line(text: str, max_len: int = 200) -> str:

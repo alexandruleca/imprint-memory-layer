@@ -311,6 +311,23 @@ class TasksToolTests(unittest.TestCase):
         self.assertIn(f'{feature} Checkout redesign (imprint): 1 of 2 done (50%)', text)
         self.assertIn('not enough finished work to estimate yet', text)
 
+    def test_an_agent_creates_a_feature_and_reads_it_apart_from_the_columns(self):
+        """A Feature's status follows its Tasks (ADR 0242)."""
+        [(failed, made)] = self.as_session('conv-1', ('task_edit', {
+            'action': 'create', 'title': 'Checkout redesign', 'kind': 'feature'}))
+        self.assertFalse(failed, made)
+        feature = tasks.listing(workspace='default')[0]['id']
+        self.assertIn('A Feature: its status follows its Tasks, and it has none yet', made)
+        tasks.create('Total line', project='imprint', acceptance=['x'], status='ready', feature=feature,
+                     workspace='default')
+        [(_, board), (moved_failed, moved)] = self.as_session(
+            'conv-1', ('tasks', {}), ('task_edit', {'action': 'move', 'task': feature, 'status': 'Done'}))
+        self.assertIn('Features (1)', board)
+        self.assertIn(f'{feature} P2 Checkout redesign · imprint (Feature, Ready: 0 of 1 done)', board)
+        self.assertIn('Ready (1)', board)
+        self.assertTrue(moved_failed)
+        self.assertIn('its status follows its Tasks (now Ready)', moved)
+
 
 class SkillExamplesTests(unittest.TestCase):
     """The built-in imprint-tasks skill teaches calls the tools accept."""

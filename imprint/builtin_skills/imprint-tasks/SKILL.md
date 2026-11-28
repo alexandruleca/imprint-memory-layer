@@ -5,7 +5,7 @@ description: Imprint's Board of Tasks, shared by every agent, client and paired 
 
 # The Board
 
-Each Imprint workspace has one Board of Tasks. Claude Code, Codex and the other clients on every paired device read it with the `tasks` tool and change it with `task_edit`. A Task has a status (Backlog, Ready, In progress, Review, Done, Cancelled), a project, a priority from P0 to P3, acceptance criteria, tags and assignees, and may belong to a Feature: a Task that groups the Tasks building one piece of work.
+Each Imprint workspace has one Board of Tasks. Claude Code, Codex and the other clients on every paired device read it with the `tasks` tool and change it with `task_edit`. A Task has a status (Backlog, Ready, In progress, Review, Done, Cancelled), a project, a priority from P0 to P3, acceptance criteria, tags and assignees, and may belong to a Feature: a Task that groups the Tasks building one piece of work, whose status follows theirs.
 
 ## Your name
 
@@ -39,7 +39,7 @@ Once you have finished what you were asked, or during a run the user started to 
 
 Before starting work the user describes, look for a Task that already covers it, in any status: `tasks(action="list", text="…")`. Another session may already be designing or building it.
 
-Create a Task for work you find and cannot finish in this session: a leftover, a follow-up, a defect outside your scope. `task_edit(action="create", title="…", description="…", tags=[…])` puts it in Backlog. Put work in Ready when the user asks, with acceptance criteria: `acceptance=[…]`, `status="Ready"`, each criterion one checkable statement of at most 500 characters. Group the Tasks of one piece of work under a Feature (`feature="T-…"`) and record their order with `blockers=["T-…"]`. Create the Feature in Backlog and its Tasks under it, then move the Feature to Ready: a Ready Feature without linked Tasks looks like a standalone Task that agents and the Dispatcher may take.
+Create a Task for work you find and cannot finish in this session: a leftover, a follow-up, a defect outside your scope. `task_edit(action="create", title="…", description="…", tags=[…])` puts it in Backlog. Put work in Ready when the user asks, with acceptance criteria: `acceptance=[…]`, `status="Ready"`, each criterion one checkable statement of at most 500 characters. Group the Tasks of one piece of work under a Feature and record their order with `blockers=["T-…"]`: create the Feature with `task_edit(action="create", title="…", kind="feature")`, then each Task with `feature="T-…"`. A Feature's status follows its Tasks: Ready once one is Ready, In progress once one starts, Done when every Task not Cancelled is Done. Don't move it or claim it; the Board refuses both. Only cancelling it is set by hand. A Task held by a claim cannot become a Feature.
 
 ## Talking to others
 

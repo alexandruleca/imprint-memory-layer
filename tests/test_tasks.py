@@ -841,5 +841,162 @@ class LinkTests(TasksTestCase):
         self.assertEqual(tasks.related(make('Alone')['id'], workspace='default'), {})
 
 
+
+class FeatureStatusTests(TasksTestCase):
+    """A Feature groups Tasks, and its status follows theirs (ADR 0242)."""
+
+    def feature(self, title='Checkout', **fields):
+        return make(title, kind='feature', **fields)['id']
+
+    def task(self, feature, title='Step', status='backlog'):
+        return make(title, feature=feature, acceptance=['x'], status=status)['id']
+
+    def status(self, task):
+        return tasks.get(task, workspace='default')['status']
+
+    def test_a_feature_made_as_one_is_known_before_its_tasks_and_waits_in_backlog(self):
+        made = make('Checkout', kind='feature', acceptance=['Every Task is Done'])
+        self.assertEqual((made['kind'], made['status'], made['tasks']), ('feature', 'backlog', []))
+        self.assertEqual(made['progress'], {'done': 0, 'working': 0, 'total': 0})
+        self.assertEqual(make('Plain')['kind'], 'task')
+        with self.assertRaisesRegex(ValueError, "status follows its Tasks"):
+            make('Ready Feature', kind='feature', acceptance=['x'], status='ready')
+        with self.assertRaisesRegex(ValueError, 'kind'):
+            make('Odd', kind='epic')
+
+    def test_a_features_status_follows_its_tasks_and_a_new_task_reopens_it(self):
+        feature = self.feature()
+        first = self.task(feature, 'First')
+        self.assertEqual(self.status(feature), 'backlog')
+        tasks.move(first, 'ready', workspace='default')
+        self.assertEqual(self.status(feature), 'ready')
+        second = self.task(feature, 'Second', status='ready')
+        tasks.claim(first, actor=AGENT, workspace='default')
+        self.assertEqual(self.status(feature), 'in_progress')
+        tasks.move(first, 'review', workspace='default', actor=AGENT)
+        self.assertEqual(self.status(feature), 'in_progress')
+        with at(100):
+            tasks.move(first, 'done', workspace='default')
+        self.assertEqual(self.status(feature), 'in_progress')
+        with at(200):
+            tasks.move(second, 'cancelled', workspace='default')
+        got = tasks.get(feature, workspace='default')
+        self.assertEqual((got['status'], got['ended_at']), ('done', T0 + 100))
+        self.task(feature, 'Follow-up')
+        reopened = tasks.get(feature, workspace='default')
+        self.assertEqual((reopened['status'], reopened['ended_at']), ('in_progress', None))
+
+    def test_a_task_with_tasks_linked_to_it_is_a_feature_and_its_stored_status_no_longer_counts(self):
+        earlier = make('Made the old way', acceptance=['x'], status='ready')['id']
+        self.assertEqual(tasks.get(earlier, workspace='default')['kind'], 'task')
+        self.task(earlier, 'Its first Task')
+        got = tasks.get(earlier, workspace='default')
+        self.assertEqual((got['kind'], got['status']), ('feature', 'backlog'))
+
+    def test_moving_a_feature_is_refused_but_cancelling_and_reopening_it_are_not(self):
+        feature = self.feature()
+        step = self.task(feature, status='ready')
+        for status in ('backlog', 'ready', 'in_progress', 'review', 'done'):
+            with self.assertRaisesRegex(ValueError, r'is a Feature: its status follows its Tasks \(now Ready\)'):
+                tasks.move(feature, status, workspace='default')
+        tasks.move(feature, 'cancelled', workspace='default')
+        tasks.claim(step, actor=AGENT, workspace='default')
+        self.assertEqual(self.status(feature), 'cancelled')  # Kept by hand, whatever its Tasks do.
+        tasks.move(feature, 'backlog', workspace='default')  # Reopened: its Tasks decide again.
+        self.assertEqual(self.status(feature), 'in_progress')
+
+    def test_a_status_written_for_a_feature_elsewhere_is_ignored(self):
+        """An older release moves Features by hand: its move syncs as an event, and the status stays computed."""
+        feature = self.feature()
+        self.task(feature)
+        with tasks.store._writing('default') as conn:
+            uid = tasks.store._uid(conn, feature)
+            tasks.store._append(conn, uid, 'moved', {'status': 'done'}, tasks.actors._actor(None))
+            tasks.store._project(conn, uid)
+        self.assertEqual(self.status(feature), 'backlog')
+
+    def test_agents_neither_claim_nor_take_a_feature_even_before_its_tasks_exist(self):
+        # T-e5zyz: a Ready Task that becomes a Feature before any Task is linked to it.
+        planned = make('Checkout', project='shop', acceptance=['x'], status='ready')['id']
+        self.assertEqual(tasks.next_task(project='shop', workspace='default')['id'], planned)
+        tasks.edit(planned, kind='feature', workspace='default')
+        self.assertIsNone(tasks.next_task(project='shop', workspace='default'))
+        self.assertEqual(tasks.takeable(workspace='default'), [])
+        with self.assertRaisesRegex(ValueError, 'is a Feature: agents claim its Tasks'):
+            tasks.claim(planned, actor=AGENT, workspace='default')
+        step = make('Step', project='shop', feature=planned, acceptance=['x'], status='ready')['id']
+        self.assertEqual(self.status(planned), 'ready')
+        self.assertIsNone(tasks.next_task(project='shop', workspace='default'))
+        self.assertEqual([t['id'] for t in tasks.frontier(planned, workspace='default')], [step])
+
+    def test_a_task_held_by_a_claim_does_not_become_a_feature(self):
+        held = make('Being worked on', acceptance=['x'], status='ready')['id']
+        tasks.claim(held, actor=AGENT, workspace='default')
+        other = make('Split off')['id']
+        with self.assertRaisesRegex(ValueError, 'held by grimforge, so it cannot become a Feature'):
+            tasks.link(other, feature=held, workspace='default')
+        with self.assertRaisesRegex(ValueError, 'held by grimforge, so it cannot become a Feature'):
+            make('Split off too', feature=held)
+        with self.assertRaisesRegex(ValueError, 'held by grimforge, so it cannot become a Feature'):
+            tasks.edit(held, kind='feature', workspace='default')
+        tasks.release(held, workspace='default', actor=AGENT)
+        self.assertEqual(tasks.link(other, feature=held, workspace='default')['feature'], held)
+
+    def test_a_feature_becomes_a_task_again_only_without_tasks_and_features_do_not_nest(self):
+        feature = self.feature()
+        step = self.task(feature)
+        with self.assertRaisesRegex(ValueError, 'has Tasks of its own'):
+            tasks.edit(feature, kind='task', workspace='default')
+        with self.assertRaisesRegex(ValueError, 'Features do not nest'):
+            make('Sub-feature', kind='feature', feature=feature)
+        with self.assertRaisesRegex(ValueError, 'Features do not nest'):
+            tasks.link(self.feature('Search'), feature=feature, workspace='default')
+        with self.assertRaisesRegex(ValueError, 'Features do not nest'):
+            tasks.edit(step, kind='feature', workspace='default')
+        empty = self.feature('Nothing yet')
+        self.assertEqual(tasks.edit(empty, kind='task', workspace='default')['kind'], 'task')
+
+    def test_the_board_lays_out_tasks_by_status_and_features_beside_them(self):
+        feature = self.feature()
+        step = self.task(feature, status='ready')
+        empty = self.feature('Nothing yet')
+        board = tasks.board(workspace='default')
+        self.assertEqual([t['id'] for t in board['columns']['ready']], [step])
+        self.assertEqual(board['columns']['backlog'], [])
+        self.assertEqual(sorted(f['id'] for f in board['features']), sorted([feature, empty]))
+
+    def test_progress_counts_a_feature_without_tasks_as_a_feature(self):
+        empty = self.feature('Nothing yet', project='shop')
+        make('Plain', project='shop')
+        report = tasks.progress(workspace='default')
+        [shop] = report['projects']
+        self.assertEqual(shop['total'], 1)
+        self.assertEqual([(f['id'], f['total']) for f in report['features']], [(empty, 0)])
+
+
+    def test_each_feature_lists_its_tasks_in_working_order_with_its_progress(self):
+        feature = self.feature(project='shop')
+        last = make('Ship it', project='shop', feature=feature, priority='P0')['id']
+        first = make('Lay the ground', project='shop', feature=feature, priority='P3')['id']
+        middle = make('Build on it', project='shop', feature=feature, priority='P1', blockers=[first])['id']
+        tasks.link(last, add_blockers=[middle], workspace='default')
+        loose = make('Unordered', project='shop', feature=feature, priority='P2')['id']
+        self.feature('Elsewhere', project='blog')
+        [entry] = tasks.features(project='shop', workspace='default')
+        self.assertEqual(entry['feature']['id'], feature)
+        self.assertEqual([t['id'] for t in entry['tasks']], [loose, first, middle, last])
+        self.assertEqual((entry['summary']['total'], entry['summary']['done']), (4, 0))
+        self.assertEqual(len(tasks.features(workspace='default')), 2)
+
+    def test_a_feature_that_ended_over_14_days_ago_is_listed_only_when_asked(self):
+        feature = self.feature()
+        step = self.task(feature, status='ready')
+        with at(0):
+            tasks.move(step, 'done', workspace='default')
+        with at(15 * 86400):
+            self.assertEqual(tasks.features(workspace='default'), [])
+            [entry] = tasks.features(archived=True, workspace='default')
+            self.assertEqual((entry['feature']['status'], entry['summary']['done']), ('done', 1))
+
 if __name__ == '__main__':
     unittest.main()

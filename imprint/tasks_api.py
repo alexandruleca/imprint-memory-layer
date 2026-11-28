@@ -10,7 +10,7 @@ from . import config, tasks, tasks_tool
 
 router = APIRouter(prefix="/api/tasks")
 
-EDITABLE = ('title', 'description', 'project', 'priority', 'acceptance', 'position')
+EDITABLE = ('title', 'description', 'project', 'priority', 'acceptance', 'position', 'kind')
 
 
 def _refused(error: Exception) -> JSONResponse:
@@ -38,7 +38,7 @@ def _list(body: dict, key: str) -> list:
 def _options(states: list[dict]) -> dict:
     """What the Board's filters offer: every value the Tasks hold."""
     features = {s['feature']: s['feature_title'] for s in states if s.get('feature')}
-    features.update({s['id']: s['title'] for s in states if s.get('tasks')})
+    features.update({s['id']: s['title'] for s in states if s['kind'] == 'feature'})
     return {
         'projects': sorted({s['project'] for s in states}),
         'tags': sorted({t for s in states for t in s['tags']}),
@@ -61,11 +61,25 @@ def board(project: str = "", feature: str = "", tag: str = "", status: str = "",
         mode = tasks.autonomy()
     except (ValueError, LookupError) as error:
         return _refused(error)
+    # A Feature's status follows its Tasks, so it has no column: the Features tab shows it (ADR 0242).
+    shown = [state for state in shown if state['kind'] != 'feature']
     columns = {name: [] for name in tasks.STATUSES}
     for state in shown:
         columns[state['status']].append(state)
     return {'workspace': workspace, 'columns': columns, 'total': len(shown), 'options': _options(every),
             'autonomy': mode}
+
+
+@router.get("/features")
+def features(project: str = "", archived: bool = False):
+    """Every Feature with its progress and its Tasks in working order, for
+    the Features tab (ADR 0242)."""
+    try:
+        found = tasks.features(project=project or None, archived=archived)
+        workspace = config.get_active_workspace()
+    except (ValueError, LookupError) as error:
+        return _refused(error)
+    return {'workspace': workspace, 'features': found}
 
 
 @router.get("/progress")
@@ -197,7 +211,8 @@ async def create(request: Request):
                             status=tasks.status_ref(body['status']) if body.get('status') else 'backlog',
                             priority=str(body.get('priority') or 'P2'), acceptance=_list(body, 'acceptance'),
                             tags=_list(body, 'tags'), assignees=_list(body, 'assignees'),
-                            feature=str(body.get('feature') or '') or None, blockers=_list(body, 'blockers'))
+                            feature=str(body.get('feature') or '') or None, blockers=_list(body, 'blockers'),
+                            kind=str(body.get('kind') or 'task'))
     except (ValueError, LookupError, PermissionError) as error:
         return _refused(error)
     return {'task': made}

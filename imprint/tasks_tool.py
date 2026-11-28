@@ -277,7 +277,7 @@ def session_start(cwd: str, workspace: str, conversation: str | None, project_na
         project_name = derive_project(cwd) if cwd else ''
     if not project_name:
         return ''
-    states = tasks.listing(project=project_name, workspace=workspace)
+    states = [s for s in tasks.listing(project=project_name, workspace=workspace) if s['kind'] != 'feature']
     if not states:
         return ''
     open_ones = [s for s in states if s['status'] == 'ready' or s.get('stale')]
@@ -338,6 +338,10 @@ def line(state: dict) -> str:
     """One Task on one line: id, priority, title, project, tags, assignees and
     what holds it up."""
     text = f"{state['id']} {state['priority']} {state['title']} · {state['project']}"
+    progress = state.get('progress') if state.get('kind') == 'feature' else None
+    if progress is not None:
+        text += (f" (Feature, {STATUS_LABELS[state['status']]}: {progress['done']} of {progress['total']} done"
+                 f"{', ' + str(progress['working']) + ' in progress' if progress['working'] else ''})")
     if state.get('tags'):
         text += ' ' + ' '.join(f'#{tag}' for tag in state['tags'])
     if state.get('assignees'):
@@ -358,6 +362,8 @@ def detail(state: dict) -> str:
              f"Status: {STATUS_LABELS[state['status']]} · Priority: {state['priority']} · Project: {state['project']}"]
     if state.get('feature'):
         lines.append(f"Feature: {state['feature']} {state.get('feature_title') or ''}".rstrip())
+    if state.get('kind') == 'feature':
+        lines.append('A Feature: its status follows its Tasks' + ('' if state.get('tasks') else ', and it has none yet'))
     if state.get('tasks'):
         lines.append('Tasks: ' + ', '.join(state['tasks']))
     if state.get('tags'):
@@ -412,7 +418,7 @@ def detail(state: dict) -> str:
 def board_text(board: dict, project: str | None = None) -> str:
     total = sum(len(column) for column in board['columns'].values())
     scope = f" (project {project})" if project else ''
-    if not total:
+    if not total and not board.get('features'):
         return (f"No tasks yet on workspace {board['workspace']}'s Board{scope}. "
                 'Create one with task_edit(action="create", title="...").')
     lines = [f"Board of workspace {board['workspace']}{scope}: {total} tasks"]
@@ -421,6 +427,13 @@ def board_text(board: dict, project: str | None = None) -> str:
         lines.extend(f'- {line(state)}' for state in column[:COLUMN_LINES])
         if len(column) > COLUMN_LINES:
             lines.append(f'- and {len(column) - COLUMN_LINES} more: tasks(action="list", status="{status}")')
+    features = [f for f in board.get('features', []) if f['status'] not in ('done', 'cancelled')]
+    if features:
+        # A Feature's status follows its Tasks (ADR 0242): listed apart, with how far it is.
+        lines.append(f'Features ({len(features)})')
+        lines.extend(f'- {line(state)}' for state in features[:COLUMN_LINES])
+        if len(features) > COLUMN_LINES:
+            lines.append(f'- and {len(features) - COLUMN_LINES} more: tasks(action="progress")')
     return '\n'.join(lines)
 
 
@@ -587,8 +600,8 @@ def _dispatched(actor: dict, workspace: str) -> bool:
 
 
 def create(*, title: str, project: str, description: str = '', status: str = '', priority: str = '',
-           acceptance=None, tags=None, assignees=None, feature: str = '', blockers=None, actor: dict,
-           workspace: str = '') -> str:
+           acceptance=None, tags=None, assignees=None, feature: str = '', blockers=None, kind: str = '',
+           actor: dict, workspace: str = '') -> str:
     note = ''
     if status and tasks.status_ref(status) == 'ready' and _dispatched(actor, workspace):
         # Dispatched work cannot feed itself: the person readies what a Dispatched session finds.
@@ -596,13 +609,15 @@ def create(*, title: str, project: str, description: str = '', status: str = '',
     made = tasks.create(title, project=project, description=description or '',
                         status=tasks.status_ref(status) if status else 'backlog', priority=priority or 'P2',
                         acceptance=acceptance or (), tags=tags or (), assignees=assignees or (),
-                        feature=feature or None, blockers=blockers or (), actor=actor, workspace=workspace or None)
+                        feature=feature or None, blockers=blockers or (), kind=kind or 'task', actor=actor,
+                        workspace=workspace or None)
     return f"{note}Created {made['id']}.\n{detail(made)}"
 
 
 def change(action: str, task: str, *, actor: dict, workspace: str = '', title=None, description=None,
            project=None, status='', priority=None, position=None, acceptance=None, feature=None,
-           add=None, remove=None, text='', token='', branch='', commit='', files=None, next_step='', to=None) -> str:
+           add=None, remove=None, text='', token='', branch='', commit='', files=None, next_step='', to=None,
+           kind=None) -> str:
     """Every task_edit action but create, on one existing Task."""
     if not task:
         raise ValueError('Name the task: task="T-…"')
@@ -628,7 +643,8 @@ def change(action: str, task: str, *, actor: dict, workspace: str = '', title=No
         state = tasks.release(task, status=tasks.status_ref(status) if status else None, **where)
     elif action == 'edit':
         fields = {k: v for k, v in {'title': title, 'description': description, 'project': project,
-                                    'priority': priority, 'acceptance': acceptance, 'position': position}.items()
+                                    'priority': priority, 'acceptance': acceptance, 'position': position,
+                                    'kind': kind or None}.items()
                   if v is not None}
         state = tasks.edit(task, **fields, **where)
     elif action == 'append':

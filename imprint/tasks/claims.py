@@ -45,6 +45,9 @@ def claim(task: str, *, actor: dict, token: str | None = None, pid: int | None =
         uid = _uid(conn, task)
         view = _view(conn)
         state = view.by_uid[uid]
+        if uid in view.features:
+            raise ValueError(f"{state['id']} is a Feature: agents claim its Tasks, in order, from "
+                             f"tasks(action=\"next\", feature=\"{state['id']}\")")
         if state['status'] in ('done', 'cancelled'):
             raise ValueError(f"{state['id']} is {state['status'].title()}: move it back before claiming it")
         if 'user' in state['assignees']:

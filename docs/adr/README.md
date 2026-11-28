@@ -307,6 +307,7 @@ The records in force, by area. An amended record is listed with the records that
 Under consideration; not current behavior.
 
 - [ADR 0009](0009-model-profiles-and-embedding-identity.md) **Model profiles and embedding identity.** Evaluate local model profiles with explicit embedding identity and safe re-embedding.
+- [ADR 0242](0242-a-features-status-follows-its-tasks.md) **A Feature's status follows its Tasks.** A Feature is created as one or becomes one when a Task is linked to it; its status is computed from its Tasks, only Cancelled is set by hand, agents neither claim nor take it, and the Board shows it beside its columns.
 
 ## Decision log
 
@@ -555,6 +556,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0239](0239-the-dispatcher-deploys-tasks-a-dispatched-review-passed.md) | 2026-11-28 | Accepted | The Dispatcher deploys Tasks a Dispatched review passed |
 | [0240](0240-the-persons-comments-reach-a-working-agent-after-its-next-tool-call.md) | 2026-11-28 | Accepted | The person's comments reach a working agent after its next tool call |
 | [0241](0241-a-needs-you-list-shows-what-waits-for-the-person.md) | 2026-11-28 | Accepted | A Needs-you list shows what waits for the person |
+| [0242](0242-a-features-status-follows-its-tasks.md) | 2026-11-28 | Proposed | A Feature's status follows its Tasks |
 
 ## How to write and maintain ADRs
 

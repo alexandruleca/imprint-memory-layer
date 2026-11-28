@@ -15,7 +15,7 @@ def _created(state: dict | None, event: dict) -> dict:
         'status': data.get('status', 'backlog'), 'priority': data.get('priority', 'P2'), 'position': None,
         'acceptance': list(data.get('acceptance', [])), 'tags': list(data.get('tags', [])),
         'assignees': list(data.get('assignees', [])), 'feature': data.get('feature'),
-        'blockers': list(data.get('blockers', [])), 'blocked': None,
+        'kind': data.get('kind', 'task'), 'blockers': list(data.get('blockers', [])), 'blocked': None,
         'holder': None, 'previous_holder': None, 'worked_by': None, 'lost_claims': [],
         'last_checkpoint': None, 'checkpoints': 0, 'comments': [], 'comment_count': 0,
         'created_at': event['recorded_at'], 'created_hlc': event['hlc'], 'created_by': _who(event),
@@ -23,7 +23,7 @@ def _created(state: dict | None, event: dict) -> dict:
     }
 
 
-_EDITABLE = ('title', 'description', 'project', 'priority', 'acceptance', 'position')
+_EDITABLE = ('title', 'description', 'project', 'priority', 'acceptance', 'position', 'kind')
 
 
 def _edited(state: dict, event: dict) -> dict:
