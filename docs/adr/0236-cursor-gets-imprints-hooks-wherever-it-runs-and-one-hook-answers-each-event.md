@@ -75,7 +75,7 @@ This covers the cases Cursor's duplicate rule cannot:
 
 `post-search` only touches a sentinel and `pre-read` is silent for Cursor's payloads, so neither claims.
 
-**Cursor's payloads.** The first workspace root stands for the session's directory. The session-start context then names the session's workspace and its project's Board, and the Stop hook learns in that workspace. The hook reads its payload past a UTF-8 byte order mark. `pre-compact` answers with `user_message` for a Cursor payload and `systemMessage` otherwise. The earlier `cursor-pre-compact` action keeps working for hooks files an earlier release wrote, until setup rewrites them.
+**Cursor's payloads.** The first workspace root stands for the session's directory. The session-start context then names the session's workspace and its project's Board, and the Stop hook learns in that workspace. The hook reads its payload past any UTF-8 byte order marks. `pre-compact` answers with `user_message` for a Cursor payload and `systemMessage` otherwise. The earlier `cursor-pre-compact` action keeps working for hooks files an earlier release wrote, until setup rewrites them.
 
 ## Rejected alternatives
 
@@ -124,12 +124,12 @@ This covers the cases Cursor's duplicate rule cannot:
   - Print run: session-start ran through both launchers, and the model's context held one reminder, naming the workspace of the folder from its translated root. One learner started.
   - Interactive run: sessionStart, two stops and preCompact ran through both launchers, and sessionEnd through Cursor's alone. Each of the five events left exactly one claim.
   - The detached learners the runs started on the scratch data were stopped afterwards.
-- **Windows** (no Cursor). `TestCursorHookCommandsExecuteInCursorsShell` was cross-compiled and run on the host with the installed venv's Python. It runs each Cursor command inside Cursor's PowerShell wrapper, byte order mark included, from an install path with spaces and an apostrophe, and passed. PowerShell 5.1 showed the byte order mark and the earlier command's parse error.
+- **Windows** (no Cursor). `TestCursorHookCommandsExecuteInCursorsShell` was cross-compiled and run on the host with the installed venv's Python. It runs each Cursor command inside Cursor's PowerShell wrapper, byte order mark included, from an install path with spaces and an apostrophe, and passed. On the CI's Windows runner (a VM on bedrock), the same wrapper put two byte order marks before the payload, so the hook skips any number of them. PowerShell 5.1 showed the byte order mark and the earlier command's parse error.
 - **Go** 1.27.4 on Linux: `go vet ./cmd/ ./internal/...` and `go test ./...` passed. The tests covered:
   - `TestCursorSetupWritesItsHooksBesideTheUsersOwn`: the six entries beside a user's hook, the earlier `cursor-pre-compact` and preToolUse entries replaced, a second setup byte-identical, and each command equal to Claude Code's outside Windows;
   - `TestWSLCursorCLIRegistrationWritesItsMCPEntryRuleAndHooks`: writing, re-running and removing the WSL hooks beside a user's hook;
   - `TestCursorHookCommandsExecuteInCursorsShell`.
-- **Python**: `tests/test_hooks.py` (Cursor's root as the directory, one answer per event, one learner per transcript, the byte order mark) and `tests/test_wsl_bridge.py` (Cursor's hook and roots through the bridge).
+- **Python**: `tests/test_hooks.py` (Cursor's root as the directory, one answer per event, one learner per transcript, one or two byte order marks) and `tests/test_wsl_bridge.py` (Cursor's hook and roots through the bridge).
 - **Not run:**
   - the Cursor app on any platform;
   - Cursor CLI on macOS and on Windows;

@@ -202,12 +202,13 @@ class HookTests(unittest.TestCase):
                 if starts:
                     self.assertEqual(learner.call_args.args[0][1:], ['-m', 'imprint.session_learn', transcript])
 
-    def test_a_payload_after_a_byte_order_mark_is_read(self):
-        # Cursor on Windows sends one (ADR 0236).
-        with tempfile.TemporaryDirectory() as directory:
-            result = subprocess.run([sys.executable, str(ENTRY), 'post-search', directory],
-                                    input=('﻿' + json.dumps(self.cursor_payload('postToolUse'))).encode('utf-8'),
-                                    capture_output=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            import hashlib
-            self.assertTrue((Path(directory) / '.sessions' / hashlib.sha256(b'c1').hexdigest()).exists())
+    def test_a_payload_after_byte_order_marks_is_read(self):
+        # Cursor on Windows sends one, or two on some computers (ADR 0236).
+        import hashlib
+        for marks, session in ((1, 'c1'), (2, 'c2')):
+            with tempfile.TemporaryDirectory() as directory:
+                payload = self.cursor_payload('postToolUse', session_id=session)
+                result = subprocess.run([sys.executable, str(ENTRY), 'post-search', directory],
+                                        input=('\ufeff' * marks + json.dumps(payload)).encode('utf-8'), capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue((Path(directory) / '.sessions' / hashlib.sha256(session.encode()).hexdigest()).exists(), marks)

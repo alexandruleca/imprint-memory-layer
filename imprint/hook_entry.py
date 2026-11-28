@@ -29,12 +29,12 @@ def _cwd(payload):
 
 
 def read_payload():
-    """The hook's JSON payload, or None. Cursor on Windows puts a UTF-8 byte
-    order mark before it (ADR 0236)."""
+    """The hook's JSON payload, or None. Cursor on Windows puts UTF-8 byte
+    order marks before it, one or two depending on the computer (ADR 0236)."""
     try:
         stream = getattr(sys.stdin, 'buffer', None)
-        text = stream.read().decode('utf-8-sig') if stream is not None else sys.stdin.read().lstrip('\ufeff')
-        return json.loads(text)
+        text = stream.read().decode('utf-8') if stream is not None else sys.stdin.read()
+        return json.loads(text.lstrip('\ufeff'))
     except (ValueError, OSError):
         return None
 
