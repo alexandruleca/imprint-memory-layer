@@ -4,14 +4,11 @@ the claim's time, the time limit, the daily count and Blocked reviews."""
 
 import io
 import os
-import signal
-import subprocess
 import sys
 import threading
 import time
 import unittest
 from contextlib import redirect_stderr
-from pathlib import Path
 from unittest.mock import patch
 
 from imprint import processes, sync_pairs, tasks
@@ -19,15 +16,7 @@ from imprint.dispatch import claimcheck, dispatched, guards, loop, store
 
 from test_dispatch_claims import _pair
 from test_dispatch_loop import LoopCase, _until
-from test_dispatch_run import DispatchCase
-
-
-def _gone(pid: int) -> bool:
-    """Whether ``pid`` has ended: not running, or a zombie its new parent has not reaped yet."""
-    if not processes.is_alive(pid):
-        return True
-    state = subprocess.run(['ps', '-o', 'stat=', '-p', str(pid)], capture_output=True, text=True).stdout.strip()
-    return not state or state.startswith('Z')
+from test_dispatch_run import DispatchCase, child_of, end, gone
 
 
 class CalledOffTests(LoopCase):
@@ -88,10 +77,10 @@ class LeftoverTests(DispatchCase):
     def test_what_a_client_leaves_running_ends_with_its_session(self):
         with patch.dict(os.environ, {'FAKE_MODE': 'spawn-and-exit'}):
             run = dispatched.run(self.task)
-        child = int(Path(str(self.record) + '.child').read_text())
-        self.addCleanup(lambda: _gone(child) or os.kill(child, signal.SIGKILL))
+        child = child_of(self.record)
+        self.addCleanup(end, child)
         self.assertEqual(run['outcome'], 'failed')
-        self.assertTrue(_until(lambda: _gone(child), timeout=10), 'what the client left is still running')
+        self.assertTrue(_until(lambda: gone(child), timeout=10), 'what the client left is still running')
 
 
 class OneSessionATaskTests(LoopCase):

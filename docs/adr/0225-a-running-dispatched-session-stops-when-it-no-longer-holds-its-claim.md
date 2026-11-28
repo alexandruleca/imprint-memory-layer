@@ -63,5 +63,6 @@ Two further facts bear on this:
   - a takeover without the token recorded as lost;
   - a takeover with the token that lands while the check reads the Board still counted as the run's (the check reads the Task's state before its history);
   - a release while waiting starting nothing.
+- `tests/test_dispatch_two_devices.py`: two Dispatchers, each in its own process with its own data dir, home and clone of the project, claim one Task before their Boards sync; after the test's relay exchanges them, exactly one starts its client (the earlier claim) and the other records the claim as lost.
 - Linux (WSL Ubuntu 26.04, Python 3.12 venv): the `test_dispatch_*` modules pass.
 - Not run: two real devices with clocks set apart.

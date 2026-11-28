@@ -42,11 +42,14 @@ FAKE_CLAUDE = textwrap.dedent('''\
     mode = os.environ.get('FAKE_MODE', 'review')
     if mode == 'hang':
         time.sleep(600)
-    if mode == 'spawn-and-exit':
-        # Leaves a child running in its process group, as a server or a watcher it started would.
+    if mode in ('spawn-and-exit', 'spawn-and-hang'):
+        # Starts a child in its process group, as a server or a watcher it starts would be, then
+        # leaves it running (exit) or keeps working beside it (hang).
         import subprocess
         child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(600)'])
         open(os.environ['FAKE_RECORD'] + '.child', 'w').write(str(child.pid))
+        if mode == 'spawn-and-hang':
+            time.sleep(600)
         sys.exit(0)
     task = re.search(r'- Task: (T-[0-9a-z]+)', prompt).group(1)
     token = re.search(r'- Your claim token: (\\S+)', prompt).group(1)
@@ -93,6 +96,38 @@ FAKE_CLAUDE = textwrap.dedent('''\
     print(json.dumps({{'type': 'result', 'subtype': 'error', 'result': 'The test suite would not start'}}))
     sys.exit(3)
 ''')
+
+
+def gone(pid: int) -> bool:
+    """Whether ``pid`` has ended: not running, or a zombie its new parent has not reaped yet."""
+    from imprint import processes
+    if not processes.is_alive(pid):
+        return True
+    if sys.platform == 'win32':
+        return False
+    state = subprocess.run(['ps', '-o', 'stat=', '-p', str(pid)], capture_output=True, text=True).stdout.strip()
+    return not state or state.startswith('Z')
+
+
+def end(pid: int) -> None:
+    """End ``pid`` and its children, whatever a test left running."""
+    if gone(pid):
+        return
+    if sys.platform == 'win32':
+        subprocess.run(['taskkill', '/PID', str(pid), '/T', '/F'], capture_output=True)
+    else:
+        os.kill(pid, 9)
+
+
+def child_of(record: Path, timeout: float = 60) -> int | None:
+    """The pid of the child a spawn-* fake client started, once it has written it."""
+    marker, deadline = Path(str(record) + '.child'), time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            return int(marker.read_text())
+        except (OSError, ValueError):
+            time.sleep(0.05)
+    return None
 
 
 def executable(path: Path, script: str) -> Path:
@@ -211,6 +246,22 @@ class DispatchRunTests(DispatchCase):
         self.assertIn('without moving the Task to Review', comment['data']['text'])
         self.assertIn('Its claim is released', comment['data']['text'])
         self.assertIn('The test suite would not start', comment['data']['text'])
+
+    def test_stopping_a_session_ends_what_its_client_started(self):
+        with patch.dict(os.environ, {'FAKE_MODE': 'spawn-and-hang'}):
+            run, proc = dispatched.start(self.task)
+            session = dispatched.Session(run, proc)
+            child = child_of(self.record)
+            self.assertIsNotNone(child, 'the fake client never started its child')
+            self.addCleanup(end, child)
+            self.assertFalse(gone(child))
+            session.stop('was stopped by the test')
+            ended = session.step()
+        self.assertEqual(ended['outcome'], 'stopped')
+        deadline = time.monotonic() + 10
+        while not gone(child) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        self.assertTrue(gone(child), "the child the client started outlived the session's stop")
 
     def test_a_session_past_its_time_limit_is_stopped_and_fails(self):
         with patch.dict(os.environ, {'FAKE_MODE': 'hang'}):
