@@ -165,6 +165,12 @@ async def _start_queue_dispatcher():
     # Reminders, timers and scheduled jobs fire from this process (ADR 0158).
     from . import schedule
     schedule.start(run_prompt=_scheduled_prompt)
+    # The Dispatcher starts agent sessions for Tasks where the person switched it on (ADR 0220).
+    from .dispatch import loop as dispatch_loop
+    try:
+        dispatch_loop.start()
+    except Exception as error:  # The dashboard serves everything else without its Dispatcher.
+        print(f"[imprint] the Dispatcher could not start: {error}", file=sys.stderr, flush=True)
     # Skills and personas: written into the clients, edits there taken back (ADR 0169).
     from . import registry_files
     app.state.registry_pass = asyncio.create_task(registry_files.loop())
@@ -181,6 +187,8 @@ async def _stop_sync_worker():
     await shutdown()
     from . import schedule
     schedule.stop()
+    from .dispatch import loop as dispatch_loop
+    await asyncio.to_thread(dispatch_loop.stop)
     chat_replies.stop_all()
     for name in ('sync_worker', 'registry_pass'):
         task = getattr(app.state, name, None)
@@ -1296,7 +1304,9 @@ def _auto_shutdown_watcher():
     """Background thread: shuts down server when UI disconnects."""
     while not _shutdown_event.is_set():
         _shutdown_event.wait(5)
-        if _last_ui_ping and time.time() - _last_ui_ping > _SHUTDOWN_GRACE:
+        from .dispatch import loop as dispatch_loop
+        # A Dispatched session this server watches keeps it up until the session ends (ADR 0220).
+        if _last_ui_ping and time.time() - _last_ui_ping > _SHUTDOWN_GRACE and not dispatch_loop.busy():
             _shutdown_event.set()
             os.kill(os.getpid(), signal.SIGINT)
             break
@@ -1454,18 +1464,41 @@ def api_queue_history(limit: int = 25, before: str | None = None, bounds: str = 
 
 
 @app.get("/api/agents")
-def api_agents(limit: int = 50, before: str | None = None, client: str | None = None, q: str | None = None):
+def api_agents(limit: int = 50, before: str | None = None, client: str | None = None, q: str | None = None,
+               project: str | None = None, agent: str | None = None):
     """The agents that used this Imprint's MCP server (ADR 0117): the
     connected sessions (``running``, first page only), one page of the
     others by last activity (``sessions``, ``next`` cursor for ``before``,
-    ``total``; ADR 0151), optionally of one ``client`` or matching ``q``,
-    and every session totalled by client (``clients``)."""
-    from . import agent_activity
+    ``total``; ADR 0151), optionally of one ``client``, ``project`` or
+    ``agent`` or matching ``q``, every session totalled by client
+    (``clients``), and what the project and agent filters offer
+    (``options``). Each session carries its project, the Tasks it claimed,
+    a Dispatched run's outcome, its model and tokens, and its learned
+    conversation (ADR 0233)."""
+    from . import agent_activity, agents_live
     try:
-        page = agent_activity.page_sessions(limit, before, client=client, query=q)
+        page = agent_activity.page_sessions(limit, before, client=client, query=q, project=project, agent=agent)
     except ValueError:
         return JSONResponse({"error": "Invalid cursor"}, status_code=400)
-    return {**page, "clients": agent_activity.client_totals()}
+    agents_live.history([*page["running"], *page["sessions"]])
+    return {**page, "clients": agent_activity.client_totals(), "options": agent_activity.options()}
+
+
+@app.get("/api/agents/live")
+def api_agents_live():
+    """This device's running agents and what each is doing, paired devices'
+    Board holders, counts and today's tokens (ADR 0233). Read from session
+    records, the Board, the Dispatcher and the clients' transcripts; no model."""
+    from . import agents_live
+    return agents_live.live()
+
+
+@app.get("/api/agents/waiting")
+def api_agents_waiting():
+    """The agents on this device waiting for you, for the desktop app's orb
+    and tray (ADR 0232): Live's rules, no model."""
+    from . import agents_live
+    return agents_live.waiting()
 
 
 @app.get("/api/agents/search-first")

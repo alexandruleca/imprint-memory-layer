@@ -374,3 +374,8 @@ Redaction placeholders record the length of the text they replaced, so a device 
 Nothing besides the memories themselves travels, and nothing derived from a secret is kept. A scrub on one device therefore reaches every device that syncs with it, directly or through another device, and the strictest redaction any device applied wins. Facts follow the same rule, matched by their creation time.
 
 `imprint sync import <bundle>` restores storage byte for byte, then scrubs the restored workspace.
+
+## Exchanging at once for the Dispatcher
+
+A device's Dispatcher ([the Board](tasks.md#dispatched-sessions)) claims a Task before it starts an agent, and asks the sync worker to exchange with the paired devices of that workspace at once rather than at its next attempt. Each pair's record keeps when its last completed exchange began, so the Dispatcher can wait until an exchange that began after its claim has completed with every pair seen in the last 10 minutes, at most 2 minutes, before it starts the agent. A request to exchange at once is honoured for 150 seconds, so a device that does not answer is not asked again in a loop ([ADR 0224](adr/0224-a-dispatched-session-starts-only-after-its-claim-has-reached-the-paired-devices.md)).
+

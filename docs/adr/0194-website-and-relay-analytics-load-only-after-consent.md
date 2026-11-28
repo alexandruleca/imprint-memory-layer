@@ -3,9 +3,10 @@ title: ADR 0194 — Website and relay analytics load only after consent
 description: Google Analytics on the website and the relay's page loads only after the visitor accepts a banner; no answer, declining or Global Privacy Control loads nothing, and withdrawing stops it and deletes its cookies.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-20
 - Amends: [ADR 0031](0031-website-analytics-and-public-relay-status.md) — the website's and the relay page's Google Analytics load only after the visitor consents
+- Amended by: [ADR 0231](0231-the-website-asks-for-consent-with-volenti.md) — the website asks with Volenti instead of `consent.js`; the relay page keeps this banner
 - Related: [privacy policy](../../site/src/pages/privacy.astro)
 
 ## Context

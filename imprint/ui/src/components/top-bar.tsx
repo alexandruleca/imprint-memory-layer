@@ -11,6 +11,8 @@ import { WakeIndicator } from "@/components/wake-indicator";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ModeSwitch } from "@/components/mode-switch";
 import { HelpMenu } from "@/components/help-menu";
+import { TrafficLights } from "@/components/sidebar";
+import { useAgentsWindow } from "@/lib/agents-window";
 
 /** App-wide controls above every page. In the frameless desktop window the
  * bar's empty space is a drag handle (globals.css). The handle is an empty
@@ -18,8 +20,11 @@ import { HelpMenu } from "@/components/help-menu";
  * would also make its controls draggable. */
 export function TopBar() {
   const isElectron = useSyncExternalStore(() => () => {}, () => !!window.electronAPI?.isElectron, () => false);
+  // The Agents window has no sidebar, where the window's buttons live, so it shows them here (ADR 0232).
+  const agentsWindow = useAgentsWindow();
   return (
     <header className="flex h-12 shrink-0 items-center justify-end gap-2 px-4 sm:px-6">
+      {isElectron && agentsWindow && <TrafficLights closeTitle="Close the Agents window" className="mr-2" />}
       {isElectron && <div className="app-drag h-full flex-1" />}
       <RecordingIndicator />
       <WakeIndicator />

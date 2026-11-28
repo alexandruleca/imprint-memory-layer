@@ -5,7 +5,10 @@ description: Besides taking Tasks when asked, an agent may claim one Ready or St
 
 - Status: Amended
 - Date: 2026-11-27
-- Amended by: [ADR 0219](0219-agents-take-only-standalone-tasks-unasked.md) — which Tasks an agent takes unasked: only standalone ones, never a Feature or a Feature's Task
+- Amended by:
+  - [ADR 0219](0219-agents-take-only-standalone-tasks-unasked.md) — which Tasks an agent takes unasked: only standalone ones, never a Feature or a Feature's Task
+  - [ADR 0220](0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md) — its "Imprint does not start agents": a Dispatcher the person switches on starts agent sessions for Tasks
+  - [ADR 0221](0221-dispatched-sessions-review-tasks-in-review-with-another-client.md) — its "Reviewing a Task in Review is never taken unasked": Dispatched sessions review Tasks in Review
 - Related: [ADR 0208](0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md) (the Board), [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) (claims and staleness), [ADR 0212](0212-agents-talk-through-comments-on-tasks.md) (what agents are told at session start)
 
 ## Context

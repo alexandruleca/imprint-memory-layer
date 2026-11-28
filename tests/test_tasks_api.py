@@ -81,6 +81,11 @@ class TasksApiTests(unittest.TestCase):
         self.assertEqual(details['task']['holder']['name'], 'grimforge')
         self.assertEqual([e['kind'] for e in details['history']], ['created', 'claimed', 'checkpoint'])
         self.assertEqual(details['handoff']['branch'], 'task/x')
+        self.assertEqual(details['related'], {})
+        later = self.create('Ship it', blockers=[made['id']])
+        details = self.api.get(f"/api/tasks/{made['id']}").json()
+        self.assertEqual(details['task']['blocking'], [later['id']])
+        self.assertEqual(details['related'][later['id']]['title'], 'Ship it')
 
     def test_the_user_shapes_comments_and_ends_tasks(self):
         made = self.create()
@@ -134,6 +139,16 @@ class TasksApiTests(unittest.TestCase):
         self.assertGreater(inbox['review'][0]['status_at'], 0)
         self.assertEqual(self.api.get('/api/tasks/inbox').json()['comments'][0]['text'], 'Which key should I use?')
         self.api.post('/api/tasks/inbox/read', json={'ids': [inbox['comments'][0]['id']]})
+        self.assertEqual(self.api.get('/api/tasks/inbox').json()['comments'], [])
+
+    def test_comments_from_another_workspace_reach_the_inbox_and_are_read_there(self):
+        config.register_workspace('work')
+        made = tasks.create('Elsewhere', project='site', workspace='work')
+        tasks.comment(made['id'], 'The Dispatcher switched off', to=['user'], actor=AGENT, workspace='work')
+        inbox = self.api.get('/api/tasks/inbox').json()
+        self.assertEqual(inbox['workspace'], 'default')
+        self.assertEqual([(c['text'], c['workspace']) for c in inbox['comments']], [('The Dispatcher switched off', 'work')])
+        self.api.post('/api/tasks/inbox/read', json={'ids': [inbox['comments'][0]['id']], 'workspace': 'work'})
         self.assertEqual(self.api.get('/api/tasks/inbox').json()['comments'], [])
 
     def test_the_workspaces_autonomy_is_set_from_the_dashboard(self):

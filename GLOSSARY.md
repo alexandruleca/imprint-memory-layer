@@ -102,6 +102,20 @@ _Avoid_: brief, summary, context dump
 Claiming a Stale Task and continuing it from its Handoff.
 _Avoid_: hijack, steal, reassignment
 
+### Dispatching
+
+**Dispatcher**:
+The part of Imprint on one device that, when the person switches it on for a workspace, picks Tasks that are open or waiting for Review and starts Dispatched sessions for them; it is not an agent itself.
+_Avoid_: loop agent, orchestrator, scheduler, runner
+
+**Dispatched session**:
+An Agent session the Dispatcher started, without the person, to work on one Task, to review it, or to refine it.
+_Avoid_: background agent, headless agent, worker, job
+
+**Refinement**:
+A Dispatched session that grooms one Backlog Task without acceptance criteria (criteria, description, priority, tags), reading a throwaway copy of the project, and leaves the Task in Backlog for the person; switched on as "Refine Backlog".
+_Avoid_: enhancement agent, grooming bot, triage
+
 ### Skills
 
 **Built-in skill**:

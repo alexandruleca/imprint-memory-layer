@@ -172,6 +172,13 @@ html:has(.imprint-halo), body:has(.imprint-halo) { background: transparent!impor
 .orb-ear[data-checking] { background: #e6f8ff; box-shadow: 0 0 0 1.5px #08131c, 0 0 8px #8bdefecc; }
 .orb-ear[data-state=paused] { background: #08131c; }
 .orb-ear[data-state=blocked] { border-color: #ffb547; background: #ffb547; }
+/* Agents waiting for you (ADR 0232): an amber count at the rim's upper-left, opposite the
+ * warning badge, and on the ring's Agents action. */
+.orb-waiting, .halo-badge { position: absolute; z-index: 2; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
+  background: #ffb547; color: #08131c; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center;
+  box-shadow: 0 0 0 1.5px #08131c; pointer-events: none; font-variant-numeric: tabular-nums; }
+.orb-waiting { top: 8px; left: 8px; }
+.halo-badge { top: -5px; right: -5px; }
 /* "Heard": one cyan pulse around the rim. */
 .orb-wake-pulse { position: absolute; z-index: 0; left: 8px; top: 8px; width: 56px; height: 56px; border-radius: 50%;
   box-shadow: 0 0 0 2.5px #8bdefe; pointer-events: none; animation: orb-wake-pulse 700ms cubic-bezier(.2,.8,.2,1) both; }

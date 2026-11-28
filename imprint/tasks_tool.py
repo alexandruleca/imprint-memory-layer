@@ -375,6 +375,8 @@ def detail(state: dict) -> str:
         open_ones = set(state.get('open_blockers') or [])
         lines.append('Blocked by: ' + ', '.join(f"{b} ({'open' if b in open_ones else 'done'})"
                                                 for b in state['blockers']))
+    if state.get('blocking'):
+        lines.append('Blocks: ' + ', '.join(state['blocking']))
     if state.get('blocked'):
         lines.append(f"Blocked: {state['blocked']['reason']} ({_who(state['blocked']['by'])})")
     holder = state.get('holder')
@@ -584,14 +586,25 @@ def read(action: str, *, task: str = '', archived: bool = False, workspace: str 
     raise ValueError(f'Unknown action {action!r}')
 
 
+def _dispatched(actor: dict, workspace: str) -> bool:
+    """Whether this agent is a Dispatched session (ADR 0220): the Dispatcher
+    marks the sessions it starts, and the Board's history names them."""
+    return bool(os.environ.get('IMPRINT_DISPATCH_RUN')) or \
+        actor.get('session') in tasks.dispatched_sessions(workspace or None)
+
+
 def create(*, title: str, project: str, description: str = '', status: str = '', priority: str = '',
            acceptance=None, tags=None, assignees=None, feature: str = '', blockers=None, actor: dict,
            workspace: str = '') -> str:
+    note = ''
+    if status and tasks.status_ref(status) == 'ready' and _dispatched(actor, workspace):
+        # Dispatched work cannot feed itself: the person readies what a Dispatched session finds.
+        status, note = 'backlog', 'A Dispatched session\'s Tasks start in Backlog; the person moves them to Ready.\n'
     made = tasks.create(title, project=project, description=description or '',
                         status=tasks.status_ref(status) if status else 'backlog', priority=priority or 'P2',
                         acceptance=acceptance or (), tags=tags or (), assignees=assignees or (),
                         feature=feature or None, blockers=blockers or (), actor=actor, workspace=workspace or None)
-    return f"Created {made['id']}.\n{detail(made)}"
+    return f"{note}Created {made['id']}.\n{detail(made)}"
 
 
 def change(action: str, task: str, *, actor: dict, workspace: str = '', title=None, description=None,

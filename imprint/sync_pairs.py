@@ -339,8 +339,34 @@ class _Activity:
             update(self.pair_id, activity={'stage': stage, 'since': self.started, 'at': now, **detail})
 
 
+# How long a request to exchange now is honoured: a Dispatcher waits at most
+# 2 minutes for its claim to reach the paired devices (ADR 0224), and a
+# device that does not answer is not asked again in a loop.
+EXCHANGE_NOW_SECONDS = 150
+
+
+def request_exchange(pair_ids=None) -> float:
+    """Ask the sync worker, in whichever process runs it, to exchange with
+    these pairs (default: every pair) as soon as it can, rather than at its
+    next periodic attempt (ADR 0224). Returns when it was asked."""
+    now = time.time()
+    for pair in pairs():
+        if pair_ids is None or pair['id'] in pair_ids:
+            with contextlib.suppress(ValueError):
+                update(pair['id'], exchange_requested=now)
+    return now
+
+
+def _asked_now(record, now=None) -> bool:
+    """Whether an exchange was asked for that has not begun yet, and is recent."""
+    now = time.time() if now is None else now
+    asked = record.get('exchange_requested') or 0
+    return asked > (record.get('last_exchange_began') or 0) and now - asked < EXCHANGE_NOW_SECONDS
+
+
 async def _attempt(pair):
     from . import sync_ws
+    began = time.time()  # A claim made before now has reached the other device once this attempt completes (ADR 0224).
     identity = sync_ws.get_device_identity()
     policy = sync_ws.SyncPolicy.parse(pair['direction'])
     relay = sync_ws.parse_relay(pair['relay'])
@@ -360,7 +386,7 @@ async def _attempt(pair):
                 activity.event(event)
                 if event['type'] == 'idle':
                     with contextlib.suppress(ValueError):
-                        update(pair['id'], last_checked=time.time())
+                        update(pair['id'], last_checked=time.time(), last_exchange_began=began)
                 if event['type'] in ('error', 'warning'):
                     errors.append(event.get('message', 'Sync failed'))
                     # The joining side gives up on an unanswered key exchange.
@@ -371,7 +397,7 @@ async def _attempt(pair):
                         # Values captured BEFORE the transfer avoid hiding concurrent
                         # writes. Imports may cause one extra deduplicating next pass.
                         now = time.time()
-                        update(pair['id'], last_sync=now, last_checked=now, last_error='',
+                        update(pair['id'], last_sync=now, last_checked=now, last_error='', last_exchange_began=began,
                                last_result={'received': activity.received, 'sent': activity.sent,
                                             **({'deleted': activity.deleted} if activity.deleted else {}),
                                             **({'deletions_refused': activity.refused} if activity.refused else {})},
@@ -421,11 +447,13 @@ async def watch(*, interval=60, tick=2):
                             task.result()
                         _running.pop(pair_id, None)
                         due[pair_id] = time.monotonic() + interval
-                        if version != versions.get(pair_id):
+                        if version != versions.get(pair_id) or (record and _asked_now(record)):
                             due[pair_id] = 0
                 for pair_id, record in records.items():
                     if (record['enabled'], record['state']) != versions.get(pair_id) and pair_id not in _running:
                         due[pair_id] = 0
+                    if _asked_now(record) and pair_id not in _running:
+                        due[pair_id] = 0  # a Dispatcher waits for its claim to reach this device
                     if pair_id in _running or time.monotonic() < due.get(pair_id, 0):
                         continue
                     versions[pair_id] = (record['enabled'], record['state'])

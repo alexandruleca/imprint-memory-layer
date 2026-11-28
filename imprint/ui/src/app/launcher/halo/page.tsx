@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowDownToDot, AudioLines, ChevronRight, PanelsTopLeft, Square } from "lucide-react";
+import { ArrowDownToDot, AudioLines, Bot, ChevronRight, PanelsTopLeft, Square } from "lucide-react";
 import { clock } from "@/components/recording-indicator";
 import { getRecordings, getStats } from "@/lib/api";
 import { spokenDuration, useLauncherRecorder, useNow, type HaloLayout, type LauncherRecorder } from "@/lib/launcher";
@@ -50,7 +50,7 @@ export default function Halo() {
   );
 }
 
-type Item = { id: "dashboard" | "echo" | "record" | "stop"; label: string; icon: React.ReactNode; on?: boolean; disabled?: boolean };
+type Item = { id: "dashboard" | "echo" | "record" | "stop" | "agents"; label: string; icon: React.ReactNode; on?: boolean; disabled?: boolean };
 
 function Ring({ layout, recorder, levels }: { layout: HaloLayout; recorder: LauncherRecorder; levels: [number, number] }) {
   const recording = recorder.phase === "recording";
@@ -62,6 +62,8 @@ function Ring({ layout, recorder, levels }: { layout: HaloLayout; recorder: Laun
     { id: "echo", label: layout.echo ? "Collapse Echo" : "Show Echo", icon: <AudioLines size={18} />, on: layout.echo },
     recording ? { id: "stop", label: "Stop recording and transcribe", icon: <Square size={14} className="fill-current" /> }
       : { id: "record", label: recorder.phase === "starting" ? "Starting…" : saving ? "Saving…" : "New recording", icon: <span className="halo-record-dot" />, disabled: saving },
+    // The Agents window (ADR 0232); Record keeps the third place, where its capsule shows while recording.
+    { id: "agents", label: layout.waiting ? `Open Agents, ${layout.waiting} waiting for you` : "Open Agents", icon: <Bot size={18} /> },
   ];
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
   const capsule = useRef<HTMLButtonElement | null>(null);
@@ -72,7 +74,7 @@ function Ring({ layout, recorder, levels }: { layout: HaloLayout; recorder: Laun
   // Keyboard users land on the first or last action; a recording's details come first, never Stop.
   useEffect(() => {
     if (layout.focus === "first") (recording ? capsule.current : buttons.current[0])?.focus();
-    else if (layout.focus === "last") buttons.current[2]?.focus();
+    else if (layout.focus === "last") buttons.current[items.length - 1]?.focus();
     else menu.current?.focus();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -127,6 +129,7 @@ function Ring({ layout, recorder, levels }: { layout: HaloLayout; recorder: Laun
             onFocus={() => setNamed(index)} onBlur={() => setNamed((n) => (n === index ? null : n))}
             onClick={() => act(item)}>
             {item.icon}
+            {item.id === "agents" && !!layout.waiting && <span className="halo-badge" aria-hidden="true">{layout.waiting > 9 ? "9+" : layout.waiting}</span>}
           </button>
         );
       })}

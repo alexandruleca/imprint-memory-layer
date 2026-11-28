@@ -1,4 +1,5 @@
 "use client";
+import { useAgentsWindow } from "@/lib/agents-window";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { Sidebar } from "./sidebar";
@@ -16,9 +17,11 @@ export function DashboardShell({ children, overlays }: { children: React.ReactNo
   const launcher = route === "/launcher" || route === "/launcher/halo";
   // The hidden "Hey Echo" listener window (ADR 0137) has no shell and no overlays.
   const floating = companion || launcher || route === "/wake";
+  // The desktop app's Agents window shows its page without the sidebar (ADR 0232).
+  const agentsWindow = useAgentsWindow();
   useEffect(() => { document.documentElement.classList.toggle("companion-document", companion);
     document.documentElement.classList.toggle("launcher-document", launcher);
     return () => document.documentElement.classList.remove("companion-document", "launcher-document"); }, [companion, launcher]);
-  return <>{!floating && <><a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:bg-background focus:p-3">Skip to content</a><Sidebar/></>}<div className="flex h-full min-w-0 flex-1 flex-col">{!floating && <TopBar/>}
+  return <>{!floating && <><a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:bg-background focus:p-3">Skip to content</a>{!agentsWindow && <Sidebar/>}</>}<div className="flex h-full min-w-0 flex-1 flex-col">{!floating && <TopBar/>}
     <main id="main-content" tabIndex={-1} className={`relative min-h-0 flex-1 ${floating ? "overflow-hidden" : "overflow-y-auto"}`}>{!floating && <AdvancedPageNotice />}{children}</main></div>{!floating && overlays}</>;
 }

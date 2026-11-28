@@ -216,6 +216,10 @@ def busy() -> str:
         return "a chat reply is being written"
     if _echo_talking():
         return "an Echo conversation is open"
+    # It may work for long stretches without an Imprint call (ADR 0220).
+    from .dispatch import dispatched
+    if dispatched.under_way():
+        return "a Dispatched session is running"
     from . import agent_activity
     last = agent_activity.last_call_at()
     if last and time.time() - last < AGENT_QUIET:

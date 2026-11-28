@@ -238,6 +238,18 @@ HEAD_CHARS = 64 * 1024
 _titles: list = [None, {}]
 
 
+def learned(sources: list[str], workspace=None) -> dict[str, str]:
+    """Which of these sources Imprint holds a snapshot of, with its project;
+    reads nothing when there is no snapshot database yet."""
+    path = config.get_data_dir() / 'source-snapshots.sqlite3'
+    if not sources or not path.exists():
+        return {}
+    with _db() as conn:
+        rows = conn.execute(f"SELECT source, project FROM heads WHERE workspace=? AND source IN ({','.join('?' * len(sources))})",
+                            [_workspace(workspace), *sources]).fetchall()
+    return {row['source']: row['project'] for row in rows}
+
+
 def conversation_titles(workspace=None) -> dict[str, str]:
     """Each conversation's first question or audio filename, by source key.
 

@@ -401,6 +401,39 @@ HELP: dict[str, dict[str, str]] = {
         "help": "What agents take from the Board without being asked, once they have finished what you asked: ready lets them take a Ready Task, or a Stale one to finish, in the project they work in; stale lets them take only Stale ones; off leaves every Task until you point an agent at it. They never take one assigned to you, one assigned to another client or device, or one that waits on another Task. A workspace can choose its own with imprint tasks autonomy. ready by default.",
         "example": "stale: to let agents finish abandoned work but start nothing new by themselves.",
     },
+    # ── The Dispatcher ───────────────────────────────────────────────────
+    "dispatch.concurrency": {
+        "help": "How many Dispatched sessions may run at once on this device, across every workspace whose Dispatcher you switched on, counting ones started with imprint tasks dispatch run. Each one works in its own worktree and uses your client's usage. 1 by default; 0 starts none.",
+        "example": "2: to let two Tasks be worked at the same time.",
+    },
+    "dispatch.session_minutes": {
+        "help": "How long one Dispatched session, an agent session Imprint's Dispatcher started for a Task without you, may run. A session still running then is stopped, its claim released with the end of its log, and the run counts as failed. 60 minutes by default.",
+        "example": "120: when your Tasks are large and sessions need longer to reach Review.",
+    },
+    "dispatch.daily_limit": {
+        "help": "How many Dispatched sessions the Dispatcher starts on this device in one day, counted from midnight, including ones started with imprint tasks dispatch run (which this limit never refuses). Once reached, the Board's strip says so and more start the next day. 10 by default.",
+        "example": "4: to keep the Dispatcher's use of your clients' plans small.",
+    },
+    "dispatch.failure_limit": {
+        "help": "How many Dispatched sessions may fail in a row (end without reaching Review, crash, or run past their time limit) before the Dispatcher switches itself off on this device and tells you in a comment. Sessions you stop do not count. 3 by default; 0 never switches it off.",
+        "example": "1: to look at the very first failure before anything else runs.",
+    },
+    "dispatch.codex.command": {
+        "help": "The Codex binary the Dispatcher starts for Dispatched sessions, when codex is neither on the PATH of the system the project lives on nor bundled with the ChatGPT/Codex VS Code extension. Empty by default.",
+        "example": "/opt/codex/bin/codex: when Codex is installed outside PATH.",
+    },
+    "dispatch.default_client": {
+        "help": "The client a Dispatched session uses for a Task that is not assigned to a client: claude-code or codex. Empty by default, which picks the first available client you allow, Claude Code before Codex. A Task assigned to a client always goes to that client, or waits when it is not available here.",
+        "example": "codex: to have Codex work unassigned Tasks, and Claude Code review them.",
+    },
+    "dispatch.excluded_clients": {
+        "help": "Clients the Dispatcher never starts on this device, though they are installed and connected; the Board's strip unticks them here. Empty by default: every available client is allowed.",
+        "example": "codex: to keep Dispatched sessions to Claude Code.",
+    },
+    "dispatch.claude_code.command": {
+        "help": "The Claude Code binary the Dispatcher starts for Dispatched sessions, when claude is not on the PATH of the system the project lives on. Empty by default: the Dispatcher looks for claude on PATH.",
+        "example": "/home/me/.local/bin/claude: when Claude Code is installed outside PATH.",
+    },
     "instructions.full_rules": {
         "help": "Clients that get Imprint's full rules block in their global instructions file instead of the short one. Claude Code, Codex, Cursor, Copilot and OpenCode load skills, so setup writes them four lines that say to search Imprint first and to load the imprint skill for the rest; a client listed here gets the whole guidance in its file, as Cline and the desktop apps always do. Imprint adds a client itself when its agents search first less often after the switch. Takes effect the next time setup or imprint connect runs for that client. Empty by default.",
         "example": "codex,cursor: to keep the full guidance in Codex's AGENTS.md and Cursor's rule.",
@@ -419,8 +452,12 @@ HELP: dict[str, dict[str, str]] = {
         "example": "true on your laptop and your desktop: record a call on the laptop, listen to it or transcribe it again on the desktop.",
     },
     "desktop.floating_orb": {
-        "help": "In the desktop app, whether a small floating Imprint button stays on screen while the dashboard is hidden, with Dashboard, Echo and Record around it. Off (the default), minimizing keeps the dashboard in the taskbar, closing hides it to the tray, and nothing floats over other windows. A running recording shows the button either way, because it is where a hidden recording shows and stops; it goes when the recording ends. A change applies the next time the dashboard is hidden.",
+        "help": "In the desktop app, whether a small floating Imprint button stays on screen while the dashboard is hidden, with Dashboard, Echo, Record and Agents around it. Off (the default), minimizing keeps the dashboard in the taskbar, closing hides it to the tray, and nothing floats over other windows. A running recording shows the button either way, because it is where a hidden recording shows and stops; it goes when the recording ends. A change applies the next time the dashboard is hidden.",
         "example": "true: to start a recording or talk to Echo with one click while the dashboard is out of the way.",
+    },
+    "desktop.notify_waiting": {
+        "help": "In the desktop app, whether a notification says each time an agent on this computer starts waiting for you: its turn ended, or it asked you something. The floating button, its Agents action and the tray show how many wait either way. Off by default, since several agents at once make it noisy. The count comes from the Agents page's Live rules, read from the agents' own transcripts every 30 seconds, and asks no model.",
+        "example": "true: to hear when an agent needs you while you work in another window.",
     },
     "ui.mode": {
         "help": "Which dashboard this device shows. Simple keeps the everyday pages (Home, Chat, Search, Echo, Recordings, Reminders, Library, About you, Skills, Devices, Settings), a short list of settings and plain words; Advanced shows every page and every setting. It only changes what is shown: both read and write the same memories and settings, every address works in both, and nothing is turned off. The first start after this setting arrived chose it once: advanced for an installation that had already been used, simple for a new one. The switch is also in the top bar.",

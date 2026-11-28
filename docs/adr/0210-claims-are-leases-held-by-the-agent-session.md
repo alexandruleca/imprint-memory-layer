@@ -3,8 +3,9 @@ title: ADR 0210 — Claims are leases held by the agent session
 description: An agent takes a Task by claiming it; the claim belongs to the agent session and its Imprint server renews the lease while the session lives, a Task turns Stalling after 60 minutes without progress, and it turns Stale, its claim released, when renewals stop for 15 minutes or progress stops for 120.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-27
+- Amended by: [ADR 0224](0224-a-dispatched-session-starts-only-after-its-claim-has-reached-the-paired-devices.md) — its "Concurrent claims": a Dispatched session's claim must reach the paired devices before its client starts, and the Dispatcher stops a session whose claim an earlier one beat
 - Related: [ADR 0208](0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md) (the Board), [ADR 0209](0209-a-tasks-history-is-a-log-of-events-that-devices-merge-by-union.md) (the log that orders claims), [ADR 0117](0117-the-dashboard-shows-each-agent-session-and-its-calls.md) (agent sessions), [ADR 0211](0211-agents-take-ready-and-stale-tasks-unasked-within-their-project.md) (who may take a Stale Task)
 
 ## Context

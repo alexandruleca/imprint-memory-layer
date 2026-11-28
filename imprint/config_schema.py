@@ -408,6 +408,24 @@ SETTINGS: list[Setting] = [
             "What agents take unasked: off, stale (Stale Tasks only) or ready (Ready and Stale); a workspace can choose its own",
             choices=(Choice("ready", "Ready and Stale"), Choice("stale", "Stale only"), Choice("off", "Off"))),
 
+    # ── The Dispatcher (ADRs 0220, 0222) ──────────────────────
+    Setting("dispatch.concurrency",         "IMPRINT_DISPATCH_CONCURRENCY",         1,  int,
+            "Dispatched sessions that may run at once on this device, across workspaces"),
+    Setting("dispatch.session_minutes",     "IMPRINT_DISPATCH_SESSION_MINUTES",     60, int,
+            "Minutes a Dispatched session may run before the Dispatcher stops it"),
+    Setting("dispatch.daily_limit",         "IMPRINT_DISPATCH_DAILY_LIMIT",         10, int,
+            "Dispatched sessions the Dispatcher starts a day on this device"),
+    Setting("dispatch.failure_limit",       "IMPRINT_DISPATCH_FAILURE_LIMIT",       3,  int,
+            "Failed Dispatched sessions in a row after which the Dispatcher switches itself off; 0 never"),
+    Setting("dispatch.claude_code.command", "IMPRINT_DISPATCH_CLAUDE_CODE_COMMAND", "", str,
+            "Claude Code's binary for Dispatched sessions when it is not on PATH"),
+    Setting("dispatch.codex.command",       "IMPRINT_DISPATCH_CODEX_COMMAND",       "", str,
+            "Codex's binary for Dispatched sessions when it is not on PATH"),
+    Setting("dispatch.default_client",      "IMPRINT_DISPATCH_DEFAULT_CLIENT",      "", str,
+            "The client Dispatched sessions use for a Task assigned to none; empty: the first allowed"),
+    Setting("dispatch.excluded_clients",    "IMPRINT_DISPATCH_EXCLUDED_CLIENTS",    "", str,
+            "Comma-separated clients the Dispatcher never starts, though available"),
+
     # ── Client rules (ADR 0214) ───────────────────────────────
     # Setup gives clients that load skills a short rules block pointing to
     # the imprint skill; these clients get the full block anyway. Upkeep
@@ -439,6 +457,9 @@ SETTINGS: list[Setting] = [
     # Read by the desktop app each time the dashboard is hidden.
     Setting("desktop.floating_orb", "IMPRINT_DESKTOP_FLOATING_ORB", False, bool,
             "Show the floating Imprint button while the dashboard is hidden; it shows during a recording either way"),
+    # Read by the desktop app as it counts the agents waiting for you (ADR 0232).
+    Setting("desktop.notify_waiting", "IMPRINT_DESKTOP_NOTIFY_WAITING", False, bool,
+            "Notify on this desktop each time an agent starts waiting for you; the orb and the tray show the count either way"),
 
     # ── Dashboard (ADR 0182, 0183) ────────────────────────────
     # Presentation only: both dashboards read and write the same settings and

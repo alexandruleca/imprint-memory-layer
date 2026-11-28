@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   endCompanionDrag: () => ipcRenderer.send('voice-drag-end'),
   collapseCompanion: () => ipcRenderer.send('voice-collapse-companion'),
   openDashboard: () => ipcRenderer.send('launcher-open'),
+  // The Agents window (ADR 0232), on a Task's drawer when one is given.
+  openAgents: task => ipcRenderer.send('agents-open', task),
   launcherMenu: () => ipcRenderer.send('launcher-menu'),
   // The orb and its ring of actions (ADR 0135).
   toggleLauncherRing: focus => ipcRenderer.send('launcher-ring', focus),

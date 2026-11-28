@@ -420,6 +420,17 @@ class ClaimTests(TasksTestCase):
         tasks.move(other, 'review', actor=AGENT, workspace='default')
         self.assertEqual(tasks.move(other, 'done', workspace='default')['status'], 'done')
 
+    def test_a_worker_that_hands_in_anothers_claim_does_not_mark_it_done(self):
+        # A Dispatched worker that moves its Task to Review without taking the Dispatcher's claim over.
+        task = self.ready()
+        dispatcher = tasks.agent('dispatch:run1', client='claude-code')
+        tasks.claim(task, actor=dispatcher, workspace='default')
+        review = tasks.move(task, 'review', actor=AGENT, workspace='default')
+        self.assertEqual((review['worked_by'], review['submitted_by']), ('dispatch:run1', 'session-1'))
+        with self.assertRaisesRegex(PermissionError, 'another session'):
+            tasks.move(task, 'done', actor=AGENT, workspace='default')
+        self.assertEqual(tasks.move(task, 'done', actor=CODEX, workspace='default')['status'], 'done')
+
     def test_tasks_for_the_user_or_already_ended_are_not_claimed(self):
         mine = self.ready(assignees=['user'])
         with self.assertRaisesRegex(PermissionError, 'assigned to the user'):
@@ -776,8 +787,58 @@ class ProgressTests(TasksTestCase):
         feature = make('Checkout', project='shop')['id']
         self.done('Done one', time.time(), project='shop', feature=feature)
         make('Open one', project='shop', feature=feature)
-        self.assertEqual(tasks.get(feature, workspace='default')['progress'], {'done': 1, 'total': 2})
+        self.assertEqual(tasks.get(feature, workspace='default')['progress'], {'done': 1, 'working': 0, 'total': 2})
+        reviewing = make('In review', project='shop', feature=feature)
+        tasks.move(reviewing['id'], 'review', workspace='default')
+        self.assertEqual(tasks.get(feature, workspace='default')['progress'], {'done': 1, 'working': 1, 'total': 3})
         self.assertIsNone(make('Plain', project='shop').get('progress'))
+
+
+class ProjectNameTests(TasksTestCase):
+    """A Task's project is a name, never a folder (ADR 0226)."""
+
+    def test_a_folder_given_as_the_project_becomes_the_name_of_the_project_it_holds(self):
+        made = make('Send mail', project='/home/alex/code/gdpr-web-compliance')
+        self.assertEqual(made['project'], 'gdpr-web-compliance')
+        for folder in ('C:\\Users\\alex\\code\\imprint', '\\\\wsl.localhost\\Ubuntu\\home\\alex\\code\\imprint',
+                       '/Users/alex/code/node/imprint'):
+            with self.subTest(folder=folder):
+                self.assertEqual(tasks.edit(made['id'], project=folder, workspace='default')['project'], 'imprint')
+
+    def test_a_name_with_slashes_stays_and_a_folder_holding_no_project_is_refused(self):
+        self.assertEqual(make(project='github.com/owner/repo')['project'], 'github.com/owner/repo')
+        with tempfile.TemporaryDirectory() as plain:  # no manifest, and not a code folder in a home
+            with self.assertRaisesRegex(ValueError, 'is a folder, not a project'):
+                make(project=plain)
+        self.assertEqual(len(tasks.listing(workspace='default')), 1)
+
+    def test_filtering_by_a_folder_finds_the_project_s_tasks(self):
+        made = make(project='gdpr-web-compliance')
+        found = tasks.listing(project='/home/alex/code/gdpr-web-compliance', workspace='default')
+        self.assertEqual([t['id'] for t in found], [made['id']])
+
+
+class LinkTests(TasksTestCase):
+    def test_a_task_lists_the_tasks_waiting_on_it(self):
+        first = make('Folder')
+        second = make('Run', blockers=[first['id']])
+        third = make('Stop', blockers=[first['id'], second['id']])
+        self.assertEqual(tasks.get(first['id'], workspace='default')['blocking'], sorted([second['id'], third['id']]))
+        self.assertEqual(tasks.get(third['id'], workspace='default')['blocking'], [])
+
+    def test_related_reads_every_linked_task_once_and_never_the_task_itself(self):
+        feature = make('Dispatcher', project='imprint')
+        first = make('Folder', feature=feature['id'])
+        second = make('Run', feature=feature['id'], blockers=[first['id']], priority='P1')
+        later = make('Docs', blockers=[second['id']])
+        tasks.block(first['id'], 'Waiting for the key', workspace='default')
+        found = tasks.related(second['id'], workspace='default')
+        self.assertEqual(set(found), {feature['id'], first['id'], later['id']})
+        self.assertEqual(found[feature['id']], {'title': 'Dispatcher', 'status': 'backlog', 'priority': 'P2',
+                                                'project': 'imprint', 'stale': False, 'blocked': False})
+        self.assertTrue(found[first['id']]['blocked'])
+        self.assertEqual(set(tasks.related(feature['id'], workspace='default')), {first['id'], second['id']})
+        self.assertEqual(tasks.related(make('Alone')['id'], workspace='default'), {})
 
 
 if __name__ == '__main__':

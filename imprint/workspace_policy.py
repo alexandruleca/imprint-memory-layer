@@ -486,6 +486,13 @@ def map_project(project, path, workspace=None):
     return {'workspace': ws, 'project': project, 'path': str(path)}
 
 
+def mapped_roots(workspace=None):
+    """Every folder a project is mapped to in this workspace on this device."""
+    ws = workspace_name(workspace)
+    with _db() as conn:
+        return [row[0] for row in conn.execute('SELECT path FROM project_roots WHERE workspace=?', (ws,))]
+
+
 def project_root(project, workspace=None):
     ws = workspace_name(workspace)
     with _db() as conn:

@@ -135,12 +135,17 @@ class PairedSyncTests(unittest.TestCase):
             self.assertNotIn('secret', sync_pairs.pairs(public=True)[0])
             self.assertNotIn('room', sync_pairs.pairs(public=True)[0])
             self.imports.clear()
+            began = time.time()
             await self.repeat()
             self.assertEqual([(s, w) for s, w, _ in self.imports], [('b', 'from-b'), ('a', 'from-a')])
             self.assertIsNotNone(sync_pairs.pairs()[0]['last_sync'])
+            # When the completed exchange began: a claim made before it has reached the other device (ADR 0224).
+            self.assertGreaterEqual(sync_pairs.pairs()[0]['last_exchange_began'], began)
             self.imports.clear()
+            began = time.time()
             await self.repeat()  # unchanged signatures: control only
             self.assertEqual(self.imports, [])
+            self.assertGreaterEqual(sync_pairs.pairs()[0]['last_exchange_began'], began)
             # A failed import/checkpoint on just one endpoint must make BOTH
             # endpoints retry, rather than one closing an apparently idle room.
             sync_pairs.update(pair['id'], local_digest=None)

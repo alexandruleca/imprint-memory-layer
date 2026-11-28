@@ -40,6 +40,26 @@ def learn_later(transcript, *options):
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **detach)
 
 
+def remember_transcript(payload):
+    """Record where the client keeps this conversation's transcript, for the
+    Agents page's Live view (ADR 0233). One small write; it never fails the
+    hook. A WSL client's path is kept as this runtime reads it."""
+    try:
+        session = payload.get('session_id') or payload.get('conversation_id')
+        transcript = payload.get('transcript_path')
+        if not (isinstance(session, str) and session and isinstance(transcript, str) and transcript):
+            return
+        from imprint import agent_activity
+        from imprint.wsl_paths import native_path
+        normalized = transcript.replace('\\', '/')
+        client = 'codex' if '/.codex/' in normalized else 'claude-code' if '/.claude/' in normalized else None
+        cwd = _cwd(payload)
+        agent_activity.record_transcript(session, client, native_path(cwd) if cwd else None, native_path(transcript))
+        agent_activity.close()
+    except Exception:  # noqa: BLE001 - the session's reminder matters more
+        pass
+
+
 def session_context(payload):
     """The session-start reminder, with the session's workspace or the
     question the agent should ask the user about it. A payload without a cwd
@@ -81,6 +101,8 @@ def main():
     except (ValueError, OSError):
         payload = None  # A malformed hook payload must not prevent normal tool use.
     if action in {'session-start', 'copilot-session-start'}:
+        if isinstance(payload, dict):
+            remember_transcript(payload)
         context = session_context(payload if isinstance(payload, dict) else {})
         # Claude Code and Codex read the context from hookSpecificOutput;
         # GitHub Copilot reads only a top-level additionalContext.
@@ -105,6 +127,7 @@ def main():
             learn_later(session_id, '--opencode')
         return 0
     if action == 'stop':
+        remember_transcript(payload)  # sessions that started before Imprint recorded transcripts
         if payload.get('stop_hook_active'):
             return 0
         transcript = payload.get('transcript_path')

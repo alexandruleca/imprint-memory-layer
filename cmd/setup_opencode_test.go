@@ -104,3 +104,53 @@ func TestSetupOpenCodeRegistersServerInstructionsAndPlugin(t *testing.T) {
 		}
 	}
 }
+
+// OpenCode 2 also reads servers under "mcp.servers", where `opencode mcp add`
+// writes them: an Imprint entry there counts as connected, and disconnect
+// removes it without touching the other servers or another runtime's entry.
+func TestOpenCodeServersLayoutIsReadAndCleaned(t *testing.T) {
+	home := openCodeHome(t)
+	project := filepath.Join(home, "runtime")
+	configDir := filepath.Join(home, ".config", "opencode")
+	config := filepath.Join(configDir, "opencode.json")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	write := func(entry string) {
+		t.Helper()
+		if err := os.WriteFile(config, []byte(`{"mcp":{"servers":{"imprint":`+entry+`,`+
+			`"other":{"type":"local","command":["other-mcp"]}}}}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ours := `{"type":"local","command":["` + filepath.ToSlash(filepath.Join(project, "python")) + `","-m","imprint"]}`
+	selected, _ := selectClients("opencode")
+
+	write(ours)
+	if ok, err := isConnected(selected[0], project); err != nil || !ok {
+		t.Fatalf("connected = %v, %v", ok, err)
+	}
+	if err := disconnectClients(selected, project); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := jsonutil.ReadJSON(config)
+	servers := data["mcp"].(map[string]any)["servers"].(map[string]any)
+	if _, left := servers["imprint"]; left || servers["other"] == nil {
+		t.Fatalf("after disconnect: %v", servers)
+	}
+	if ok, _ := isConnected(selected[0], project); ok {
+		t.Fatal("disconnect left OpenCode connected")
+	}
+
+	write(`{"type":"local","command":["/elsewhere/python","-m","imprint"]}`)
+	if ok, _ := isConnected(selected[0], project); ok {
+		t.Fatal("another runtime's entry counts as connected")
+	}
+	if err := disconnectClients(selected, project); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = jsonutil.ReadJSON(config)
+	if data["mcp"].(map[string]any)["servers"].(map[string]any)["imprint"] == nil {
+		t.Fatal("disconnect removed another runtime's entry")
+	}
+}

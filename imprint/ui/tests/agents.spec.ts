@@ -69,7 +69,7 @@ test('lists clients and sessions, connected first, with their calls', async ({ p
   ], {
     s1: [call({ id: 2, tool: 'store', ok: 0, error: 'ValueError: blank content', arguments: '{}' }), call({})],
   });
-  await page.goto('/agents/');
+  await page.goto('/agents/#history');
 
   await expect(page.getByRole('listitem', { name: 'Claude Code' })).toContainText('1 running');
   await expect(page.getByRole('listitem', { name: 'Claude Code' })).toContainText('2 sessions · 5 calls · 1 error');
@@ -97,7 +97,7 @@ test('lists clients and sessions, connected first, with their calls', async ({ p
 
 test('says how sessions appear before any agent has used Imprint', async ({ page }) => {
   await mockApi(page, []);
-  await page.goto('/agents/');
+  await page.goto('/agents/#history');
   await expect(page.getByText('No agent has used Imprint yet.')).toBeVisible();
 });
 
@@ -149,7 +149,7 @@ test.describe('session history', () => {
       ended('september', at('2026-09-10T10:00:00+03:00')),
       ended('last-year', at('2025-12-24T10:00:00+02:00')),
     ]);
-    await page.goto('/agents/');
+    await page.goto('/agents/#history');
 
     const history = page.getByRole('region', { name: /^History/ });
     const headings = history.getByRole('heading', { level: 3 });
@@ -175,7 +175,7 @@ test.describe('session history', () => {
     const sessions = Array.from({ length: 120 }, (_, i) =>
       ended(`s${String(i).padStart(3, '0')}`, noon - 3600 * (i + 1), { directory: `/code/project-${i}` }));
     const requests = await mockApi(page, sessions);
-    await page.goto('/agents/');
+    await page.goto('/agents/#history');
 
     const rows = page.getByRole('region', { name: /^History/ }).getByRole('button', { name: /Show calls$/ });
     await expect(rows).toHaveCount(50);
@@ -200,7 +200,7 @@ test.describe('session history', () => {
   test('scrolling to the end of the history loads the next page by itself', async ({ page }) => {
     await page.clock.setFixedTime(noon * 1000);
     await mockApi(page, Array.from({ length: 120 }, (_, i) => ended(`s${String(i).padStart(3, '0')}`, noon - 3600 * (i + 1))));
-    await page.goto('/agents/');
+    await page.goto('/agents/#history');
     const rows = page.getByRole('region', { name: /^History/ }).getByRole('button', { name: /Show calls$/ });
     await expect(rows).toHaveCount(50);
     await page.locator('main').evaluate(main => main.scrollTo(0, main.scrollHeight));
@@ -214,7 +214,7 @@ test.describe('session history', () => {
       ended('a', noon - 100, { directory: '/code/site', client: 'cursor-vscode' }),
       ended('b', noon - 200, { directory: '/code/app' }),
     ]);
-    await page.goto('/agents/');
+    await page.goto('/agents/#history');
     const rows = page.getByRole('region', { name: /^History/ }).getByRole('button', { name: /Show calls$/ });
     await expect(rows).toHaveCount(2);
 
@@ -238,7 +238,7 @@ test.describe('session history', () => {
     await mockApi(page, []);
     let fail = true;
     await page.route('**/api/agents?**', route => (fail ? route.fulfill({ status: 500, json: { error: 'Database is locked' } }) : route.fallback()));
-    await page.goto('/agents/');
+    await page.goto('/agents/#history');
     await expect(page.getByRole('alert').filter({ hasText: 'Could not load agents' })).toContainText('Database is locked');
     fail = false;
     await page.getByRole('button', { name: 'Retry' }).click();
@@ -258,7 +258,7 @@ test('shows each client searching first before and after the short rules, and te
       { client: 'cursor', short_since: now - 3 * 86400, decide_at: now + 11 * 86400,
         before: { sessions: 4, search_first: 4, share: 100 }, after: { sessions: 1, search_first: 1, share: 100 }, decision: null },
     ] } }));
-  await page.goto('/agents/');
+  await page.goto('/agents/#history');
   const panel = page.getByRole('region', { name: 'Searching first' });
   await expect(panel.getByRole('listitem').filter({ hasText: 'Codex' })).toContainText('Full block restored');
   await expect(panel).toContainText('91.7% of 12 sessions');

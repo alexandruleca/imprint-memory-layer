@@ -82,6 +82,8 @@ try {
   const halo = await page('/launcher/halo/');
   const menu = halo.getByRole('menu', { name: 'Imprint actions' });
   await menu.getByRole('menuitem', { name: 'New recording' }).waitFor();
+  // The fourth action opens the Agents window (ADR 0232).
+  await menu.getByRole('menuitem', { name: 'Open Agents' }).waitFor();
   const ring = await until(async () => { const w = await windowAt('/launcher/halo/'); return w?.visible && w; }, 'the ring to show');
   assert.ok(ring.bounds.x <= orbBounds.x + 36 && ring.bounds.x + ring.bounds.width > orbBounds.x + 72, JSON.stringify([ring.bounds, orbBounds]));
   assert.deepEqual((await windowAt('/launcher/')).bounds, orbBounds, 'the orb did not move');

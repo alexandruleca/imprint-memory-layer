@@ -76,12 +76,26 @@ def _connect() -> sqlite3.Connection:
         );
         CREATE INDEX IF NOT EXISTS idx_agent_calls_session
             ON agent_calls(session_id, id DESC);
+
+        -- Where a client keeps a conversation's transcript, from its hooks (ADR 0233).
+        CREATE TABLE IF NOT EXISTS agent_transcripts (
+            conversation TEXT PRIMARY KEY,
+            client       TEXT,
+            cwd          TEXT,
+            path         TEXT NOT NULL,
+            recorded_at  REAL NOT NULL
+        );
         """
     )
     columns = {row[1] for row in conn.execute("PRAGMA table_info(agent_sessions)")}
     for column in ("board_session", "agent_name"):  # The Board's session and the name it chose (ADR 0216).
         if column not in columns:
             conn.execute(f"ALTER TABLE agent_sessions ADD COLUMN {column} TEXT")
+    # A finished session's model and token totals, read once from its transcript (ADR 0233).
+    for column, kind in (("model", "TEXT"), ("transcript", "TEXT"), ("tokens_new", "INTEGER"), ("tokens_cached", "INTEGER"),
+                         ("tokens_out", "INTEGER"), ("totals_at", "REAL")):
+        if column not in columns:
+            conn.execute(f"ALTER TABLE agent_sessions ADD COLUMN {column} {kind}")
     conn.commit()
     _conn = conn
     return conn
@@ -114,6 +128,7 @@ def start_session(directory: str | None, workspace: str | None) -> str:
     _session_id = uuid.uuid4().hex
     now = time.time()
     _write("DELETE FROM agent_sessions WHERE last_seen < ?", (now - RETENTION_DAYS * 86400,))
+    _write("DELETE FROM agent_transcripts WHERE recorded_at < ?", (now - RETENTION_DAYS * 86400,))
     _write(
         "INSERT INTO agent_sessions (id, pid, directory, workspace, started_at, last_seen) VALUES (?, ?, ?, ?, ?, ?)",
         (_session_id, os.getpid(), directory, workspace, now, now),
@@ -139,6 +154,45 @@ def set_board(board_session: str, name: str | None = None) -> None:
 def rename(board_session: str, name: str) -> None:
     """Show ``name`` for every session of this Board session."""
     _write("UPDATE agent_sessions SET agent_name = ? WHERE board_session = ?", (name, board_session))
+
+
+def record_transcript(conversation: str, client: str | None, cwd: str | None, path: str) -> None:
+    """Where a client keeps a conversation's transcript, told by its
+    SessionStart or Stop hook (ADR 0233). The first record's time stays: it
+    is when the conversation started, which matches a Codex session to it."""
+    _write("INSERT INTO agent_transcripts (conversation, client, cwd, path, recorded_at) VALUES (?, ?, ?, ?, ?)"
+           " ON CONFLICT (conversation) DO UPDATE SET path = excluded.path,"
+           " client = COALESCE(excluded.client, client), cwd = COALESCE(excluded.cwd, cwd)",
+           (conversation[:200], client, cwd, path, time.time()))
+
+
+def transcripts(conversations: list[str] | None = None, *, since: float | None = None) -> list[dict]:
+    """Recorded transcripts: of the given conversations, or recorded since a time."""
+    if not _db_path().exists():
+        return []
+    try:
+        conn = _connect()
+        if conversations is not None:
+            if not conversations:
+                return []
+            rows = conn.execute(f"SELECT * FROM agent_transcripts WHERE conversation IN ({','.join('?' * len(conversations))})",
+                                conversations).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM agent_transcripts WHERE recorded_at >= ?", (since or 0,)).fetchall()
+    except (sqlite3.Error, OSError):
+        return []
+    return [dict(row) for row in rows]
+
+
+def connected_sessions(*, seen_since: float | None = None) -> list[dict]:
+    """Sessions whose process still runs, and, with ``seen_since``, those
+    that ended after it, newest first."""
+    if not _db_path().exists():
+        return []
+    conn = _connect()
+    rows = conn.execute(f"SELECT {_SESSION_COLUMNS} FROM agent_sessions s WHERE s.ended_at IS NULL OR s.last_seen >= ?"
+                        " ORDER BY s.last_seen DESC", (seen_since if seen_since is not None else time.time() + 1,)).fetchall()
+    return [s for s in map(_session, rows) if s["connected"] or seen_since is not None]
 
 
 def current() -> dict:
@@ -192,6 +246,17 @@ def last_call_at() -> float | None:
     return float(row[0]) if row and row[0] is not None else None
 
 
+def recent_directories(limit: int = 200) -> list[str]:
+    """The folders agent sessions worked in, most recently seen first, each once."""
+    try:
+        rows = _connect().execute(
+            "SELECT directory, MAX(last_seen) AS seen FROM agent_sessions WHERE directory IS NOT NULL "
+            "AND directory != '' GROUP BY directory ORDER BY seen DESC LIMIT ?", (limit,)).fetchall()
+    except (sqlite3.Error, OSError):
+        return []
+    return [row['directory'] for row in rows]
+
+
 def end_session() -> None:
     """Mark the session ended and close the database; later calls do nothing."""
     global _session_id
@@ -233,10 +298,47 @@ def _parse_cursor(cursor: str) -> tuple[float, str]:
     return float(seen), sid
 
 
-def _filters(client: str | None, query: str | None) -> tuple[str, list]:
-    """SQL conditions for a client name (as ``clients`` names it) and a
-    case-insensitive substring of the folder, workspace or client."""
+def save_totals(session_id: str, *, model: str | None, transcript: str | None, tokens: dict | None) -> None:
+    """Keep what a finished session's transcript said, so it is read once:
+    ``tokens`` None when it has no transcript (ADR 0233)."""
+    tokens = tokens or {}
+    _write("UPDATE agent_sessions SET model = ?, transcript = ?, tokens_new = ?, tokens_cached = ?, tokens_out = ?,"
+           " totals_at = ? WHERE id = ?",
+           (model, transcript, tokens.get("new_input"), tokens.get("cached_input"), tokens.get("output"), time.time(),
+            session_id))
+
+
+def _project_directories(project: str) -> list[str]:
+    """The recorded folders whose project, as the Board names it, is ``project``."""
+    from .agents_live import _project
+    rows = _connect().execute("SELECT DISTINCT directory FROM agent_sessions WHERE directory IS NOT NULL").fetchall()
+    return [row["directory"] for row in rows if _project(row["directory"]) == project]
+
+
+def options() -> dict:
+    """What History's project and agent filters offer."""
+    if not _db_path().exists():
+        return {"projects": [], "agents": []}
+    from .agents_live import _project
+    conn = _connect()
+    folders = [row["directory"] for row in conn.execute("SELECT DISTINCT directory FROM agent_sessions WHERE directory IS NOT NULL")]
+    agents = [row["agent_name"] for row in conn.execute(
+        "SELECT DISTINCT agent_name FROM agent_sessions WHERE agent_name IS NOT NULL ORDER BY agent_name")]
+    return {"projects": sorted({p for p in map(_project, folders) if p}), "agents": agents}
+
+
+def _filters(client: str | None, query: str | None, project: str | None = None, agent: str | None = None) -> tuple[str, list]:
+    """SQL conditions for a client name (as ``clients`` names it), a project,
+    an agent's name and a case-insensitive substring of the folder,
+    workspace or client."""
     sql, params = "", []
+    if project:
+        folders = _project_directories(project)
+        sql += f" AND s.directory IN ({','.join('?' * len(folders))})" if folders else " AND 0"
+        params += folders
+    if agent:
+        sql += " AND s.agent_name = ?"
+        params.append(agent)
     if client:
         sql += " AND COALESCE(s.client, 'Unknown client') = ?"
         params.append(client)
@@ -249,7 +351,7 @@ def _filters(client: str | None, query: str | None) -> tuple[str, list]:
 
 
 def page_sessions(limit: int = 50, before: str | None = None, *, client: str | None = None,
-                  query: str | None = None) -> dict:
+                  query: str | None = None, project: str | None = None, agent: str | None = None) -> dict:
     """One page of the session history (ADR 0151).
 
     ``running`` holds every connected session, on the first page only, so
@@ -263,7 +365,7 @@ def page_sessions(limit: int = 50, before: str | None = None, *, client: str | N
     if not _db_path().exists():
         return empty
     conn = _connect()
-    where, params = _filters(client, query)
+    where, params = _filters(client, query, project, agent)
     open_rows = conn.execute(
         f"SELECT {_SESSION_COLUMNS} FROM agent_sessions s WHERE s.ended_at IS NULL{where}"
         " ORDER BY s.last_seen DESC, s.id DESC", params).fetchall()

@@ -8,7 +8,7 @@ import time
 from . import actors
 from .state import _short
 from .store import PRIORITIES, STATUSES, _events, _reading, _states, _uid, _workspace
-from .validation import _priority, status_ref
+from .validation import _priority, project_filter, status_ref
 
 
 ARCHIVE_DAYS = 14
@@ -84,8 +84,11 @@ class _View:
                                   if uid in self.by_uid and self.by_uid[uid]['status'] != 'done']
         children = [s for s in self.by_uid.values() if s['feature'] == state['uid']]
         shown['tasks'] = sorted(s['id'] for s in children)
+        shown['blocking'] = sorted(s['id'] for s in self.by_uid.values() if state['uid'] in s['blockers'])
         live = [s for s in children if s['status'] != 'cancelled']
-        shown['progress'] = {'done': sum(1 for s in live if s['status'] == 'done'), 'total': len(live)} if children else None
+        shown['progress'] = {'done': sum(1 for s in live if s['status'] == 'done'),
+                             'working': sum(1 for s in live if s['status'] in ('in_progress', 'review')),
+                             'total': len(live)} if children else None
         stalling, stale = self.claim(state)
         holder = state.get('holder')
         shown['stalling'], shown['stale'] = stalling, stale
@@ -101,6 +104,43 @@ def get(task: str, workspace: str | None = None) -> dict:
         uid = _uid(conn, task)
         view = _view(conn)
     return view.public(view.by_uid[uid])
+
+
+def related(task: str, workspace: str | None = None) -> dict[str, dict]:
+    """The Tasks one Task links to, by id: its Feature, the Feature's Tasks
+    when it is one, the Tasks it waits on and those that wait on it, each
+    with what a link to it shows."""
+    with _reading(workspace) as conn:
+        uid = _uid(conn, task)
+        view = _view(conn)
+    state = view.by_uid[uid]
+    linked = [state['feature'], *state['blockers'],
+              *(s['uid'] for s in view.by_uid.values() if s['feature'] == uid or uid in s['blockers'])]
+    found = {}
+    for other in linked:
+        other_state = view.by_uid.get(other) if other else None
+        if other_state and other != uid:
+            found[other_state['id']] = {**{key: other_state[key] for key in ('title', 'status', 'priority', 'project')},
+                                        'stale': view.claim(other_state)[1], 'blocked': other_state['blocked'] is not None}
+    return found
+
+
+def claimed_by(sessions: list[str], workspace: str | None = None) -> dict[str, list[str]]:
+    """The Tasks each agent session claimed on the Board, by session, in the order it claimed them."""
+    if not sessions:
+        return {}
+    with _reading(workspace) as conn:
+        if conn is None:
+            return {}
+        rows = conn.execute(f"SELECT task, session FROM events WHERE kind = 'claimed' AND session IN "
+                            f"({','.join('?' * len(sessions))}) ORDER BY hlc", sessions).fetchall()
+        view = _view(conn)
+    found: dict[str, list[str]] = {}
+    for row in rows:
+        task = view.id(row['task'])
+        if task and task not in found.setdefault(row['session'], []):
+            found[row['session']].append(task)
+    return found
 
 
 def _contains(state: dict, text: str) -> bool:
@@ -120,6 +160,7 @@ def listing(*, project: str | None = None, feature: str | None = None, tag: str 
         view = _view(conn)
         feature_uid = _uid(conn, feature) if feature else None
     states, now = list(view.by_uid.values()), view.now
+    project = project_filter(project)
     status = status_ref(status) if status else None
     priority = _priority(priority) if priority else None
     tag = tag.strip().lower() if tag else None

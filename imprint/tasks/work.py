@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 
 from . import sessions
@@ -37,6 +38,60 @@ def set_autonomy(value: str, workspace: str | None = None) -> str:
     return value
 
 
+DISPATCHING = 'dispatching:'
+
+
+def announce_dispatching(device: str, name: str, on: bool, workspace: str | None = None) -> None:
+    """Tell paired devices whether this device's Dispatcher is switched on
+    for this workspace (ADR 0220). The switch itself stays on the device;
+    this copy travels with the Board only so other devices can show it."""
+    value = json.dumps({'on': bool(on), 'name': str(name)[:64]})
+    with _writing(workspace) as conn:
+        conn.execute('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) '
+                     'ON CONFLICT (key) DO UPDATE SET value = excluded.value, '
+                     'updated_at = MAX(excluded.updated_at, updated_at + 0.001)',
+                     (f'{DISPATCHING}{device}', value, time.time()))
+
+
+def dispatching(workspace: str | None = None) -> list[dict]:
+    """Every device that announced its Dispatcher for this workspace:
+    ``{'device', 'name', 'on', 'at'}``."""
+    with _reading(workspace) as conn:
+        rows = conn.execute('SELECT key, value, updated_at FROM settings WHERE key LIKE ?',
+                            (f'{DISPATCHING}%',)).fetchall() if conn else []
+    found = []
+    for row in rows:
+        try:
+            value = json.loads(row['value'])
+            found.append({'device': row['key'][len(DISPATCHING):], 'name': str(value['name']), 'on': bool(value['on']),
+                          'at': float(row['updated_at'])})
+        except (ValueError, KeyError, TypeError):
+            continue
+    return sorted(found, key=lambda d: d['name'].lower())
+
+
+DISPATCH_SESSION = 'dispatch:'
+
+
+def dispatched_sessions(workspace: str | None = None) -> set[str]:
+    """The Board sessions of Dispatched sessions (ADR 0220), from the
+    workspace's history: the Dispatcher's own claims (``dispatch:<run>``)
+    and every claim that took one of them over with its token. A takeover
+    of a Stale claim without the token is another agent's, not one."""
+    with _reading(workspace) as conn:
+        rows = conn.execute("SELECT id, session, data FROM events WHERE kind = 'claimed' ORDER BY hlc, id").fetchall() \
+            if conn else []
+    tokens, sessions = {}, set()
+    for row in rows:
+        data = json.loads(row['data'])
+        session = row['session'] or ''
+        replaced = data.get('replaces')
+        if session.startswith(DISPATCH_SESSION) or (replaced in tokens and data.get('token_hash') == tokens[replaced]):
+            tokens[row['id']] = data.get('token_hash')
+            sessions.add(session)
+    return sessions
+
+
 def _for_agent(assignees: list[str], client: str | None, device: str | None) -> bool:
     """Whether an agent of ``client`` on ``device`` may take it unasked."""
     if 'user' in assignees:
@@ -64,22 +119,34 @@ def _standalone(view: _View, state: dict, features: set[str]) -> bool:
     return state['uid'] not in features and state['feature'] not in view.by_uid
 
 
+def takeable(*, projects=None, client: str | None = None, device: str | None = None,
+             workspace: str | None = None) -> list[dict]:
+    """Every Task an agent of ``client`` on ``device`` may take unasked, in
+    the Board's order (highest priority, then position, then oldest):
+    standalone, Ready or Stale as the workspace's autonomy allows, open to a
+    claim and for that agent. ``projects`` limits it to those projects; the
+    Dispatcher looks across every project with a folder on its device
+    (ADR 0220)."""
+    mode = autonomy(workspace)
+    if mode == 'off':
+        return []
+    with _reading(workspace) as conn:
+        view = _view(conn)
+    features = {s['feature'] for s in view.by_uid.values() if s['feature']}
+    found = [s for s in view.by_uid.values()
+             if (projects is None or s['project'] in projects) and _standalone(view, s, features)
+             and _for_agent(s['assignees'], client, device) and _takeable(view, s, ready=mode == 'ready')]
+    return [view.public(s) for s in sorted(found, key=_order)]
+
+
 def next_task(*, project: str, client: str | None = None, device: str | None = None,
               workspace: str | None = None) -> dict | None:
     """The Task an agent of ``client`` on ``device`` working in ``project``
     may take unasked, if any: a standalone one, highest priority, then
     position, then oldest. A Feature's Tasks are taken when asked, through
     its frontier."""
-    mode = autonomy(workspace)
-    if mode == 'off':
-        return None
-    with _reading(workspace) as conn:
-        view = _view(conn)
-    features = {s['feature'] for s in view.by_uid.values() if s['feature']}
-    found = [s for s in view.by_uid.values()
-             if s['project'] == project and _standalone(view, s, features)
-             and _for_agent(s['assignees'], client, device) and _takeable(view, s, ready=mode == 'ready')]
-    return view.public(min(found, key=_order)) if found else None
+    found = takeable(projects={project}, client=client, device=device, workspace=workspace)
+    return found[0] if found else None
 
 
 def frontier(feature: str, workspace: str | None = None) -> list[dict]:

@@ -1,11 +1,15 @@
 ---
+import { analyticsTags, volentiLoader, volentiSnippet } from '../lib/volenti.mjs';
+
 const ga4Id = import.meta.env.PUBLIC_GA4_ID;
 ---
 
 {ga4Id && (
   <>
-    {/* Loads Google Analytics only after the visitor accepts in its banner. */}
-    <script is:inline defer src="/scripts/consent.js" data-ga4={ga4Id}></script>
+    {/* Volenti asks for consent; Google Analytics runs only once the visitor allows Statistics (ADR 0231). */}
+    <script is:inline set:html={volentiSnippet}></script>
+    <script is:inline src={volentiLoader} async></script>
+    {analyticsTags(ga4Id).map((attrs) => <script is:inline {...attrs}></script>)}
     <script is:inline type="module" src="/scripts/events.js"></script>
   </>
 )}

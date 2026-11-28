@@ -27,6 +27,8 @@ const ogImage = new URL('/og.png', Astro.site ?? siteOrigin).toString();
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    {/* The consent snippet comes before every other script, as Volenti asks. */}
+    <Analytics />
     <title>{title}</title>
     <meta name="description" content={description} />
     <meta name="keywords" content={keywords} />
@@ -97,7 +99,6 @@ const ogImage = new URL('/og.png', Astro.site ?? siteOrigin).toString();
     />
 
     <script is:inline src="/scripts/anchors.js"></script>
-    <Analytics />
   </head>
   <body class="min-h-screen starry">
     <slot />

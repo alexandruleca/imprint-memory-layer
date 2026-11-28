@@ -82,19 +82,25 @@ def progress(project: str = "", feature: str = ""):
 def inbox():
     """Comments agents addressed to the user, unread, and the Tasks waiting
     in Review: what the dashboard notifies about (ADR 0212)."""
+    active = config.get_active_workspace()
     try:
-        comments = tasks.user_inbox(mark=False)
+        # Comments from every workspace, each saying which (a Dispatcher's switch-off or hand-off
+        # elsewhere still tells); Tasks in Review from the workspace on show.
+        comments = [{**comment, 'workspace': workspace}
+                    for workspace in [active, *(w for w in config.get_known_workspaces() if w != active)]
+                    for comment in tasks.user_inbox(mark=False, workspace=workspace)]
         review = tasks.listing(status='review')
     except (ValueError, LookupError) as error:
         return _refused(error)
-    return {'comments': comments, 'review': review}
+    return {'workspace': active, 'comments': comments, 'review': review}
 
 
 @router.post("/inbox/read")
 async def inbox_read(request: Request):
     try:
         body = await _body(request)
-        return {'read': tasks.mark_user_read(_list(body, 'ids'))}
+        workspace = str(body.get('workspace') or '') or None
+        return {'read': tasks.mark_user_read(_list(body, 'ids'), workspace=workspace)}
     except (ValueError, LookupError) as error:
         return _refused(error)
 
@@ -105,6 +111,47 @@ async def set_autonomy(request: Request):
         body = await _body(request)
         return {'autonomy': tasks.set_autonomy(str(body.get('value') or ''))}
     except ValueError as error:
+        return _refused(error)
+
+
+@router.get("/dispatch")
+def dispatch_status(refresh: bool = False):
+    """This device's Dispatcher for the active workspace (ADR 0220): the
+    Board's strip; ``refresh`` checks the clients again (ADR 0222)."""
+    from .dispatch import status
+    try:
+        return status.status(config.get_active_workspace(), projects=False, refresh=refresh)
+    except (ValueError, LookupError, OSError) as error:
+        return _refused(error)
+
+
+@router.put("/dispatch")
+async def dispatch_switch(request: Request):
+    """Switch this device's Dispatcher for the active workspace; the person's
+    choice, made on the Board (agents have no tool for it)."""
+    from .dispatch import status
+    try:
+        body = await _body(request)
+        given = [key for key in ('on', 'refine') if key in body]
+        if not given or any(not isinstance(body[key], bool) for key in given):
+            raise ValueError('on and refine are true or false, and at least one is given')
+        workspace = config.get_active_workspace()
+        if 'on' in body:
+            status.switch(workspace, body['on'])
+        if 'refine' in body:
+            status.switch_refining(workspace, body['refine'])  # Backlog refinement (ADR 0230)
+        return status.status(workspace, projects=False)
+    except (ValueError, LookupError, OSError) as error:
+        return _refused(error)
+
+
+@router.post("/dispatch/{run_id}/stop")
+def dispatch_stop(run_id: str):
+    """Stop a running Dispatched session, as `imprint tasks dispatch stop` does."""
+    from .dispatch import dispatched
+    try:
+        return {'run': dispatched.request_stop(run_id)}
+    except (ValueError, LookupError) as error:
         return _refused(error)
 
 
@@ -125,9 +172,10 @@ async def create(request: Request):
 
 @router.get("/{task_id}")
 def details(task_id: str):
-    """One Task, its history and its handoff."""
+    """One Task, its history, its handoff and the Tasks it links to."""
     try:
-        return {'task': tasks.get(task_id), 'history': tasks.history(task_id), 'handoff': tasks.handoff(task_id)}
+        return {'task': tasks.get(task_id), 'history': tasks.history(task_id), 'handoff': tasks.handoff(task_id),
+                'related': tasks.related(task_id)}
     except (ValueError, LookupError) as error:
         return _refused(error)
 

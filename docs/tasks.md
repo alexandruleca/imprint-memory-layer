@@ -24,6 +24,8 @@ A Task belongs to one workspace and one project, and has:
 | Assignees | `user`, a client (`codex`), a device (`@bedrock`) or a client on a device (`codex@bedrock`) |
 | Blocked | A mark with a reason; the Task keeps its status |
 
+The project is a name. A folder given for it, as an agent passing its working directory does, becomes the name of the project that folder holds, named as the session's own project is (`/home/alex/code/imprint` is `imprint`); a folder that holds no project is refused. Tasks stored with a folder before this get their project's name from upkeep, as an edit by Imprint ([ADR 0226](adr/0226-a-tasks-project-is-a-name-and-a-folder-given-for-it-is-named.md)).
+
 Every change is an event in the Task's history (`imprint tasks history T-…`). Text is redacted before it is stored, like every other write ([secret redaction](redaction.md)). Agents can cancel a Task; only you delete one, and a deletion leaves only a tombstone. Done and Cancelled Tasks leave the Board 14 days after they end and stay readable with `--archived`.
 
 ## Claims
@@ -37,7 +39,7 @@ While the agent's session runs, its Imprint server renews the claim's **lease** 
 
 The settings `tasks.lease_minutes`, `tasks.stalling_minutes` and `tasks.stale_minutes` change these times ([configuration](configuration.md)).
 
-When a holder finishes, it moves the Task to **Review** with a checkpoint saying how it verified the work. You, or a different agent session that reviewed it, move it to **Done**; the session that did the work cannot. Releasing a claim without finishing puts the Task back in Ready (Backlog without acceptance criteria); `imprint tasks release T-…` ends any agent's claim.
+When a holder finishes, it moves the Task to **Review** with a checkpoint saying how it verified the work. You, or a different agent session that reviewed it, move it to **Done**; the session that did the work cannot, and neither can the session that moved it to Review, even when another session held the claim (a Dispatched worker that never took the Dispatcher's claim over). Releasing a claim without finishing puts the Task back in Ready (Backlog without acceptance criteria); `imprint tasks release T-…` ends any agent's claim.
 
 ## Taking over and taking work unasked
 
@@ -46,6 +48,10 @@ Paired devices exchange what changed about once a minute, so two agents on two d
 Another agent takes over a Stale Task by claiming it, starting from its **handoff** (`tasks(action="handoff")` or `imprint tasks handoff T-…`): the last checkpoint, the branch and commit, the files touched, and the previous holder's conversation, which `read_source` opens once Imprint has learned it.
 
 Agents also take work without being asked. Once an agent has finished what you asked, or during a run you started to work the Board, it may claim one Task that `tasks(action="next")` offers: Ready or Stale, in the project it works in, standalone (neither a Feature nor one of a Feature's Tasks), neither marked Blocked nor waiting on a Task that is not Done, not assigned to you, and unassigned or assigned to its client or device. The highest priority goes first, then the position you gave it, then the oldest. It says so in its reply and on the Task. The project is the session's own, named from the folder it runs in as the session-start lines and `imprint tasks` name it; an agent cannot point `next` at another project. A Feature's Tasks are taken only when you ask for that Feature: the agent works its frontier (`tasks(action="next", feature="T-…")`), which keeps their blockers and order ([ADR 0219](adr/0219-agents-take-only-standalone-tasks-unasked.md)). `tasks.autonomy` limits this: `ready` (Ready and Stale; the default), `stale` (Stale only) or `off`. `imprint tasks autonomy stale` sets a workspace's own choice.
+
+## Dispatched sessions
+
+When you switch a device's **Dispatcher** on for a workspace (off by default), that device starts agent sessions for Tasks itself, with nobody at the keyboard: it reviews Tasks in Review first, in a different client from the one that did the work where it can (a passing review moves the Task to Done and tells you its branch is ready to merge; a failing one sends it back to Ready with its findings, and after two, counted across your paired devices, you get the Task), then takes over Stale Tasks and works Ready ones, by the same rules as taking work unasked, each in a worktree of its own outside the project, and never pushing or merging. Before it starts one, its claim must reach the paired devices: the Dispatcher has sync exchange at once and waits up to 2 minutes for it, and starts nothing when another device's earlier claim won, or when you switch it off or the dashboard server stops meanwhile. While a session runs, the Dispatcher stops it itself as soon as its run no longer holds the claim: when another session's claim took the Task (recorded as lost), when the session released it unfinished (a failure), or when you released, cancelled or finished the Task (stopped, with its worktree kept). At most one session keeps working on a Task; if two devices' clocks disagree, both may start and the second in order is stopped when the other's claim arrives. On one device a Task has one session at a time, so a review never starts while its worker is still finishing, and a Task marked Blocked or waiting on another is not reviewed. When a session's client ends, whatever it left running in its process group ends too (on Linux, macOS and inside WSL), so its worktree is not left in use. An automatic update waits while a Dispatched session runs or is being started on the device, whoever started it, since a session can work for a long stretch without calling Imprint ([ADR 0175](adr/0175-releases-install-by-themselves-when-nothing-would-be-interrupted.md)). With **Refine Backlog** switched on too (its own switch, also off by default), a pass that starts no review or work starts a refinement instead: an agent that reads a throwaway copy of the project and gives a Backlog Task without acceptance criteria its criteria, a fuller description, priority and tags, splits a large one into smaller Backlog Tasks or comments when it duplicates another, and leaves it in Backlog with a comment to you; each Task is refined once until you change it, and you decide what moves to Ready ([ADR 0230](adr/0230-the-dispatcher-refines-backlog-tasks-when-the-person-switches-refinement-on.md)). Only you switch either on: agents get no tool for it, and the command line refuses to switch it on or start a session from inside a Dispatched session (the dashboard's local API, like the rest of the dashboard, answers any program on the computer). The switch, the limits and the clients are described on the dashboard's Board and in the configuration ([ADRs 0220-0230](adr/0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md) and [0234](adr/0234-the-dispatcher-counts-review-rounds-and-failures-across-paired-devices.md)).
 
 ## Progress
 
@@ -85,6 +91,11 @@ imprint tasks move T-7f3kq review              # edit, append, tag, assign, link
 imprint tasks comment T-7f3kq "Use the new tax table" --to codex
 imprint tasks next --feature T-2b9hd           # a Feature's frontier: what can be taken now
 imprint tasks delete T-7f3kq --yes             # gone here, leaving a tombstone
+imprint tasks dispatch on                      # this device's Dispatcher, for this workspace; off by default (ADR 0220)
+imprint tasks dispatch refine on               # Backlog refinement on this device, for this workspace; off by default (ADR 0230)
+imprint tasks dispatch status                  # on or off, running sessions, what it would take next
+imprint tasks dispatch run T-7f3kq             # start a Dispatched session on it now and wait, within the daily and concurrency limits; --client codex, --review (ADRs 0220, 0229)
+imprint tasks dispatch stop 46b07b86f855       # stop a running Dispatched session
 ```
 
 Every command takes `--workspace` and `--json`; changes made here are yours.

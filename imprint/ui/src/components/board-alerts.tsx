@@ -1,5 +1,6 @@
 "use client";
 
+import { isAgentsWindow } from "@/lib/agents-window";
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -39,18 +40,24 @@ export function BoardAlerts() {
     // An older API, or one that failed part-way, answers without them: nothing to tell.
     const comments = Array.isArray(inbox.data?.comments) ? inbox.data.comments : [];
     const review = Array.isArray(inbox.data?.review) ? inbox.data.review : [];
-    if (!comments.length && !review.length) return;
-    const openTask = (id: string) => router.push(`/agents/?task=${encodeURIComponent(id)}#board`);
+    // The desktop app's Agents window leaves telling to the main window, so nothing is told twice (ADR 0232).
+    if ((!comments.length && !review.length) || isAgentsWindow()) return;
+    // In the desktop app a Task opens in the Agents window; in a browser, on this page's Board.
+    const openTask = (id: string) => (window.electronAPI?.openAgents
+      ? window.electronAPI.openAgents(id) : router.push(`/agents/?task=${encodeURIComponent(id)}#board`));
+    // Comments come from every workspace; one from another names it and opens nothing here, since its Task is on that Board.
+    const here = inbox.data?.workspace;
     for (const comment of comments) {
       if (shown.current.has(comment.id)) continue;
       shown.current.add(comment.id);
-      const read = () => { void markTaskCommentsRead([comment.id]).catch(() => {}); };
-      const title = `${who(comment.by)} on ${comment.task}`;
+      const read = () => { void markTaskCommentsRead([comment.id], comment.workspace).catch(() => {}); };
+      const elsewhere = comment.workspace && here && comment.workspace !== here;
+      const title = `${who(comment.by)} on ${comment.task}${elsewhere ? ` (workspace ${comment.workspace})` : ""}`;
       toast(title, {
         id: `task-comment-${comment.id}`, description: comment.text, duration: 20_000, onDismiss: read, onAutoClose: () => {},
-        action: { label: "Open", onClick: () => { read(); openTask(comment.task); } },
+        action: elsewhere ? undefined : { label: "Open", onClick: () => { read(); openTask(comment.task); } },
       });
-      notifyDesktop(title, comment.text, () => { read(); openTask(comment.task); });
+      notifyDesktop(title, comment.text, () => { read(); if (!elsewhere) openTask(comment.task); });
     }
     const seen = seenReview();
     let changed = false;

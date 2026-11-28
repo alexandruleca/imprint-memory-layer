@@ -21,6 +21,10 @@ Before your first claim or comment in a session, choose the name you go by on th
 
 The Task is finished when it is in Review and its last checkpoint accounts for every acceptance criterion.
 
+## Dispatched sessions
+
+If your prompt says you are a Dispatched session, Imprint's Dispatcher started you for one Task: follow the `imprint-dispatch` skill, which your prompt carries, rather than this one. Tasks a Dispatched session creates start in Backlog.
+
 ## Taking work unasked
 
 Once you have finished what you were asked, or during a run the user started to work the Board, take one Task at a time:

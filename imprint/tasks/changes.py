@@ -9,7 +9,7 @@ import uuid
 from .actors import _actor
 from .state import _set_changes
 from .store import _append, _draw_id, _project, _state, _uid, _writing
-from .validation import ASSIGNEES, CRITERION_CHARS, TAGS, TEXT_CHARS, TITLE_CHARS, _assignees, _criteria, _limit, _priority, _redacted, status_ref, _tags, _text
+from .validation import ASSIGNEES, CRITERION_CHARS, TAGS, TEXT_CHARS, TITLE_CHARS, _assignees, _criteria, _limit, _priority, _project_name, _redacted, status_ref, _tags, _text
 from .view import _view
 
 
@@ -62,7 +62,7 @@ def create(title: str, *, project: str, description: str = '', status: str = 'ba
     """Put a new Task on the workspace's Board."""
     actor = _actor(actor)
     title = _text(title, 'title', TITLE_CHARS, required=True)
-    project = _text(project, 'project', TITLE_CHARS, required=True)
+    project = _project_name(project)
     description = _text(description, 'description', TEXT_CHARS)
     criteria = _criteria(acceptance)
     status = status_ref(status)
@@ -101,7 +101,7 @@ def edit(task: str, *, title=_UNSET, description=_UNSET, project=_UNSET, priorit
     if description is not _UNSET:
         fields['description'] = _redacted([_text(description, 'description', TEXT_CHARS)])[0]
     if project is not _UNSET:
-        fields['project'] = _text(project, 'project', TITLE_CHARS, required=True)
+        fields['project'] = _project_name(project)
     if priority is not _UNSET:
         fields['priority'] = _priority(priority)
     if acceptance is not _UNSET:
@@ -137,9 +137,10 @@ def move(task: str, status: str, *, position: float | None = None, actor: dict |
         if status == 'ready' and not state['acceptance']:
             raise ValueError('A task moves to ready only with at least one acceptance criterion')
         if status == 'done' and actor['kind'] == 'agent':
-            if (state['holder'] or {}).get('session') == actor['session']:
+            # A Dispatched reviewer holds a Task in Review while it checks it (ADR 0221).
+            if (state['holder'] or {}).get('session') == actor['session'] and state['status'] != 'review':
                 raise PermissionError('Move it to Review first: another session or the user marks it Done')
-            if state['worked_by'] == actor['session']:
+            if actor['session'] in (state['worked_by'], state.get('submitted_by')):
                 raise PermissionError('The session that did the work does not mark it Done: '
                                       'another session or the user does')
     return _change(task, 'moved', data, actor, workspace, check)

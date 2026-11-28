@@ -8,6 +8,13 @@ const CLIENT_NAMES: Record<string, string> = {
   "claude-ai": "Claude Desktop",
   "cursor-vscode": "Cursor",
   "codex-mcp-client": "Codex",
+  // As the Board and Live name clients (tasks.client_id).
+  codex: "Codex",
+  cursor: "Cursor",
+  copilot: "GitHub Copilot",
+  opencode: "OpenCode",
+  cline: "Cline",
+  "claude-desktop": "Claude Desktop",
 };
 export const clientName = (client: string | null) => (client ? CLIENT_NAMES[client] ?? client : "Unknown client");
 

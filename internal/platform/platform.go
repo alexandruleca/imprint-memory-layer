@@ -600,7 +600,7 @@ func ChatGPTDesktopInstallMarker() string {
 		if profile == "" {
 			return ""
 		}
-		return filepath.Join(profile, "AppData", "Local", "Programs", "OpenAI", "ChatGPT")
+		return chatGPTDesktopIn(filepath.Join(profile, "AppData", "Local"))
 	}
 	switch runtime.GOOS {
 	case "darwin":
@@ -610,9 +610,24 @@ func ChatGPTDesktopInstallMarker() string {
 		if local == "" {
 			local = filepath.Join(HomeDir(), "AppData", "Local")
 		}
-		return filepath.Join(local, "Programs", "OpenAI", "ChatGPT")
+		return chatGPTDesktopIn(local)
 	}
 	return ""
+}
+
+// chatGPTDesktopIn is ChatGPT Desktop's folder under a Windows profile's
+// AppData\Local: the installer's Programs\OpenAI\ChatGPT, else the package
+// folder of the Microsoft Store (MSIX) app, Packages\OpenAI.ChatGPT-Desktop_*.
+// With neither, the installer's path, which then does not exist.
+func chatGPTDesktopIn(local string) string {
+	installed := filepath.Join(local, "Programs", "OpenAI", "ChatGPT")
+	if DirExists(installed) {
+		return installed
+	}
+	if matches, _ := filepath.Glob(filepath.Join(local, "Packages", "OpenAI.ChatGPT-Desktop_*")); len(matches) > 0 {
+		return matches[0]
+	}
+	return installed
 }
 
 // OpenClawConfigDir returns the user-global OpenClaw config directory (~/.openclaw).

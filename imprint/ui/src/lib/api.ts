@@ -1195,6 +1195,11 @@ export type AgentSession = {
   calls: number; errors: number; last_tool: string | null;
   /** The session on the Board and the name its agent chose (ADR 0216), once it used the Board. */
   board_session?: string | null; agent_name?: string | null;
+  /** What Live knows of it (ADR 0233): its project, the Tasks it claimed, a Dispatched run's outcome, its model and
+   * tokens (read once from a finished session's transcript), and its conversation in Imprint once learned. */
+  project?: string; tasks?: string[]; outcome?: string | null; dispatched_role?: string | null; model?: string | null;
+  tokens?: { new_input: number; cached_input: number; output: number } | null;
+  conversation?: { source: string; project: string } | null;
 };
 export type AgentClient = { client: string; sessions: number; connected: number; calls: number; errors: number; last_seen: number };
 export type AgentCall = {
@@ -1206,12 +1211,54 @@ export type AgentCall = {
  * only), `sessions` (the rest by last activity), `next` (pass as `before`
  * for the page after), `total` (matching history) and `clients` (totals of
  * every session). */
-export type AgentsPage = { running: AgentSession[]; sessions: AgentSession[]; next: string | null; total: number; clients: AgentClient[] };
-export function getAgents({ limit = 50, before, client, q }: { limit?: number; before?: string; client?: string; q?: string } = {}) {
+export type AgentsPage = { running: AgentSession[]; sessions: AgentSession[]; next: string | null; total: number; clients: AgentClient[];
+  /** What History's project and agent filters offer. */
+  options?: { projects: string[]; agents: string[] } };
+/** What a running agent is doing, by rule from its transcript (ADR 0233). */
+export type LiveActivity = {
+  kind: "editing" | "building" | "testing" | "running" | "reading" | "web" | "imprint" | "board" | "delegating" | "asking"
+    | "thinking" | "waiting" | "idle" | "other";
+  label: string; detail: string; since: number;
+  /** A call without a result for a minute: it may be waiting for approval. */
+  long: boolean;
+};
+export type LiveAction = { kind: LiveActivity["kind"]; label: string; detail: string; at: number | null; running: boolean };
+export type LiveTokens = {
+  context: number; window: number | null; new_input: number; cached_input: number; output: number; thinking: number;
+  cache_share: number | null; partial: boolean;
+  rate_limit: { used_percent: number; window_minutes: number | null; resets_at: number | null } | null;
+};
+export type LiveAgent = {
+  id: string; board_session: string | null; name: string | null; client: string; client_version: string | null;
+  model: string | null; directory: string | null; project: string; workspace: string | null; pid: number;
+  started_at: number; last_seen: number; state: "working" | "waiting" | "idle"; activity: LiveActivity;
+  task: { id: string; title: string; status: TaskStatus; role: "working" | "reviewing" | "taking-over" | "refining";
+    stalling: boolean; next: string | null; checkpoint_at: number | null } | null;
+  dispatched: { run: string; role: string | null } | null;
+  actions: LiveAction[]; tokens: LiveTokens | null; transcript: boolean; last_call_at: number | null;
+};
+export type LiveOther = { name: string | null; client: string | null; device: string | null; task: string; title: string;
+  project: string; status: TaskStatus; next: string | null; progress_at: number | null; stalling: boolean };
+export type LiveReport = {
+  now: number; device: string; agents: LiveAgent[]; others: LiveOther[];
+  counts: { working: number; waiting: number; idle: number; others: number };
+  today: { client: string; new_input: number; cached_input: number; output: number }[];
+};
+
+/** This device's running agents and what each is doing (ADR 0233). */
+export function getLive() {
+  return fetchAPI<LiveReport>("/api/agents/live");
+}
+
+export function getAgents({ limit = 50, before, client, q, project, agent }: {
+  limit?: number; before?: string; client?: string; q?: string; project?: string; agent?: string;
+} = {}) {
   const qs = new URLSearchParams({ limit: String(limit) });
   if (before) qs.set("before", before);
   if (client) qs.set("client", client);
   if (q) qs.set("q", q);
+  if (project) qs.set("project", project);
+  if (agent) qs.set("agent", agent);
   return fetchAPI<AgentsPage>(`/api/agents?${qs}`);
 }
 /** Sessions of a client and how many searched Imprint first (ADR 0214). */
@@ -1238,14 +1285,16 @@ export type BoardTask = {
   id: string; title: string; description: string; project: string; status: TaskStatus; priority: TaskPriority;
   position: number | null; acceptance: string[]; tags: string[]; assignees: string[];
   feature: string | null; feature_title: string | null; blockers: string[]; open_blockers: string[]; tasks: string[];
+  /** The Tasks that wait on this one. */
+  blocking: string[];
   blocked: { reason: string; by: TaskPerson; at: number } | null;
   holder: TaskHolder | null; previous_holder: TaskHolder | null; stalling: boolean; stale: boolean; worked_by: string | null;
   last_checkpoint: TaskCheckpoint | null; checkpoints: number; comments: TaskComment[]; comment_count: number;
   created_at: number; created_by: TaskPerson; updated_at: number; ended_at: number | null; status_at: number;
   /** Ids it had before another device's Task with the same id made it take a new one. */
   former_ids?: string[];
-  /** On a Feature: its Done Tasks out of all but the Cancelled ones. */
-  progress?: { done: number; total: number } | null;
+  /** On a Feature: its Done Tasks, and those In progress or in Review, out of all but the Cancelled ones. */
+  progress?: { done: number; working?: number; total: number } | null;
 };
 /** How far a project or Feature is; `days_left` is null until 3 Tasks were finished in the last 14 days. */
 export type ProgressEntry = {
@@ -1265,11 +1314,16 @@ export type TaskEvent = { id: string; kind: string; data: Record<string, unknown
   session: string | null; agent: string | null; client: string | null; recorded_at: number };
 export type TaskHandoff = { previous_holder: TaskHolder | null; last_checkpoint: TaskCheckpoint | null; checkpoints: TaskCheckpoint[];
   branch: string | null; commit: string | null; files: string[]; conversation: string | null };
-export type TaskDetails = { task: BoardTask; history: TaskEvent[]; handoff: TaskHandoff };
+/** A Task another one links to, as a link shows it. */
+export type RelatedTask = { title: string; status: TaskStatus; priority: TaskPriority; project: string; stale: boolean; blocked: boolean };
+export type TaskDetails = { task: BoardTask; history: TaskEvent[]; handoff: TaskHandoff;
+  /** Its Feature, the Feature's Tasks, the Tasks it waits on and those waiting on it, by id. */
+  related?: Record<string, RelatedTask> };
 export type NewTask = { title: string; project: string; description?: string; status?: "backlog" | "ready"; priority?: TaskPriority;
   acceptance?: string[]; tags?: string[]; assignees?: string[]; feature?: string };
 export type TaskAction = "move" | "edit" | "append" | "comment" | "tags" | "assignees" | "link" | "block" | "unblock" | "release";
-export type TaskInbox = { comments: (TaskComment & { task: string; title: string })[]; review: BoardTask[] };
+/** Comments to the user from every workspace (each names its own), and the Tasks in Review on the workspace on show. */
+export type TaskInbox = { workspace?: string; comments: (TaskComment & { task: string; title: string; workspace?: string })[]; review: BoardTask[] };
 
 /** The workspace's Board by status, filtered, with what every filter offers. */
 export function getBoard(filters: BoardFilters = {}) {
@@ -1300,12 +1354,47 @@ export function getProgress(filters: { project?: string; feature?: string } = {}
 export function setAutonomy(value: Autonomy) {
   return fetchAPI<{ autonomy: Autonomy }>("/api/tasks/autonomy", { method: "PUT", body: JSON.stringify({ value }) });
 }
+/** One Dispatched session this device started (ADR 0220). */
+export type DispatchRun = {
+  id: string; workspace: string; task: string; title: string; project: string; client: string; role: string;
+  pid: number | null; worktree: string | null; branch: string | null; base: string | null; started_at: number;
+  ended_at: number | null; exit_code: number | null; outcome: "review" | "passed" | "returned" | "refined" | "failed" | "stopped" | "lost" | "refused" | null; detail: string | null;
+};
+/** This device's Dispatcher for the active workspace: the Board's strip. */
+export type DispatchStatus = {
+  workspace: string; on: boolean; server: boolean; autonomy: Autonomy; running: DispatchRun[]; recent: DispatchRun[];
+  /** Whether Backlog refinement is on for this device (ADR 0230): its own switch, off by default. */
+  refine: boolean;
+  /** Why it starts nothing now although it is on, such as the daily limit. */
+  held: string | null;
+  /** The clients the person unticked (dispatch.excluded_clients), also those this device cannot start right now. */
+  excluded?: string[];
+  next: { id: string; title: string; project: string; client: string; role: "work" | "review" | "refine" }[];
+  /** The clients it can start here (ADR 0222): available ones with a version, the rest with the reason. */
+  clients: { client: string; label: string; available: boolean; version: string | null; reason: string | null;
+    allowed: boolean; default: boolean;
+    /** The WSL distribution it was found in, or null for this system. */
+    where: string | null }[];
+  /** Other paired devices whose Dispatcher is on for this workspace. */
+  devices: { device: string; name: string; on: boolean; at: number }[];
+};
+/** ``refresh`` checks the clients again, as the strip does when it first opens. */
+export function getDispatch(refresh = false) {
+  return fetchAPI<DispatchStatus>(`/api/tasks/dispatch${refresh ? "?refresh=true" : ""}`);
+}
+/** Switch this device's Dispatcher, or its Backlog refinement, for the active workspace; the person's choice only. */
+export function setDispatch(change: { on?: boolean; refine?: boolean }) {
+  return fetchAPI<DispatchStatus>("/api/tasks/dispatch", { method: "PUT", body: JSON.stringify(change) });
+}
+export function stopDispatched(id: string) {
+  return fetchAPI<{ run: DispatchRun }>(`/api/tasks/dispatch/${encodeURIComponent(id)}/stop`, { method: "POST" });
+}
 /** Comments agents addressed to the user, unread, and the Tasks waiting in Review. */
 export function getTaskInbox() {
   return fetchAPI<TaskInbox>("/api/tasks/inbox");
 }
-export function markTaskCommentsRead(ids: string[]) {
-  return fetchAPI<{ read: number }>("/api/tasks/inbox/read", { method: "POST", body: JSON.stringify({ ids }) });
+export function markTaskCommentsRead(ids: string[], workspace?: string) {
+  return fetchAPI<{ read: number }>("/api/tasks/inbox/read", { method: "POST", body: JSON.stringify({ ids, ...(workspace ? { workspace } : {}) }) });
 }
 
 /** Rename an agent on its workspace's Board; refused when another live session has the name. */

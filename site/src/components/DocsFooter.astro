@@ -1,0 +1,31 @@
+---
+// Starlight Footer override: the default footer (last updated, pagination),
+// then the privacy policy and, in builds with analytics, Cookie settings,
+// which reopens Volenti's panel as the landing footer's link does (ADR 0231).
+import Default from '@astrojs/starlight/components/Footer.astro';
+
+const analytics = Boolean(import.meta.env.PUBLIC_GA4_ID);
+---
+
+<Default><slot /></Default>
+<nav class="site-links sl-flex print:hidden" aria-label="Privacy">
+  <a href="/privacy/">Privacy policy</a>
+  {analytics && <a href="#cookie-settings" data-volenti-open>Cookie settings</a>}
+</nav>
+
+<style>
+  .site-links {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem 1.5rem;
+    margin-top: 2rem;
+    font-size: var(--sl-text-xs);
+  }
+  .site-links a {
+    color: var(--sl-color-gray-3);
+    text-decoration: none;
+  }
+  .site-links a:hover {
+    color: var(--sl-color-white);
+  }
+</style>

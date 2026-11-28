@@ -22,6 +22,9 @@ Usage:
     python -m imprint.cli_tasks block TASK REASON
     python -m imprint.cli_tasks unblock|cancel|release TASK
     python -m imprint.cli_tasks delete TASK --yes
+    python -m imprint.cli_tasks dispatch on|off|status
+    python -m imprint.cli_tasks dispatch run TASK [--client claude-code] [--minutes N] [--review]
+    python -m imprint.cli_tasks dispatch stop RUN
 
 FILTERS: --project P --feature F --tag T --status S --priority P --assignee A --holder H --text T.
 Every command takes ``--workspace W`` (default: the active workspace) and
@@ -33,6 +36,7 @@ import argparse
 import json
 import os
 import sys
+import time
 
 from . import tasks, tasks_tool
 
@@ -124,6 +128,22 @@ def _parser() -> argparse.ArgumentParser:
     delete = commands.add_parser('delete', parents=[common], help='Delete it, leaving only a tombstone')
     delete.add_argument('task')
     delete.add_argument('--yes', action='store_true', help='Confirm the deletion')
+    dispatch = commands.add_parser('dispatch', help='Start agent sessions for Tasks (ADR 0220)')
+    actions = dispatch.add_subparsers(dest='dispatch_command', required=True)
+    run = actions.add_parser('run', parents=[common],
+                             help='Start a Dispatched session on a Task now and wait for it to end')
+    run.add_argument('task')
+    run.add_argument('--client', default=None,
+                     help="The client to start (default: the one it is assigned to, else this device's default)")
+    run.add_argument('--minutes', type=float, help='Its time limit (default: dispatch.session_minutes)')
+    run.add_argument('--review', action='store_true', help='Review a Task in Review instead of working on it')
+    actions.add_parser('on', parents=[common], help="Switch this device's Dispatcher on for the workspace")
+    actions.add_parser('off', parents=[common], help="Switch this device's Dispatcher off for the workspace")
+    refine = actions.add_parser('refine', parents=[common],
+                                help="Switch this device's Backlog refinement on or off for the workspace (ADR 0230)")
+    refine.add_argument('state', choices=('on', 'off'))
+    actions.add_parser('status', parents=[common], help='What the Dispatcher does on this device')
+    actions.add_parser('stop', parents=[common], help='Stop a running Dispatched session').add_argument('run')
     return parser
 
 
@@ -132,8 +152,98 @@ def _filters(args) -> dict:
                               priority=args.priority, assignee=args.assignee, holder=args.holder, text=args.text)
 
 
+def _dispatch_status_text(status: dict) -> str:
+    lines = [f"Dispatcher for {status['workspace']} on this device: {'on' if status['on'] else 'off'}"
+             f"{'' if status['server'] or not status['on'] else ' (the dashboard server is not running: nothing is dispatched until it is)'}",
+             f"Backlog refinement on this device: {'on' if status.get('refine') else 'off'}",
+             f"Agents take unasked here: {status['autonomy']}"]
+    if status['on'] and status['held']:
+        lines.append(f"Starting nothing now: {status['held']}")
+    if status['devices']:
+        lines.append('Also on: ' + ', '.join(d['name'] for d in status['devices']))
+    lines.append('Clients:')
+    lines += [f"  {c['label']}: {'default' if c['default'] else 'allowed' if c['allowed'] else 'unticked' if c['available'] else c['reason']}"
+              f"{' (' + c['version'] + ')' if c['version'] else ''}" for c in status['clients']]
+    lines.append('Running:' if status['running'] else 'Running: none')
+    lines += [f"  {r['id']}  {r['task']} {r['title']} ({r['client']}, since "
+              f"{time.strftime('%H:%M', time.localtime(r['started_at']))})" for r in status['running']]
+    if status['next']:
+        lines.append('Next to take: ' + ', '.join(s['id'] for s in status['next']))
+    lines.append('Projects with open Tasks:' if status['projects'] else 'Projects with open Tasks: none')
+    lines += [f"  {p['project']}: {p['path']} ({p['branch'] or 'detached'})" if p['ok'] else f"  {p['project']}: {p['reason']}"
+              for p in status['projects']]
+    if status['recent']:
+        lines.append('Recent:')
+        lines += [f"  {r['id']}  {r['task']} {r['outcome'] or 'running'}"
+                  f"{': ' + r['detail'] if r['detail'] and r['outcome'] != 'review' else ''}" for r in status['recent']]
+    return '\n'.join(lines)
+
+
+def _refuse_inside_dispatched(action: str) -> None:
+    """A Dispatched session never switches the Dispatcher on or starts more
+    sessions: only the person does (ADR 0229)."""
+    if os.environ.get('IMPRINT_DISPATCH_RUN'):
+        raise PermissionError(f'`imprint tasks dispatch {action}` is refused inside a Dispatched session: only the '
+                              'person switches the Dispatcher on or starts Dispatched sessions')
+
+
+def _dispatch(args, workspace: str | None, as_json: bool) -> None:
+    from .dispatch import dispatched, guards, loop, status as dispatch_status
+    from .workspace_policy import workspace_name
+    action, name = args.dispatch_command, workspace_name(workspace)
+    if action in ('on', 'run') or (action == 'refine' and args.state == 'on'):
+        _refuse_inside_dispatched('refine on' if action == 'refine' else action)
+    if action == 'refine':
+        dispatch_status.switch_refining(name, args.state == 'on')
+        _print({'workspace': name, 'refine': args.state == 'on'}, as_json,
+               f"Backlog refinement for {name} on this device: {args.state}.")
+        return
+    if action in ('on', 'off'):
+        dispatch_status.switch(name, action == 'on')
+        note = ('' if action == 'off' or loop.server_running() else
+                ' It dispatches while the dashboard server runs: start it with `imprint ui start`.')
+        _print({'workspace': name, 'on': action == 'on'}, as_json,
+               f"Dispatcher for {name} on this device: {action}.{note}")
+        return
+    if action == 'status':
+        status = dispatch_status.status(name, refresh=True)
+        _print(status, as_json, _dispatch_status_text(status))
+        return
+    if action == 'stop':
+        stopped = dispatched.request_stop(args.run)
+        _print(stopped, as_json, f"Stopped Dispatched session {stopped['id']} on {stopped['task']}.")
+        return
+
+    def started(run):
+        if not as_json:
+            print(f"Dispatched {run['task']} to {run['client']}: worktree {run['worktree']} on {run['branch']}.\n"
+                  f"Its log: {dispatched.store.log_path(run['id'])}\nWaiting for the session to end "
+                  '(Ctrl+C stops it)...', flush=True)
+
+    # The person's one-off start, switched on or not, within the same limits as the loop (ADR 0229).
+    held = guards.held()
+    if held:
+        raise PermissionError(f'Not started: {held}')
+    from .config_schema import resolve
+    limit = max(0, int(resolve('dispatch.concurrency')[0]))
+    if len(loop.running_runs()) >= limit:
+        raise PermissionError(f'Not started: {limit} Dispatched session{"s" if limit != 1 else ""} already run on this '
+                              'device, the limit (dispatch.concurrency)')
+    run = dispatched.run(args.task, workspace=workspace, client=args.client, minutes=args.minutes, on_start=started,
+                         role='review' if args.review else 'work')
+    verdicts = {'review': 'reached Review', 'passed': 'passed its review: Done',
+                'returned': 'was sent back to Ready by its review'}
+    verdict = verdicts.get(run['outcome']) or f"{run['outcome']}: the session {run['detail']}"
+    _print(run, as_json, f"{run['task']} {verdict}.")
+    if run['outcome'] not in verdicts:
+        raise SystemExit(1)
+
+
 def _run(args, workspace: str | None, as_json: bool) -> None:
     command = args.command or 'board'
+    if command == 'dispatch':
+        _dispatch(args, workspace, as_json)
+        return
     user = {'actor': tasks.USER, 'workspace': workspace}
     if command == 'board':
         found = _filters(args) if args.command else {}

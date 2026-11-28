@@ -13,18 +13,18 @@ import (
 // their shared Codex profile. WSL detection alone cannot make Linux
 // interpreter paths usable in the Windows-side profile.
 func SetupChatGPTDesktop(backend func() backendPaths) {
-	marker := platform.ChatGPTDesktopInstallMarker()
+	marker := chatGPTDesktopMarker()
 	if marker == "" {
 		output.Skip("ChatGPT Desktop: unsupported platform for detection.")
 		return
 	}
-	if !platform.FileExists(marker) && !platform.DirExists(marker) {
+	if !chatGPTDesktopInstalled() {
 		output.Skip("ChatGPT Desktop not detected at " + marker + ".")
 		return
 	}
 
 	output.Success("ChatGPT Desktop detected at " + marker)
-	if platform.IsWSL() {
+	if onWSL() {
 		output.Warn("ChatGPT Desktop runs on Windows. Run the native Windows Imprint setup to register its local runtime; the Linux Codex profile is separate.")
 		return
 	}
@@ -40,6 +40,18 @@ func SetupChatGPTDesktop(backend func() backendPaths) {
 	output.Info("Optional usage guidance for Custom Instructions:")
 	printIndentedBlock(instructions.DesktopProfileSnippet)
 	output.Info("Auto-sync past conversations: request a data export in chat.openai.com (Settings → Data controls → Export), then run `imprint learn --desktop`. The scanner picks up the zip from your Downloads folder.")
+}
+
+// The checks ChatGPT Desktop's setup and registrations make, swapped by tests.
+var (
+	onWSL                = platform.IsWSL
+	chatGPTDesktopMarker = platform.ChatGPTDesktopInstallMarker
+)
+
+// chatGPTDesktopInstalled: its installation marker exists on this system.
+func chatGPTDesktopInstalled() bool {
+	marker := chatGPTDesktopMarker()
+	return marker != "" && (platform.FileExists(marker) || platform.DirExists(marker))
 }
 
 // printIndentedBlock writes a multi-line string indented two spaces so it

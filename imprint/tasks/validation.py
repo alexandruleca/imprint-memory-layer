@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 
 from .store import PRIORITIES, STATUSES
@@ -40,6 +41,51 @@ def _text(value, field: str, limit: int, required: bool = False) -> str:
     if len(text) > limit:
         raise ValueError(f'{field} is longer than {limit} characters')
     return text
+
+
+# A folder rather than a name: an absolute POSIX path, a home-relative one, a
+# UNC share (\\wsl.localhost\...) or a Windows drive path. A name such as
+# github.com/owner/repo is not one.
+_FOLDER = re.compile(r'^(?:[/~]|\\\\|[A-Za-z]:[\\/])')
+
+
+def is_folder(value: str) -> bool:
+    return bool(_FOLDER.match(value or ''))
+
+
+def project_filter(value: str | None) -> str | None:
+    """A project to filter by: a folder means the project it holds."""
+    if value and is_folder(value.strip()):
+        return folder_project(value.strip()) or value.strip()
+    return value
+
+
+def folder_project(folder: str) -> str:
+    """The project a folder holds, named as the Board names a session's
+    project (ADR 0211): ``/home/alex/code/imprint`` gives ``imprint``. Empty
+    when this device cannot name it. A folder in a WSL distribution is named
+    by its Linux path, so naming it never reads the share or starts the
+    distribution."""
+    from ..cli_conversations import derive_project
+    from ..wsl_paths import client_path, windows_to_linux
+    in_wsl = windows_to_linux(folder)
+    try:
+        return derive_project(in_wsl[1] if in_wsl else client_path(os.path.expanduser(folder)))
+    except OSError:  # a share or drive this device cannot read
+        return ''
+
+
+def _project_name(value) -> str:
+    """A Task's project, by name. A folder given instead, as an agent passing
+    its working directory does, becomes the name of the project it holds
+    (ADR 0226); one that names no project is refused."""
+    project = _text(value, 'project', TITLE_CHARS, required=True)
+    if not is_folder(project):
+        return project
+    named = folder_project(project)
+    if not named:
+        raise ValueError(f'{project} is a folder, not a project: name the project instead')
+    return named
 
 
 def _priority(value) -> str:

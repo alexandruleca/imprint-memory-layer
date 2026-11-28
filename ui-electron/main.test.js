@@ -13,7 +13,7 @@ const RUNTIME_ARGS = ['--project-dir=/source', '--data-dir=/data', '--python=/wr
 function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, dashboardPending = false, packaged = true, savedPosition = null,
   runtimeArgs = RUNTIME_ARGS, cli = () => [new Error('spawn ENOENT'), ''], platform = 'darwin',
   mediaStatus = 'granted', consent = async () => true, activity = null, servicePending = false, messageBox = async () => ({ response: 1 }),
-  wakeFile = null, onBattery = false, themeFile = null, floatingOrb = true } = {}) {
+  wakeFile = null, onBattery = false, themeFile = null, floatingOrb = true, waiting = () => ({ count: 0, agents: [] }), notifyWaiting = false } = {}) {
   // The orb tests run with the floating orb turned on; Imprint's default is off (ADR 0174), tested on its own.
   const windows = [];
   const services = [];
@@ -118,6 +118,21 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     getDisplayMatching: bounds => ({ workArea: { x: bounds.x >= 1920 ? 1920 : 0, y: 0, width: 1920, height: 1080 } }) });
   const http = {
     get(url, _options, callback) {
+      // The agents waiting for you and the notification setting (ADR 0232), answered as JSON.
+      const json = String(url).endsWith('/api/agents/waiting') ? waiting()
+        : String(url).endsWith('/api/config/desktop.notify_waiting') ? { key: 'desktop.notify_waiting', value: notifyWaiting } : null;
+      if (json) {
+        calls.push(['get', String(url).replace(/^.*\/api\//, '/api/')]);
+        const req = new EventEmitter();
+        req.destroy = () => {};
+        queueMicrotask(() => {
+          const res = Object.assign(new EventEmitter(), { statusCode: 200, setEncoding() {}, resume() {} });
+          callback(res);
+          res.emit('data', JSON.stringify(json));
+          res.emit('end');
+        });
+        return req;
+      }
       if (String(url).endsWith('/api/config/desktop.floating_orb')) {
         calls.push('orb-setting');
         const req = new EventEmitter();
@@ -712,6 +727,11 @@ test('the session permission request asks macOS consent and refuses a page that 
 const ORIGIN = 'http://127.0.0.1:8420';
 const inside = (box, area) => box.x >= area.x && box.y >= area.y && box.x + box.width <= area.x + area.width && box.y + box.height <= area.y + area.height;
 
+const overlap = (a, b) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+// The buttons are 40 px circles: apart when their centres are a diameter and a gap apart; a name covers one when it reaches its circle.
+const touching = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) < 44;
+const covers = (box, c) => Math.hypot(c.x - Math.max(box.x, Math.min(c.x, box.x + box.width)), c.y - Math.max(box.y, Math.min(c.y, box.y + box.height))) < 20;
+
 test('the orb fans its actions toward free space and keeps them on screen at every edge and corner', () => {
   const { fitLauncher, orbSide, haloLayout } = require('./companion');
   const area = { x: 1920, y: 25, width: 1440, height: 875 };
@@ -723,12 +743,23 @@ test('the orb fans its actions toward free space and keeps them on screen at eve
     const ring = haloLayout(orb, area, side);
     assert.ok(inside(ring.bounds, area), JSON.stringify(ring.bounds));
     assert.deepEqual({ x: ring.bounds.x + ring.orb.x, y: ring.bounds.y + ring.orb.y }, { x: orb.x + 36, y: orb.y + 36 });
-    assert.equal(ring.satellites.length, 3);
+    assert.equal(ring.satellites.length, 4, 'Dashboard, Echo, Record and Agents (ADR 0232)');
+    const button = satellite => ({ x: satellite.x - 20, y: satellite.y - 20, width: 40, height: 40 });
     for (const satellite of ring.satellites) {
       assert.ok(Math.sign(satellite.x - ring.orb.x) !== -side.side, 'never behind the orb');
-      assert.ok(inside({ x: ring.bounds.x + satellite.x - 20, y: ring.bounds.y + satellite.y - 20, width: 40, height: 40 }, area));
+      assert.ok(inside({ ...button(satellite), x: ring.bounds.x + satellite.x - 20, y: ring.bounds.y + satellite.y - 20 }, area));
       assert.ok(inside({ ...satellite.slot, x: satellite.slot.x + ring.bounds.x, y: satellite.slot.y + ring.bounds.y }, area));
     }
+    // No button touches another, no name covers another button, and Record's capsule (slot 2) covers no other name.
+    const where = `${fx},${fy}`;
+    ring.satellites.forEach((a, i) => ring.satellites.forEach((b, j) => {
+      if (i >= j) return;
+      assert.ok(!touching(a, b), `buttons ${i} and ${j} overlap at ${where}`);
+      assert.ok(!overlap(a.slot, b.slot), `names ${i} and ${j} overlap at ${where}`);
+    }));
+    ring.satellites.forEach((a, i) => ring.satellites.forEach((b, j) => {
+      if (i !== j) assert.ok(!covers(a.slot, b), `name ${i} covers button ${j} at ${where}`);
+    }));
     const panel = haloLayout(orb, area, side, 'record', { width: 344, height: 402 });
     assert.ok(inside(panel.bounds, area));
     assert.ok(side.side > 0 ? panel.bounds.x >= orb.x + 60 : panel.bounds.x + panel.bounds.width <= orb.x + 12, 'beside the orb');
@@ -763,7 +794,7 @@ test('the orb opens its ring in a window of its own; clicking elsewhere or on th
   assert.equal(ring.url, `${ORIGIN}/launcher/halo/`);
   assert.equal(ring.options.transparent, true); assert.equal(ring.options.webPreferences.backgroundThrottling, false);
   const layout = layouts.at(-1);
-  assert.equal(layout.kind, 'ring'); assert.equal(layout.focus, 'first'); assert.equal(layout.satellites.length, 3);
+  assert.equal(layout.kind, 'ring'); assert.equal(layout.focus, 'first'); assert.equal(layout.satellites.length, 4);
   assert.deepEqual(ring.getBounds(), layout.bounds);
   assert.equal(ring.visible, false, 'shown only once the page has drawn it');
   h.emit('halo-ready', orb, layout.seq); assert.equal(ring.visible, false);
@@ -1111,4 +1142,138 @@ test('a reminder that rings notifies while the dashboard is away, and its click 
   h.calls.notification.emit('click');
   assert.equal(dashboard.visible, true);
   assert.deepEqual(dashboard.sent.at(-1), ['reminder-open', id]);
+});
+
+test('the tray opens the Agents window once, on Live, where the size and place it had are kept (ADR 0232)', async () => {
+  const h = harness({ alreadyUp: true, savedPosition: { x: 40, y: 30, width: 900, height: 700 } }); await settle();
+  const count = h.windows.length;
+  h.calls.menu.find(item => item.label === 'Open Agents').click(); await settle();
+  const agents = h.windows.at(-1);
+  assert.equal(h.windows.length, count + 1);
+  assert.equal(agents.url, `${ORIGIN}/agents/?window=agents#live`);
+  assert.equal(agents.options.title, 'Imprint · Agents');
+  assert.deepEqual([agents.options.x, agents.options.y, agents.options.width, agents.options.height], [40, 30, 900, 700]);
+  assert.equal(agents.visible, true);
+  agents.minimize(); agents.focused = false;
+  h.calls.menu.find(item => item.label === 'Open Agents').click(); await settle();
+  assert.equal(h.windows.length, count + 1, 'the open window is brought forward, not opened again');
+  assert.equal(agents.isMinimized(), false);
+  assert.equal(agents.focused, true);
+});
+
+test('a Task notification opens the Task in the Agents window; others cannot ask, and bad ids open Live', async () => {
+  const h = harness({ alreadyUp: true }); await settle();
+  const dashboard = h.windows[1];
+  dashboard.url = `${ORIGIN}/`;
+  h.emit('agents-open', dashboard, 'T-aaaa1'); await settle();
+  const agents = h.windows.at(-1);
+  assert.equal(agents.url, `${ORIGIN}/agents/?window=agents&task=T-aaaa1#board`);
+  h.emit('agents-open', agents, 'T-bbbb2'); await settle();
+  assert.equal(agents.url, `${ORIGIN}/agents/?window=agents&task=T-bbbb2#board`, 'the open window moves to the Task');
+  agents.destroy();
+  dashboard.url = 'https://example.com/';
+  h.emit('agents-open', dashboard, 'T-aaaa1'); await settle();
+  assert.equal(h.windows.at(-1), agents, 'another origin cannot open it');
+  dashboard.url = `${ORIGIN}/`;
+  h.emit('agents-open', dashboard, '../../etc/passwd'); await settle();
+  assert.equal(h.windows.at(-1).url, `${ORIGIN}/agents/?window=agents#live`);
+});
+
+test('closing the Agents window keeps the app, the dashboard and the orb; it minimizes and maximizes itself', async () => {
+  const h = harness({ alreadyUp: true }); await settle();
+  const dashboard = h.windows[1];
+  dashboard.emit('minimize'); await settle();
+  const orb = h.windows[2];
+  assert.equal(orb.visible, true);
+  h.calls.menu.find(item => item.label === 'Open Agents').click(); await settle();
+  const agents = h.windows.at(-1);
+  let maximized = false;
+  agents.isMaximized = () => maximized; agents.maximize = () => { maximized = true; }; agents.unmaximize = () => { maximized = false; };
+  h.emit('win-maximize', agents);
+  assert.equal(maximized, true);
+  h.emit('win-minimize', agents);
+  assert.equal(agents.isMinimized(), true);
+  assert.equal(orb.visible, true, 'minimizing it leaves the orb');
+  h.emit('win-close', agents);
+  assert.equal(agents.destroyed, true);
+  assert.ok(h.calls.some(call => Array.isArray(call) && call[0] === 'write' && call[1].startsWith('agents-window.json')), 'its bounds are kept');
+  assert.ok(!h.calls.includes('quit'));
+  assert.equal(dashboard.destroyed, false);
+  assert.equal(orb.visible, true, 'the orb stays');
+});
+
+test('the orb\'s Agents action opens the Agents window and closes the ring (ADR 0232)', async () => {
+  const h = harness({ alreadyUp: true }); await settle();
+  const dashboard = h.windows[1];
+  dashboard.emit('minimize'); await settle();
+  const orb = h.windows[2];
+  h.emit('launcher-ring', orb, 'first'); await settle();
+  const ring = h.windows[3];
+  ring.url = `${ORIGIN}/launcher/halo/`;
+  h.emit('halo-action', ring, 'agents'); await settle();
+  const agents = h.windows.at(-1);
+  assert.equal(agents.url, `${ORIGIN}/agents/?window=agents#live`);
+  assert.equal(ring.visible, false, 'the ring closes');
+  assert.equal(orb.visible, true, 'the orb stays');
+});
+
+test('the orb, its Agents action and the tray count the agents waiting for you; told once, only when chosen (ADR 0232)', async () => {
+  let agents = [];
+  const h = harness({ alreadyUp: true, notifyWaiting: true, waiting: () => ({ count: agents.length, agents }) }); await settle();
+  const dashboard = h.windows[1];
+  const notes = () => h.calls.filter(call => call[0] === 'notification');
+  const poll = async () => { h.tick(); await settle(); };
+  assert.equal(h.calls.tooltip, 'Imprint');
+  // Already waiting when the app starts: counted, not told.
+  agents = [{ id: 'a1', name: 'quill', client: 'claude-code', project: 'shop', task: { id: 'T-aaaa1', title: 'Fix the total' }, since: 100 }];
+  await poll();
+  assert.equal(h.calls.tooltip, 'Imprint · 1 agent waiting for you');
+  assert.equal(h.calls.menu.find(item => item.label.startsWith('Open Agents')).label, 'Open Agents (1 waiting)');
+  // The first poll ran at start with none waiting, so this one is new: told once.
+  assert.deepEqual(notes(), [['notification', 'quill is waiting for you', 'T-aaaa1 · Fix the total']]);
+  await poll();
+  assert.equal(notes().length, 1, 'the same wait is told once');
+  // A malformed agent is left out; a new one is told.
+  agents = [...agents, { id: '../x', name: 'bad' }, { id: 'b2', name: '', client: 'codex', project: 'site', task: null, since: 200 }];
+  await poll();
+  assert.equal(h.calls.tooltip, 'Imprint · 2 agents waiting for you');
+  assert.deepEqual(notes().at(-1), ['notification', 'codex is waiting for you', 'site']);
+  h.calls.notification.emit('click'); await settle();
+  assert.equal(h.windows.at(-1).url, `${ORIGIN}/agents/?window=agents#live`);
+  // The orb gets the count.
+  dashboard.emit('minimize'); await settle();
+  const orb = h.windows.find(window => window.url === `${ORIGIN}/launcher/`);
+  assert.equal((await h.invoke('launcher-state', orb)).waiting, 2);
+  agents = [];
+  await poll();
+  assert.equal(h.calls.tooltip, 'Imprint');
+});
+
+test('with the notification setting off, the default, waiting agents are counted and never told', async () => {
+  let agents = [];
+  const h = harness({ alreadyUp: true, waiting: () => ({ count: agents.length, agents }) }); await settle();
+  agents = [{ id: 'a1', name: 'quill', client: 'claude-code', project: 'shop', task: null, since: 100 }];
+  h.tick(); await settle();
+  assert.equal(h.calls.tooltip, 'Imprint · 1 agent waiting for you');
+  assert.deepEqual(h.calls.filter(call => call[0] === 'notification'), []);
+});
+
+test('the Agents window closes from its own button, Ctrl+W and the system\'s close, and opens again after (ADR 0232)', async () => {
+  const h = harness({ alreadyUp: true }); await settle();
+  const open = async () => { h.calls.menu.find(item => item.label.startsWith('Open Agents')).click(); await settle(); return h.windows.at(-1); };
+  let agents = await open();
+  h.emit('win-close', agents);  // its top bar's close button
+  assert.equal(agents.destroyed, true);
+  agents = await open();
+  assert.equal(agents.destroyed, false, 'a new window opens after one was closed');
+  const key = (input) => { const e = { prevented: false, preventDefault() { this.prevented = true; } };
+    agents.webContents.emit('before-input-event', e, { type: 'keyDown', alt: false, shift: false, meta: false, control: false, ...input }); return e; };
+  assert.equal(key({ key: 'w' }).prevented, false, 'a plain w is typing');
+  assert.equal(key({ key: 'w', control: true }).prevented, true);
+  assert.equal(agents.destroyed, true);
+  agents = await open();
+  const e = { prevented: false, preventDefault() { this.prevented = true; } };
+  agents.emit('close', e);  // Alt+F4, the taskbar, the title bar
+  assert.equal(e.prevented, false, 'nothing holds the system close back');
+  assert.ok(!h.calls.includes('quit'));
 });

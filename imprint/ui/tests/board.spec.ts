@@ -15,7 +15,7 @@ type Task = Record<string, unknown> & { id: string; title: string; status: Statu
 function task(over: Partial<Task> & { id: string; title: string }): Task {
   return {
     description: '', project: 'shop', status: 'backlog', priority: 'P2', position: null, acceptance: [], tags: [], assignees: [],
-    feature: null, feature_title: null, blockers: [], open_blockers: [], tasks: [], blocked: null, holder: null,
+    feature: null, feature_title: null, blockers: [], open_blockers: [], tasks: [], blocking: [], blocked: null, holder: null,
     previous_holder: null, stalling: false, stale: false, worked_by: null, last_checkpoint: null, checkpoints: 0, comments: [],
     comment_count: 0, created_at: now - 3600, created_by: { kind: 'user', device: 'laptop' }, updated_at: now - 60, ended_at: null,
     status_at: now - 60, ...over,
@@ -59,9 +59,15 @@ async function mockBoard(page: Page, tasks: Task[], inbox: { comments?: unknown[
     const found = tasks.find(t => t.id === parts[0]);
     if (!found) return route.fulfill({ status: 404, json: { error: `No task ${parts[0]}` } });
     if (parts.length === 1) {
-      return route.fulfill({ json: { task: found, history: [{ id: 'e1', kind: 'created', data: {}, hlc: '1', device: 'laptop', actor: 'user',
+      const waits = (t: Task) => (t.blockers as string[]).includes(found.id);
+      const linked = tasks.filter(t => t.id !== found.id
+        && (t.id === found.feature || t.feature === found.id || (found.blockers as string[]).includes(t.id) || waits(t)));
+      return route.fulfill({ json: { task: { ...found, blocking: tasks.filter(waits).map(t => t.id) },
+        history: [{ id: 'e1', kind: 'created', data: {}, hlc: '1', device: 'laptop', actor: 'user',
         session: null, agent: null, client: null, recorded_at: now - 3600 }], handoff: { previous_holder: null, last_checkpoint: null,
-        checkpoints: [], branch: null, commit: null, files: [], conversation: null } } });
+        checkpoints: [], branch: null, commit: null, files: [], conversation: null },
+        related: Object.fromEntries(linked.map(t => [t.id, { title: t.title, status: t.status, priority: t.priority, project: t.project,
+          stale: !!t.stale, blocked: !!t.blocked }])) } });
     }
     if (parts[1] === 'move') {
       if (body.status === 'ready' && !found.acceptance.length) {
@@ -69,6 +75,8 @@ async function mockBoard(page: Page, tasks: Task[], inbox: { comments?: unknown[
       }
       found.status = body.status;
     }
+    if (parts[1] === 'edit' && body.project) found.project = body.project;
+    if (parts[1] === 'link' && body.add_blockers) found.blockers = [...(found.blockers as string[]), ...body.add_blockers];
     if (parts[1] === 'comment') {
       found.comments = [...found.comments, { id: `c${found.comments.length}`, text: body.text, to: body.to, by: { kind: 'user' }, at: now }];
       found.comment_count = found.comments.length;
@@ -99,8 +107,11 @@ test('the Board tab opens from its address and lays Tasks out by status', async 
   await expect(working).toContainText('grimforge');
   await expect(page.getByRole('region', { name: 'Done, 0 tasks, folded' })).toBeVisible();
   await expect(page.locator('li[data-task="T-dddd4"]')).toContainText('Stale');
-  await page.getByRole('tab', { name: 'Sessions' }).click();
-  await expect(page).toHaveURL(/#sessions$/);
+  await page.getByRole('tab', { name: 'History' }).click();
+  await expect(page).toHaveURL(/#history$/);
+  // Addresses from before History had its name still open it.
+  await page.goto('/agents/#sessions');
+  await expect(page.getByRole('tab', { name: 'History' })).toHaveAttribute('aria-selected', 'true');
 });
 
 test('a new Task is created from the dialog and opens', async ({ page }) => {
@@ -182,7 +193,8 @@ test("the drawer shows a Task and sends a comment to its holder's agent", async 
   await drawer.getByLabel('Comment', { exact: true }).fill('Use the new retry policy');
   await drawer.getByLabel('To').fill('grimforge');
   await drawer.getByRole('button', { name: 'Send' }).click();
-  await expect(drawer.getByText('Use the new retry policy')).toBeVisible();
+  // In the comment list: for a moment after sending, the box still holds the same text.
+  await expect(drawer.getByRole('listitem').getByText('Use the new retry policy')).toBeVisible();
   expect(asked.find(a => a.path === '/api/tasks/T-cccc3/comment')?.body).toEqual({ text: 'Use the new retry policy', to: ['grimforge'] });
 });
 
@@ -192,7 +204,8 @@ test('simple mode lists the Board as Tasks, without sessions, history and lease 
   await page.goto('/agents/');
   await expect(page.getByRole('navigation', { name: 'Pages' }).getByRole('link', { name: 'Tasks' })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('heading', { name: 'Tasks', level: 1 })).toBeVisible();
-  await expect(page.getByRole('tab', { name: 'Sessions' })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'History' })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'Live' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('note')).toHaveCount(0);
   await page.goto('/agents/?task=T-cccc3');
   const drawer = page.getByRole('dialog', { name: /Upload retries/ });
@@ -279,4 +292,91 @@ test("a Feature's card shows its progress, and Progress says how long is left", 
   await expect(panel.getByText('About 3 days left')).toBeVisible();
   await expect(panel.getByText('Not enough finished work to estimate yet').first()).toBeVisible();
   await expect(panel.getByText('Checkout redesign · shop')).toBeVisible();
+});
+
+test('a card copies its id without opening, and its menu copies a link to it', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await base(page, { mode: 'advanced', tutorials: false });
+  await mockBoard(page, board());
+  await page.goto('/agents/#board');
+  await page.locator('li[data-task="T-aaaa1"]').getByRole('button', { name: 'Copy T-aaaa1' }).click();
+  await expect(page.getByText('Copied T-aaaa1')).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('T-aaaa1');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Move T-aaaa1' }).click();
+  await page.getByRole('menuitem', { name: 'Copy link' }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/\/agents\/\?task=T-aaaa1#board$/);
+});
+
+test('the drawer links a Task to its Feature, the Feature\'s Tasks and what waits on what, and goes back', async ({ page }) => {
+  await base(page, { mode: 'advanced', tutorials: false });
+  const asked = await mockBoard(page, [
+    ...board(),
+    task({ id: 'T-feat1', title: 'Checkout redesign', tasks: ['T-part1', 'T-part2'], progress: { done: 1, working: 0, total: 2 },
+      description: 'Start with T-part1, then the summary.' }),
+    task({ id: 'T-part1', title: 'Cart page', status: 'done', feature: 'T-feat1', feature_title: 'Checkout redesign' }),
+    task({ id: 'T-part2', title: 'Summary page', feature: 'T-feat1', feature_title: 'Checkout redesign', blockers: ['T-part1'] }),
+  ]);
+  await page.goto('/agents/#board');
+  // The card's Feature line opens the Feature.
+  await page.locator('li[data-task="T-part2"]').getByRole('button', { name: 'Checkout redesign' }).click();
+  const feature = page.getByRole('dialog', { name: /Checkout redesign/ });
+  await expect(feature.getByRole('heading', { name: 'Tasks in this Feature (2)' })).toBeVisible();
+  await expect(feature.getByRole('button', { name: 'T-part1: Cart page, Done. Open' })).toBeVisible();
+  // An id in the description opens that Task; Back returns.
+  await feature.getByRole('button', { name: 'T-part1', exact: true }).click();
+  const cart = page.getByRole('dialog', { name: /Cart page/ });
+  await expect(cart.getByRole('heading', { name: 'Waiting on it' })).toBeVisible();
+  await cart.getByRole('button', { name: 'T-part2: Summary page, Backlog. Open' }).click();
+  const summary = page.getByRole('dialog', { name: /Summary page/ });
+  await expect(summary.getByRole('heading', { name: 'Waits on' })).toBeVisible();
+  await expect(page).toHaveURL(/\?task=T-part2#board$/);
+  await summary.getByRole('button', { name: 'Back to T-part1' }).click();
+  await page.getByRole('dialog', { name: /Cart page/ }).getByRole('button', { name: 'Back to T-feat1' }).click();
+  await expect(page.getByRole('dialog', { name: /Checkout redesign/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Back to/ })).toHaveCount(0);
+  // A Task it waits on is added by id.
+  await page.goto('/agents/?task=T-bbbb2#board');
+  const search = page.getByRole('dialog', { name: /Rewrite the search box/ });
+  await search.getByRole('button', { name: 'Add a task it waits on' }).click();
+  await search.getByLabel('Task it waits on').fill('T-aaaa1');
+  await search.getByRole('button', { name: 'Add', exact: true }).click();
+  expect(asked.find(a => a.path === '/api/tasks/T-bbbb2/link')?.body).toEqual({ add_blockers: ['T-aaaa1'] });
+  await expect(search.getByRole('button', { name: 'T-aaaa1: Fix the tax rounding, Ready. Open' })).toBeVisible();
+});
+
+test('the drawer moves a Task to another project, a known one or a new one', async ({ page }) => {
+  await base(page, { mode: 'advanced', tutorials: false });
+  const asked = await mockBoard(page, board());
+  await page.goto('/agents/?task=T-aaaa1#board');
+  const drawer = page.getByRole('dialog', { name: /Fix the tax rounding/ });
+  await drawer.getByRole('combobox', { name: 'Project' }).click();
+  await page.getByRole('option', { name: 'site' }).click();
+  await drawer.getByRole('combobox', { name: 'Project' }).click();
+  await page.getByRole('option', { name: 'Another project…' }).click();
+  await drawer.getByLabel('Project name').fill('checkout');
+  await drawer.getByRole('button', { name: 'Save' }).click();
+  expect(asked.filter(a => a.path === '/api/tasks/T-aaaa1/edit').map(a => a.body)).toEqual([{ project: 'site' }, { project: 'checkout' }]);
+});
+
+test("in the desktop app a Task alert opens the Agents window; that window alone shows no sidebar and tells nothing twice (ADR 0232)", async ({ page }) => {
+  await base(page, { mode: 'advanced', tutorials: false });
+  await page.addInitScript(() => {
+    const opened: string[] = [];
+    Object.assign(window, { __opened: opened, electronAPI: { isElectron: true, platform: 'linux', close: () => opened.push('close'), quit() {}, minimize() {}, maximize() {},
+      openCompanion() {}, closeCompanion() {}, pinCompanion() {}, openAgents: (task: string) => opened.push(task) } });
+  });
+  await mockBoard(page, board(), { comments: [{ id: 'c9', task: 'T-cccc3', title: 'Upload retries', text: 'Which bucket should I use?',
+    to: ['user'], by: { kind: 'agent', name: 'grimforge', client: 'claude-code' }, at: now - 10 }] });
+  await page.goto('/');
+  await expect(page.getByRole('navigation', { name: 'Pages' })).toBeVisible();
+  await page.getByRole('button', { name: 'Open' }).click();
+  expect(await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened)).toEqual(['T-cccc3']);
+  await page.goto('/agents/?window=agents#board');
+  await expect(page.locator('li[data-task="T-cccc3"]')).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Pages' })).toHaveCount(0);
+  await expect(page.getByText('Which bucket should I use?')).toHaveCount(0);
+  // Without the sidebar, its window buttons are in the top bar: the frameless window can still be closed.
+  await page.getByRole('button', { name: 'Close the Agents window' }).click();
+  expect(await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened)).toContain('close');
 });
