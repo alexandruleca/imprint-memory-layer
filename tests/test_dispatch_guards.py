@@ -133,6 +133,61 @@ class TaskFailingTwiceTests(LoopCase):
         self.assertNotIn('user', tasks.get(self.task)['assignees'])
 
 
+def _from_another_device(task: str, tag: dict, *, actor: str = 'system') -> None:
+    """A note at the end of a run on another paired device, arriving by sync."""
+    created = next(e for e in tasks.history(task) if e['kind'] == 'created')
+    now = time.time()
+    tasks.sync_import([{'type': 'event', 'id': uuid.uuid4().hex, 'task': created['task'], 'kind': 'comment',
+                        'hlc': f'{int(now * 1000):013d}.0000', 'device': 'device-b', 'actor': actor,
+                        'session': None if actor == 'system' else 'conversation:b1', 'agent': None,
+                        'client': None if actor == 'system' else 'codex', 'recorded_at': now,
+                        'data': {'text': f"The Dispatched session (Codex) {tag['outcome']}.", 'to': [],
+                                 'dispatch': tag}}])
+
+
+class PairedDevicesCountTests(LoopCase):
+    """The rounds and failures every paired device made count (ADR 0234)."""
+
+    def test_a_review_another_device_returned_counts_toward_the_hand_over(self):
+        dispatched.run(self.task)
+        _from_another_device(self.task, {'run': 'b-review', 'role': 'review', 'outcome': 'returned',
+                                         'started': True})
+        with patch.dict(os.environ, {'FAKE_REVIEW': 'return'}):
+            dispatched.run(self.task, role='review')  # this device's first returned review: the second in all
+        self.assertIn('user', tasks.get(self.task)['assignees'])
+        self.assertTrue(any('sent this Task back 2 times' in c['text'] for c in tasks.user_inbox()))
+
+    def test_a_failure_on_another_device_counts_toward_the_hand_over(self):
+        _from_another_device(self.task, {'run': 'b-work', 'role': 'work', 'outcome': 'failed', 'started': True})
+        with patch.dict(os.environ, {'FAKE_MODE': 'fail'}):
+            dispatched.run(self.task)
+        self.assertIn('user', tasks.get(self.task)['assignees'])
+        self.assertTrue(any('failed on this Task 2 times' in c['text'] for c in tasks.user_inbox()))
+
+    def test_what_does_not_count_on_another_device_does_not_count_here(self):
+        _from_another_device(self.task, {'run': 'b-start', 'role': 'work', 'outcome': 'failed', 'started': False})
+        _from_another_device(self.task, {'run': 'b-agent', 'role': 'work', 'outcome': 'failed', 'started': True},
+                             actor='agent')  # only Imprint's own notes count
+        with patch.dict(os.environ, {'FAKE_MODE': 'fail'}):
+            dispatched.run(self.task)
+        self.assertNotIn('user', tasks.get(self.task)['assignees'])
+
+    def test_imprints_notes_at_a_runs_end_carry_the_tag_every_device_counts(self):
+        with patch.dict(os.environ, {'FAKE_MODE': 'fail'}):
+            failed = dispatched.run(self.task)
+        tags = [e['data']['dispatch'] for e in tasks.history(self.task)
+                if e['kind'] == 'comment' and 'dispatch' in e['data']]
+        self.assertEqual(tags, [{'run': failed['id'], 'role': 'work', 'outcome': 'failed', 'started': True}])
+
+    def test_only_imprint_tags_a_note(self):
+        tag = {'run': 'x1', 'role': 'work', 'outcome': 'failed', 'started': True}
+        for actor in (tasks.USER, tasks.agent('conversation:a1', client='codex')):
+            with self.subTest(actor=actor['kind']), self.assertRaises(PermissionError):
+                tasks.comment(self.task, 'I failed, honest', actor=actor, dispatch=tag)
+        with self.assertRaises(ValueError):
+            tasks.comment(self.task, 'odd', actor=SYSTEM, dispatch={**tag, 'outcome': 'exploded'})
+
+
 class OwnTasksTests(LoopCase):
     def dispatched_agent(self):
         """The agent a Dispatched session became after taking its claim over."""

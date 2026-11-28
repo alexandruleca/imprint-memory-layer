@@ -34,11 +34,30 @@ def _addresses(values, text: str) -> list[str]:
     return found[:ASSIGNEES]
 
 
-def comment(task: str, text: str, *, to=(), actor: dict | None = None, workspace: str | None = None) -> dict:
+DISPATCH_OUTCOMES = ('passed', 'returned', 'failed', 'stopped')
+
+
+def comment(task: str, text: str, *, to=(), actor: dict | None = None, workspace: str | None = None,
+            dispatch: dict | None = None) -> dict:
     """Comment on a Task, optionally addressed; ``@name`` in the text
-    addresses too."""
+    addresses too. ``dispatch`` tags Imprint's own note at the end of a
+    Dispatched run: ``{'run', 'role', 'outcome', 'started'}``, which every
+    paired device counts (ADR 0234); only Imprint itself may tag a note."""
     text = _redacted([_text(text, 'comment', TEXT_CHARS, required=True)])[0]
-    return _change(task, 'comment', {'text': text, 'to': _addresses(to, text)}, actor, workspace)
+    data = {'text': text, 'to': _addresses(to, text)}
+    if dispatch is not None:
+        data['dispatch'] = _dispatch_tag(dispatch, actor)
+    return _change(task, 'comment', data, actor, workspace)
+
+
+def _dispatch_tag(tag: dict, actor: dict | None) -> dict:
+    if (actor or {}).get('kind') != 'system':
+        raise PermissionError('Only Imprint tags its note at the end of a Dispatched run')
+    if not isinstance(tag, dict) or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', str(tag.get('run') or '')) \
+            or tag.get('role') not in ('work', 'review', 'refine') or tag.get('outcome') not in DISPATCH_OUTCOMES \
+            or not isinstance(tag.get('started'), bool):
+        raise ValueError('a dispatch tag is {"run", "role", "outcome", "started"}')
+    return {key: tag[key] for key in ('run', 'role', 'outcome', 'started')}
 
 
 def _addressed(to: list[str], holder: dict | None, session: str, name: str | None, client: str | None,

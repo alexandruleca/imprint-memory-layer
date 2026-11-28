@@ -63,11 +63,31 @@ def failures_in_a_row() -> int:
     return count
 
 
+def run_ends(task: str, workspace: str) -> dict[str, dict]:
+    """How each Dispatched run on ``task`` ended, by run id, on every paired
+    device: the tags on Imprint's notes at the runs' ends in the Task's
+    synced history, and this device's own runs (some may predate the tags),
+    each run once (ADR 0234). Only Imprint's own notes count."""
+    ends = {r['id']: {'role': r['role'], 'outcome': r['outcome'], 'started': bool(r['pid'])}
+            for r in store.runs_of(task) if r['ended_at'] is not None and r['workspace'] == workspace}
+    try:
+        history = tasks.history(task, workspace=workspace)
+    except LookupError:
+        return ends
+    for event in history:
+        tag = event['data'].get('dispatch') if event['kind'] == 'comment' and event['actor'] == 'system' else None
+        if isinstance(tag, dict) and isinstance(tag.get('run'), str):
+            ends[tag['run']] = {'role': tag.get('role'), 'outcome': tag.get('outcome'),
+                                'started': tag.get('started') is True}
+    return ends
+
+
 def after_failure(run: dict) -> None:
     """A Task whose Dispatched sessions failed twice goes to the person. A
     session that never started (no client process) says nothing about the
     Task and is not counted (ADR 0228)."""
-    failed = sum(1 for r in store.runs_of(run['task']) if r['outcome'] == 'failed' and r['pid'])
+    failed = sum(1 for end in run_ends(run['task'], run['workspace']).values()
+                 if end['outcome'] == 'failed' and end['started'])
     if failed < TASK_FAILURES:
         return
     state = tasks.get(run['task'], workspace=run['workspace'])
@@ -224,7 +244,8 @@ def after_review(run: dict, outcome: str) -> None:
     """A Task sent back by ``REVIEW_ROUNDS`` reviews goes to the person (ADR 0221)."""
     if outcome != 'returned':
         return
-    returned = sum(1 for r in store.runs_of(run['task']) if r['role'] == 'review' and r['outcome'] == 'returned')
+    returned = sum(1 for end in run_ends(run['task'], run['workspace']).values()
+                   if end['role'] == 'review' and end['outcome'] == 'returned')
     if returned < REVIEW_ROUNDS:
         return
     state = tasks.get(run['task'], workspace=run['workspace'])

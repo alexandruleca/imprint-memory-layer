@@ -594,6 +594,12 @@ def _remove_scratch(run: dict) -> None:
         pass
 
 
+def _tag(run: dict, outcome: str) -> dict:
+    """The tag on Imprint's note at a run's end, which every paired device
+    counts toward handing a Task to the person (ADR 0234)."""
+    return {'run': run['id'], 'role': run['role'], 'outcome': outcome, 'started': bool(run.get('pid'))}
+
+
 def _refinement_ended(run: dict, state: dict, label: str) -> tuple[str, str]:
     """The outcome of a refinement that ended on its own (ADR 0230): ``refined``
     when the Task gained acceptance criteria or the session commented on it,
@@ -675,9 +681,12 @@ def finish(run_id: str, exit_code: int | None, *, reason: str | None = None, sto
         if state['status'] == 'done':
             outcome, detail = 'passed', 'passed the review and moved the Task to Done'
             tasks.comment(task, f"A Dispatched review ({label}) passed this Task: {run['branch']} is ready to merge.",
-                          to=['user'], actor=SYSTEM, workspace=workspace)
+                          to=['user'], actor=SYSTEM, workspace=workspace, dispatch=_tag(run, outcome))
         else:
             outcome, detail = 'returned', 'found problems and sent the Task back to Ready'
+            # Every paired device counts the rounds from this note (ADR 0234).
+            tasks.comment(task, f'A Dispatched review ({label}) sent this Task back to Ready.', actor=SYSTEM,
+                          workspace=workspace, dispatch=_tag(run, outcome))
             holder = state.get('holder') or (state.get('previous_holder') if state.get('stale') else None)
             if holder and holder['session'] in _our_sessions(task, run_id, workspace):
                 tasks.release(task, actor=SYSTEM, workspace=workspace)
@@ -705,7 +714,7 @@ def finish(run_id: str, exit_code: int | None, *, reason: str | None = None, sto
             text += ' Its claim is released.'
         if tail:
             text += f'\n\nThe end of its log:\n\n{tail}'
-        tasks.comment(task, text, actor=SYSTEM, workspace=workspace)
+        tasks.comment(task, text, actor=SYSTEM, workspace=workspace, dispatch=_tag(run, outcome))
     store.update(run_id, ended_at=time.time(), exit_code=exit_code, outcome=outcome, detail=detail)
     if run['role'] == 'refine':
         _remove_scratch(run)
