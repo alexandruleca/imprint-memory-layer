@@ -198,10 +198,13 @@ class WhileRunningTests(DispatchCase):
             run, proc = dispatched.start(self.task)
             self.addCleanup(lambda: (dispatched.kill(proc.pid, proc), proc.wait()))
             session = dispatched.Session(run, proc)
-            deadline = time.monotonic() + 60
-            while not self.record.exists() and time.monotonic() < deadline:
-                time.sleep(0.05)
-            token = re.search(r'- Your claim token: (\S+)', self.recorded()['prompt']).group(1)
+            deadline, token = time.monotonic() + 60, None
+            while token is None and time.monotonic() < deadline:
+                try:  # the fake may still be writing its record (seen on Windows)
+                    token = re.search(r'- Your claim token: (\S+)', self.recorded()['prompt']).group(1)
+                except (OSError, ValueError, KeyError, AttributeError):
+                    time.sleep(0.05)
+            self.assertIsNotNone(token, 'the fake session never recorded its prompt')
             client = tasks.agent('conversation:fake-client', client='claude-code')
             read, took = tasks.get, []
 
