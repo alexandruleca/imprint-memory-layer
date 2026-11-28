@@ -164,6 +164,15 @@ def watching(run: dict) -> bool:
     return processes.same(run.get('watcher'), run.get('watcher_started'))
 
 
+def under_way() -> list[dict]:
+    """Runs on this device that stopping Imprint would interrupt, whoever
+    started them (the dashboard's Dispatcher, Dispatch now, or `imprint
+    tasks dispatch run`): their client runs, or the process starting them
+    has not started it yet, such as while its claim waits for the paired
+    devices (ADR 0224)."""
+    return [run for run in store.unfinished() if alive(run) or (not run.get('pid') and watching(run))]
+
+
 def kill(pid: int, proc: subprocess.Popen | None = None, grace: float = STOP_GRACE, *,
          distro: str | None = None, run_id: str | None = None, identity: str | None = None) -> None:
     """End a client and everything it started: SIGTERM to its process group

@@ -298,5 +298,58 @@ class GoneTaskTests(LoopCase):
         self.assertEqual(store.get('fine')['outcome'], 'failed')
 
 
+class UpdateTests(LoopCase):
+    """An automatic update waits for Dispatched sessions, whoever started them (T-cs37k)."""
+
+    def _sleeper(self):
+        proc = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], start_new_session=True)
+        self.addCleanup(lambda: (proc.kill(), proc.wait()))
+        return proc
+
+    def _add(self, run_id, *, watcher, pid=None, pid_started=None):
+        return store.add({'id': run_id, 'workspace': 'default', 'task': self.task, 'title': 't', 'project': 'shop',
+                          'client': 'claude-code', 'role': 'work', 'session': dispatched.session_of(run_id),
+                          'pid': pid, 'pid_started': pid_started, 'watcher': watcher,
+                          'watcher_started': processes.started(watcher), 'started_at': time.time()})
+
+    def test_an_update_waits_while_a_session_runs_or_starts_whoever_started_it(self):
+        import contextlib
+        from imprint import agent_activity, chat_replies, updates
+        stack = contextlib.ExitStack()
+        self.addCleanup(stack.close)
+        for target, name, value in [(updates, 'running', False), (updates.job_queue, 'active_job', None),
+                                    (updates, '_recording', False), (chat_replies, 'writing', False),
+                                    (updates, '_echo_talking', False),
+                                    (agent_activity, 'last_call_at', time.time() - 3600),
+                                    (updates, 'user_idle_seconds', 3600)]:
+            stack.enter_context(patch.object(target, name, return_value=value))
+        gone = subprocess.Popen([sys.executable, '-c', 'pass'])
+        gone.wait()
+        # `imprint tasks dispatch run` in its own process, not the dashboard server's Dispatcher.
+        starter, client, unrelated = self._sleeper(), self._sleeper(), self._sleeper()
+
+        # Nothing under way: a run that ended, a start whose process went away, a pid another process got later.
+        self._add('ended', watcher=starter.pid, pid=client.pid, pid_started=processes.started(client.pid))
+        store.update('ended', ended_at=time.time(), outcome='review')
+        self._add('abandoned', watcher=gone.pid)
+        self._add('reused', watcher=gone.pid, pid=unrelated.pid, pid_started='an-earlier-process')
+        self.assertEqual(dispatched.under_way(), [])
+        self.assertEqual(updates.busy(), '')
+
+        # Its client runs, and nothing in this server watches it.
+        self._add('working', watcher=starter.pid, pid=client.pid, pid_started=processes.started(client.pid))
+        self.assertFalse(loop.busy())
+        self.assertEqual([run['id'] for run in dispatched.under_way()], ['working'])
+        self.assertEqual(updates.busy(), 'a Dispatched session is running')
+        store.update('working', ended_at=time.time(), outcome='review')
+
+        # Being started: its claim waits for the paired devices before the client starts.
+        self._add('starting', watcher=starter.pid)
+        self.assertEqual([run['id'] for run in dispatched.under_way()], ['starting'])
+        self.assertEqual(updates.busy(), 'a Dispatched session is running')
+        store.update('starting', ended_at=time.time(), outcome='lost')
+        self.assertEqual(updates.busy(), '')
+
+
 if __name__ == '__main__':
     unittest.main()

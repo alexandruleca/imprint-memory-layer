@@ -78,6 +78,7 @@ class UpdateModuleTests(unittest.TestCase):
     def test_busy_names_what_an_update_would_interrupt(self):
         import contextlib
         from imprint import agent_activity, chat_replies
+        from imprint.dispatch import dispatched
         now = time.time()
         # With no Echo window and no conversation, Echo is not talking.
         self.assertFalse(updates._echo_talking())
@@ -86,6 +87,7 @@ class UpdateModuleTests(unittest.TestCase):
                 patch.object(updates, '_recording', return_value=False),
                 patch.object(chat_replies, 'writing', return_value=False),
                 patch.object(updates, '_echo_talking', return_value=False),
+                patch.object(dispatched, 'under_way', return_value=[]),
                 patch.object(agent_activity, 'last_call_at', return_value=now - 3600),
                 patch.object(updates, 'user_idle_seconds', return_value=3600)]
         with contextlib.ExitStack() as stack:
@@ -97,6 +99,7 @@ class UpdateModuleTests(unittest.TestCase):
                     (updates, '_recording', True, 'a recording is running'),
                     (chat_replies, 'writing', True, 'a chat reply is being written'),
                     (updates, '_echo_talking', True, 'an Echo conversation is open'),
+                    (dispatched, 'under_way', [{'id': 'r1'}], 'a Dispatched session is running'),
                     (agent_activity, 'last_call_at', now - 60, 'an agent used Imprint in the last 15 minutes'),
                     (updates, 'user_idle_seconds', 30.0, 'the computer is in use')]:
                 with patch.object(target, name, return_value=value):

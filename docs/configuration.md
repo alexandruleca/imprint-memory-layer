@@ -201,7 +201,7 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `ui.tutorials` | `true` | Start a page's short tutorial the first time it opens; off, the top bar's help menu still shows it. Written `false` at that first start for an installation already in use. Which tutorials were seen is kept per browser. Env `IMPRINT_UI_TUTORIALS` ([ADR 0183](adr/0183-each-page-has-a-short-tutorial-that-can-be-skipped.md)) |
 | **Updates** | | |
 | `update.channel` | `stable` | Releases this installation updates to: `stable`, or `dev` for dev builds as well. The dashboard's update notice and `imprint update` follow it; `--stable` or `--dev` overrides it for one run. Env `IMPRINT_UPDATE_CHANNEL`. See [updating an existing install](installation.md#updating-an-existing-install) |
-| `update.auto` | `true` | Install new releases by itself, while the dashboard runs, when nothing would be interrupted: no job, recording, chat reply or Echo conversation, no agent call for 15 minutes, no keyboard or mouse input for 10 minutes (Windows, macOS). macOS package installs still ask. Env `IMPRINT_UPDATE_AUTO` ([ADR 0175](adr/0175-releases-install-by-themselves-when-nothing-would-be-interrupted.md)) |
+| `update.auto` | `true` | Install new releases by itself, while the dashboard runs, when nothing would be interrupted: no job, recording, chat reply, Echo conversation or Dispatched session, no agent call for 15 minutes, no keyboard or mouse input for 10 minutes (Windows, macOS). macOS package installs still ask. Env `IMPRINT_UPDATE_AUTO` ([ADR 0175](adr/0175-releases-install-by-themselves-when-nothing-would-be-interrupted.md)) |
 | **Other** | | |
 | `collection` | `memories` | Default Qdrant collection name (workspace suffix is appended automatically) |
 
