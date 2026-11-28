@@ -447,8 +447,9 @@ See [ADR 0235](adr/0235-cursor-cli-inside-wsl-gets-imprints-mcp-entry-and-rule.m
 | Interactive `agent` calling `search` (pseudo-terminal) | Passed | With the request typed 25 s after start. With the request passed on the command line, the session looked for Imprint's tools about 5 s after start and called it "in an error state". |
 | Rules from `~/.cursor/rules` | Passed for workspaces under the home | A probe rule and Imprint's rule were applied from a git repository under the home folder; from `/tmp` the probe rule was not. |
 | `disconnect cursor` | Passed | `mcpServers` left empty; launcher, rule and journal record removed; the Claude Code and Codex registrations stayed. |
+| Go WSL, connect and disconnect tests (cross-compiled Windows test binary) | Passed | |
 
-Not run: the Cursor app over Remote-WSL (no Cursor app on this device), the installer wizard or repair with a Cursor selection, and a cross-compiled Windows test binary of the Go tests.
+Not run: the Cursor app over Remote-WSL (no Cursor app on this device), and the installer wizard or repair with a Cursor selection.
 
 ## Cline setup and learn (2026-10-25)
 

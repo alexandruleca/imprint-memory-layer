@@ -72,6 +72,7 @@ The Windows Cursor setup is unchanged.
   - `TestWSLCursorCLIRegistrationWritesItsMCPEntryAndRule`: the probe's login-shell line, and a fixture profile with Cursor CLI. Setup writes the launcher, the entry beside another server, and the short rule beside a user rule. A second setup leaves all three byte-identical. `disconnectClients(cursor)` removes the entry, launcher, rule and record, and keeps the other server, the file's other keys and the user rule.
   - `TestWSLCursorRegistrationWithoutCursorCLIRecordsItsStoreAndWritesNothing`: without Cursor CLI nothing is written, and disable keeps a Linux installation's `imprint` entry unchanged.
   - Removing each new rule (the idle layout, the short-rule match on removal, the foreign entry without a launcher) makes one of these tests fail.
+  - The WSL, connect and disconnect tests also passed in a cross-compiled Windows test binary on the owner's device.
 - **Owner's device** (Windows with WSL Ubuntu-26.04, Cursor CLI 2026.11.22, installed runtime v0.64.0-dev.1). A Windows build of this change was placed beside the installed `imprint.exe`, so it used the installed runtime and data, and was removed afterwards.
   - The probe through `wsl.exe` reported `/home/alexa/.local/bin/cursor-agent`; with a home that has no Cursor CLI it printed an empty line.
   - `wsl setup --distribution Ubuntu-26.04 --target cursor` wrote the launcher (mode 700), `mcp.json` and the rule, and journaled `cursor_cli`. The launcher's `probe` ran the Windows interpreter.
@@ -82,5 +83,4 @@ The Windows Cursor setup is unchanged.
   - `disconnect cursor` left `mcpServers` empty and removed the launcher, the rule and the journal record. The Claude Code and Codex registrations stayed. Afterwards the home's `imprint` command, the journal and the Claude Code launcher matched their checksums from before the run.
 - **Not run:**
   - the Cursor app over Remote-WSL: the owner's device has no Cursor app, so whether it shows Imprint twice is unchecked;
-  - the installer wizard, repair or an update with a Cursor selection;
-  - a cross-compiled Windows test binary of the Go tests.
+  - the installer wizard, repair or an update with a Cursor selection.
