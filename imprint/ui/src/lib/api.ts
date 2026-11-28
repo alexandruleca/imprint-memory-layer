@@ -1195,6 +1195,11 @@ export type AgentSession = {
   calls: number; errors: number; last_tool: string | null;
   /** The session on the Board and the name its agent chose (ADR 0216), once it used the Board. */
   board_session?: string | null; agent_name?: string | null;
+  /** What Live knows of it (ADR 0233): its project, the Tasks it claimed, a Dispatched run's outcome, its model and
+   * tokens (read once from a finished session's transcript), and its conversation in Imprint once learned. */
+  project?: string; tasks?: string[]; outcome?: string | null; dispatched_role?: string | null; model?: string | null;
+  tokens?: { new_input: number; cached_input: number; output: number } | null;
+  conversation?: { source: string; project: string } | null;
 };
 export type AgentClient = { client: string; sessions: number; connected: number; calls: number; errors: number; last_seen: number };
 export type AgentCall = {
@@ -1206,7 +1211,9 @@ export type AgentCall = {
  * only), `sessions` (the rest by last activity), `next` (pass as `before`
  * for the page after), `total` (matching history) and `clients` (totals of
  * every session). */
-export type AgentsPage = { running: AgentSession[]; sessions: AgentSession[]; next: string | null; total: number; clients: AgentClient[] };
+export type AgentsPage = { running: AgentSession[]; sessions: AgentSession[]; next: string | null; total: number; clients: AgentClient[];
+  /** What History's project and agent filters offer. */
+  options?: { projects: string[]; agents: string[] } };
 /** What a running agent is doing, by rule from its transcript (ADR 0233). */
 export type LiveActivity = {
   kind: "editing" | "building" | "testing" | "running" | "reading" | "web" | "imprint" | "board" | "delegating" | "asking"
@@ -1243,11 +1250,15 @@ export function getLive() {
   return fetchAPI<LiveReport>("/api/agents/live");
 }
 
-export function getAgents({ limit = 50, before, client, q }: { limit?: number; before?: string; client?: string; q?: string } = {}) {
+export function getAgents({ limit = 50, before, client, q, project, agent }: {
+  limit?: number; before?: string; client?: string; q?: string; project?: string; agent?: string;
+} = {}) {
   const qs = new URLSearchParams({ limit: String(limit) });
   if (before) qs.set("before", before);
   if (client) qs.set("client", client);
   if (q) qs.set("q", q);
+  if (project) qs.set("project", project);
+  if (agent) qs.set("agent", agent);
   return fetchAPI<AgentsPage>(`/api/agents?${qs}`);
 }
 /** Sessions of a client and how many searched Imprint first (ADR 0214). */

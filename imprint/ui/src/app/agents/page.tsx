@@ -15,7 +15,10 @@ import { Timestamp, useNow } from "@/components/timestamp";
 import { clientName, folderName, plural, sessionLength, whenInGroup } from "@/components/agents/format";
 import { LoadMore } from "@/components/agents/load-more";
 import { BoardView } from "@/components/agents/board/board";
-import { LiveView } from "@/components/agents/live";
+import { LiveView, openTask, tokens } from "@/components/agents/live";
+import { TaskLink } from "@/components/agents/board/links";
+import { SourceReader, type ReaderTarget } from "@/components/source-reader";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SessionDetails } from "@/components/agents/session-details";
 import { SearchFirstPanel } from "@/components/agents/search-first";
 import { StatusDot } from "@/components/agents/status";
@@ -90,7 +93,7 @@ const POLL_MS = 3000;
 const PAGE = 50;
 
 type Sessions = AgentsPage & { olderLoaded: boolean };
-type Filters = { client: string | null; q: string };
+type Filters = { client: string | null; q: string; project: string | null; agent: string | null };
 
 const olderThan = (s: AgentSession, edge: AgentSession) =>
   s.last_seen < edge.last_seen || (s.last_seen === edge.last_seen && s.id < edge.id);
@@ -109,9 +112,10 @@ function mergeHead(prev: Sessions, head: AgentsPage): Sessions {
 /** The first page, polled while the page is visible, and older pages on
  * demand. The first page is cached (ADR 0152), so a return to Agents shows
  * the last one at once; each poll merges into what is loaded. */
-function useAgentSessions({ client, q }: Filters) {
-  const key = JSON.stringify([client, q]);
-  const head = useCached(`agents:${key}`, () => getAgents({ limit: PAGE, client: client ?? undefined, q: q || undefined }),
+function useAgentSessions({ client, q, project, agent }: Filters) {
+  const key = JSON.stringify([client, q, project, agent]);
+  const filters = { client: client ?? undefined, q: q || undefined, project: project ?? undefined, agent: agent ?? undefined };
+  const head = useCached(`agents:${key}`, () => getAgents({ limit: PAGE, ...filters }),
     { refreshInterval: POLL_MS, revalidateOnJobs: false, dedupeMs: 0 });
   const [data, setData] = useState<Sessions | null>(null);
   const [merged, setMerged] = useState<{ key: string; head: AgentsPage } | null>(null);
@@ -136,7 +140,7 @@ function useAgentSessions({ client, q }: Filters) {
     const key = filterKey.current;
     setLoadingOlder(true);
     try {
-      const page = await getAgents({ limit: PAGE, before: data.next, client: client ?? undefined, q: q || undefined });
+      const page = await getAgents({ limit: PAGE, before: data.next, ...filters });
       if (filterKey.current !== key) return;
       setData((prev) => {
         if (!prev) return prev;
@@ -159,13 +163,16 @@ function useAgentSessions({ client, q }: Filters) {
 
 function SessionsView() {
   const [client, setClient] = useState<string | null>(null);
+  const [project, setProject] = useState<string | null>(null);
+  const [agent, setAgent] = useState<string | null>(null);
+  const [reading, setReading] = useState<ReaderTarget | null>(null);
   const [text, setText] = useState("");
   const [q, setQ] = useState("");
   useEffect(() => {
     const timer = setTimeout(() => setQ(text.trim()), 250);
     return () => clearTimeout(timer);
   }, [text]);
-  const { data, error, loadingOlder, olderFailed, loadOlder, retry } = useAgentSessions({ client, q });
+  const { data, error, loadingOlder, olderFailed, loadOlder, retry } = useAgentSessions({ client, q, project, agent });
   const now = useNow(15_000);
   const [open, setOpen] = useState<AgentSession | null>(null);
   // Live's History action names a session in the address; closing it drops it from the address.
@@ -201,10 +208,11 @@ function SessionsView() {
     </div>
   );
 
-  const filtered = client !== null || q !== "";
+  const filtered = client !== null || q !== "" || project !== null || agent !== null;
   const nothingYet = !filtered && data.running.length === 0 && data.sessions.length === 0;
   const groups = groupByTime(data.sessions, (s) => s.last_seen * 1000, { now });
-  const clearFilters = () => { setClient(null); setText(""); setQ(""); };
+  const clearFilters = () => { setClient(null); setText(""); setQ(""); setProject(null); setAgent(null); };
+  const read = (s: AgentSession) => s.conversation && setReading({ source: s.conversation.source, project: s.conversation.project });
 
   return (
     <div className="mx-auto max-w-5xl pb-10">
@@ -233,6 +241,8 @@ function SessionsView() {
                   </InputGroupAddon>
                 )}
               </InputGroup>
+              <ChoiceFilter label="Project" all="All projects" value={project} onChange={setProject} items={data.options?.projects ?? []} />
+              <ChoiceFilter label="Agent" all="Any agent" value={agent} onChange={setAgent} items={data.options?.agents ?? []} />
               {filtered && <Button variant="ghost" size="sm" onClick={clearFilters}>Clear filters</Button>}
             </div>
             {error && (
@@ -249,7 +259,7 @@ function SessionsView() {
                   Running now <span className="font-normal text-muted-foreground tabular-nums">{data.running.length}</span>
                 </h2>
                 <ul className="divide-y divide-border overflow-hidden rounded-xl bg-card ring-1 ring-success/30">
-                  {data.running.map((s) => <SessionRow key={s.id} session={s} now={now} onOpen={() => setOpen(s)} />)}
+                  {data.running.map((s) => <SessionRow key={s.id} session={s} now={now} onOpen={() => setOpen(s)} onRead={() => read(s)} />)}
                 </ul>
               </section>
             )}
@@ -289,7 +299,7 @@ function SessionsView() {
                           </span>
                         </h3>
                         <ul className="divide-y divide-border overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
-                          {g.items.map((s) => <SessionRow key={s.id} session={s} group={g.key} now={now} onOpen={() => setOpen(s)} />)}
+                          {g.items.map((s) => <SessionRow key={s.id} session={s} group={g.key} now={now} onOpen={() => setOpen(s)} onRead={() => read(s)} />)}
                         </ul>
                       </section>
                     );
@@ -307,6 +317,7 @@ function SessionsView() {
           {shown && <SessionDetails key={shown.id} session={shown} />}
         </SheetContent>
       </Sheet>
+      <SourceReader target={reading} onClose={() => setReading(null)} />
     </div>
   );
 }
@@ -355,39 +366,71 @@ function ClientFilter({ clients, selected, onSelect, now }: {
   );
 }
 
-function SessionRow({ session: s, group, now, onOpen }: { session: AgentSession; group?: string; now: Date; onOpen: () => void }) {
+function SessionRow({ session: s, group, now, onOpen, onRead }: {
+  session: AgentSession; group?: string; now: Date; onOpen: () => void; onRead: () => void;
+}) {
   const name = clientName(s.client);
   const folder = folderName(s.directory);
   const errors = s.errors > 0 ? `, ${plural(s.errors, "error")}` : "";
+  const tasks = s.tasks ?? [];
+  // The row opens the session; its Task links and conversation sit above that button (as on the Board's cards).
   return (
-    <li>
-      <button type="button" onClick={onOpen}
-        aria-label={`${s.agent_name ? `${s.agent_name}, ` : ""}${folder}, ${name}, ${s.connected ? "running" : "finished"}, ${plural(s.calls, "call")}${errors}. Show calls`}
-        className="group flex w-full min-w-0 items-center gap-3 px-4 py-2.5 text-left text-sm outline-none hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset">
-        {s.connected && <StatusDot connected decorative />}
-        <span className="min-w-0 flex-1">
-          <span className="flex min-w-0 items-baseline gap-2">
-            {s.agent_name && <span className="shrink-0 font-semibold">{s.agent_name}</span>}
-            <span className={s.agent_name ? "truncate text-muted-foreground" : "truncate font-medium"} title={s.directory ?? undefined}>{folder}</span>
-            {s.workspace && s.workspace !== "default" && (
-              <Badge variant="outline" className="hidden shrink-0 text-[10px] sm:inline-flex">{s.workspace}</Badge>
+    <li className="group relative flex min-w-0 items-center gap-3 px-4 py-2.5 text-sm hover:bg-muted/50 has-[[data-row]:focus-visible]:bg-muted/50">
+      {s.connected && <StatusDot connected decorative />}
+      <span className="min-w-0 flex-1">
+        <span className="flex min-w-0 items-baseline gap-2">
+          {s.agent_name && <span className="shrink-0 font-semibold">{s.agent_name}</span>}
+          <span className={s.agent_name ? "truncate text-muted-foreground" : "truncate font-medium"} title={s.directory ?? undefined}>{folder}</span>
+          {s.workspace && s.workspace !== "default" && (
+            <Badge variant="outline" className="hidden shrink-0 text-[10px] sm:inline-flex">{s.workspace}</Badge>
+          )}
+          {s.outcome && <Badge variant="outline" className="shrink-0 text-[10px]" title="How its Dispatched run ended">{s.dispatched_role ? `${s.dispatched_role} · ` : ""}{s.outcome}</Badge>}
+        </span>
+        <span className="block truncate text-xs text-muted-foreground tabular-nums">
+          {name}{s.client_version && <span className="hidden sm:inline"> {s.client_version}</span>}
+          {s.model && <span>{" · "}{s.model}</span>}
+          {" · "}{plural(s.calls, "call")}
+          {s.errors > 0 && <span className="text-destructive">{" · "}{plural(s.errors, "error")}</span>}
+          {" · "}<span title={s.connected ? "Running for" : "Ran for"}>{sessionLength(s, now)}</span>
+          {s.tokens && <span title="New input, cached input and output tokens">{" · "}{tokens(s.tokens.new_input + s.tokens.cached_input + s.tokens.output)} tokens</span>}
+          {s.last_tool && <span className="hidden md:inline">{" · last "}<span className="font-mono">{s.last_tool}</span></span>}
+        </span>
+        {(tasks.length > 0 || s.conversation) && (
+          <span className="relative z-10 mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+            {tasks.length > 0 && <span className="flex flex-wrap items-center gap-1">Tasks {tasks.map((t) => <TaskLink key={t} id={t} onOpen={openTask} />)}</span>}
+            {s.conversation && (
+              <button type="button" onClick={onRead} className="rounded underline decoration-muted-foreground/40 underline-offset-2 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50">
+                Read its conversation
+              </button>
             )}
           </span>
-          <span className="block truncate text-xs text-muted-foreground tabular-nums">
-            {name}{s.client_version && <span className="hidden sm:inline"> {s.client_version}</span>}
-            {" · "}{plural(s.calls, "call")}
-            {s.errors > 0 && <span className="text-destructive">{" · "}{plural(s.errors, "error")}</span>}
-            {" · "}<span title={s.connected ? "Running for" : "Ran for"}>{sessionLength(s, now)}</span>
-            {s.last_tool && <span className="hidden md:inline">{" · last "}<span className="font-mono">{s.last_tool}</span></span>}
-          </span>
-        </span>
-        <span className="shrink-0 text-right text-xs text-muted-foreground tabular-nums">
-          {s.connected
-            ? <><span className="hidden sm:inline">active </span><Timestamp seconds={s.last_seen} now={now} /></>
-            : <Timestamp seconds={s.last_seen} now={now} text={whenInGroup(s.last_seen, group ?? "", now)} />}
-        </span>
-        <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" aria-hidden />
-      </button>
+        )}
+      </span>
+      <span className="shrink-0 text-right text-xs text-muted-foreground tabular-nums">
+        {s.connected
+          ? <><span className="hidden sm:inline">active </span><Timestamp seconds={s.last_seen} now={now} /></>
+          : <Timestamp seconds={s.last_seen} now={now} text={whenInGroup(s.last_seen, group ?? "", now)} />}
+      </span>
+      <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" aria-hidden />
+      <button type="button" data-row onClick={onOpen}
+        aria-label={`${s.agent_name ? `${s.agent_name}, ` : ""}${folder}, ${name}, ${s.connected ? "running" : "finished"}, ${plural(s.calls, "call")}${errors}. Show calls`}
+        className="absolute inset-0 outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset" />
     </li>
+  );
+}
+
+/** A filter of History by one of a few values, hidden while there is nothing to choose. */
+function ChoiceFilter({ label, all, value, items, onChange }: {
+  label: string; all: string; value: string | null; items: string[]; onChange: (value: string | null) => void;
+}) {
+  if (items.length < 2 && !value) return null;
+  const choices = [{ value: "", label: all }, ...items.map((item) => ({ value: item, label: item }))];
+  return (
+    <Select items={choices} value={value ?? ""} onValueChange={(next) => onChange(next ? String(next) : null)}>
+      <SelectTrigger size="sm" aria-label={label} className={cn("max-w-44 shrink-0 text-xs", value && "border-primary/50")}>
+        <SelectValue className="truncate" />
+      </SelectTrigger>
+      <SelectContent>{choices.map((c) => <SelectItem key={c.value || "all"} value={c.value}>{c.label}</SelectItem>)}</SelectContent>
+    </Select>
   );
 }

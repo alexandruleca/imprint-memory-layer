@@ -190,7 +190,8 @@ test("the drawer shows a Task and sends a comment to its holder's agent", async 
   await drawer.getByLabel('Comment', { exact: true }).fill('Use the new retry policy');
   await drawer.getByLabel('To').fill('grimforge');
   await drawer.getByRole('button', { name: 'Send' }).click();
-  await expect(drawer.getByText('Use the new retry policy')).toBeVisible();
+  // In the comment list: for a moment after sending, the box still holds the same text.
+  await expect(drawer.getByRole('listitem').getByText('Use the new retry policy')).toBeVisible();
   expect(asked.find(a => a.path === '/api/tasks/T-cccc3/comment')?.body).toEqual({ text: 'Use the new retry policy', to: ['grimforge'] });
 });
 

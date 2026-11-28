@@ -91,6 +91,11 @@ def _connect() -> sqlite3.Connection:
     for column in ("board_session", "agent_name"):  # The Board's session and the name it chose (ADR 0216).
         if column not in columns:
             conn.execute(f"ALTER TABLE agent_sessions ADD COLUMN {column} TEXT")
+    # A finished session's model and token totals, read once from its transcript (ADR 0233).
+    for column, kind in (("model", "TEXT"), ("transcript", "TEXT"), ("tokens_new", "INTEGER"), ("tokens_cached", "INTEGER"),
+                         ("tokens_out", "INTEGER"), ("totals_at", "REAL")):
+        if column not in columns:
+            conn.execute(f"ALTER TABLE agent_sessions ADD COLUMN {column} {kind}")
     conn.commit()
     _conn = conn
     return conn
@@ -293,10 +298,47 @@ def _parse_cursor(cursor: str) -> tuple[float, str]:
     return float(seen), sid
 
 
-def _filters(client: str | None, query: str | None) -> tuple[str, list]:
-    """SQL conditions for a client name (as ``clients`` names it) and a
-    case-insensitive substring of the folder, workspace or client."""
+def save_totals(session_id: str, *, model: str | None, transcript: str | None, tokens: dict | None) -> None:
+    """Keep what a finished session's transcript said, so it is read once:
+    ``tokens`` None when it has no transcript (ADR 0233)."""
+    tokens = tokens or {}
+    _write("UPDATE agent_sessions SET model = ?, transcript = ?, tokens_new = ?, tokens_cached = ?, tokens_out = ?,"
+           " totals_at = ? WHERE id = ?",
+           (model, transcript, tokens.get("new_input"), tokens.get("cached_input"), tokens.get("output"), time.time(),
+            session_id))
+
+
+def _project_directories(project: str) -> list[str]:
+    """The recorded folders whose project, as the Board names it, is ``project``."""
+    from .agents_live import _project
+    rows = _connect().execute("SELECT DISTINCT directory FROM agent_sessions WHERE directory IS NOT NULL").fetchall()
+    return [row["directory"] for row in rows if _project(row["directory"]) == project]
+
+
+def options() -> dict:
+    """What History's project and agent filters offer."""
+    if not _db_path().exists():
+        return {"projects": [], "agents": []}
+    from .agents_live import _project
+    conn = _connect()
+    folders = [row["directory"] for row in conn.execute("SELECT DISTINCT directory FROM agent_sessions WHERE directory IS NOT NULL")]
+    agents = [row["agent_name"] for row in conn.execute(
+        "SELECT DISTINCT agent_name FROM agent_sessions WHERE agent_name IS NOT NULL ORDER BY agent_name")]
+    return {"projects": sorted({p for p in map(_project, folders) if p}), "agents": agents}
+
+
+def _filters(client: str | None, query: str | None, project: str | None = None, agent: str | None = None) -> tuple[str, list]:
+    """SQL conditions for a client name (as ``clients`` names it), a project,
+    an agent's name and a case-insensitive substring of the folder,
+    workspace or client."""
     sql, params = "", []
+    if project:
+        folders = _project_directories(project)
+        sql += f" AND s.directory IN ({','.join('?' * len(folders))})" if folders else " AND 0"
+        params += folders
+    if agent:
+        sql += " AND s.agent_name = ?"
+        params.append(agent)
     if client:
         sql += " AND COALESCE(s.client, 'Unknown client') = ?"
         params.append(client)
@@ -309,7 +351,7 @@ def _filters(client: str | None, query: str | None) -> tuple[str, list]:
 
 
 def page_sessions(limit: int = 50, before: str | None = None, *, client: str | None = None,
-                  query: str | None = None) -> dict:
+                  query: str | None = None, project: str | None = None, agent: str | None = None) -> dict:
     """One page of the session history (ADR 0151).
 
     ``running`` holds every connected session, on the first page only, so
@@ -323,7 +365,7 @@ def page_sessions(limit: int = 50, before: str | None = None, *, client: str | N
     if not _db_path().exists():
         return empty
     conn = _connect()
-    where, params = _filters(client, query)
+    where, params = _filters(client, query, project, agent)
     open_rows = conn.execute(
         f"SELECT {_SESSION_COLUMNS} FROM agent_sessions s WHERE s.ended_at IS NULL{where}"
         " ORDER BY s.last_seen DESC, s.id DESC", params).fetchall()

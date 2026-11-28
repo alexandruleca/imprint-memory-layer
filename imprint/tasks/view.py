@@ -125,6 +125,24 @@ def related(task: str, workspace: str | None = None) -> dict[str, dict]:
     return found
 
 
+def claimed_by(sessions: list[str], workspace: str | None = None) -> dict[str, list[str]]:
+    """The Tasks each agent session claimed on the Board, by session, in the order it claimed them."""
+    if not sessions:
+        return {}
+    with _reading(workspace) as conn:
+        if conn is None:
+            return {}
+        rows = conn.execute(f"SELECT task, session FROM events WHERE kind = 'claimed' AND session IN "
+                            f"({','.join('?' * len(sessions))}) ORDER BY hlc", sessions).fetchall()
+        view = _view(conn)
+    found: dict[str, list[str]] = {}
+    for row in rows:
+        task = view.id(row['task'])
+        if task and task not in found.setdefault(row['session'], []):
+            found[row['session']].append(task)
+    return found
+
+
 def _contains(state: dict, text: str) -> bool:
     haystack = ' '.join([state['id'], *state.get('former_ids', []), state['title'], state['description'],
                          *state['appended'], *state['acceptance'], *state['tags']]).lower()

@@ -231,8 +231,8 @@ class TailTests(unittest.TestCase):
         self.assertEqual(state.tokens()['output'], 30)
 
 
-class LiveTests(unittest.TestCase):
-    """live() over a data folder, a home with transcripts and the Board."""
+class LiveCase(unittest.TestCase):
+    """A data folder, a home with transcripts and the Board."""
 
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
@@ -270,6 +270,9 @@ class LiveTests(unittest.TestCase):
         path.write_text(''.join(json.dumps(r) + '\n' for r in records), encoding='utf-8')
         return path
 
+
+
+class LiveTests(LiveCase):
     def test_a_claude_code_session_shows_its_task_activity_and_tokens(self):
         now = time.time()
         folder = '/home/alex/code/shop'
@@ -356,6 +359,66 @@ class LiveTests(unittest.TestCase):
                 patch.object(agents_live, '_runs', return_value=[]):
             self.session('claude-code', '/home/alex/code/shop', board='conversation:z')
             agents_live.live()
+
+
+class HistoryTests(LiveCase):
+    """History's sessions with names, Tasks, tokens and outcomes (ADR 0233)."""
+
+    def finished(self, client='claude-code', directory='/home/alex/code/shop', board=None, name=None, started=None):
+        sid = self.session(client, directory, board=board, name=name, started=started)
+        aa._write('UPDATE agent_sessions SET ended_at = last_seen WHERE id = ?', (sid,))
+        return sid
+
+    def page(self, **filters):
+        sessions = aa.page_sessions(50, **filters)
+        return {s['id']: s for s in agents_live.history([*sessions['running'], *sessions['sessions']])}
+
+    def test_a_finished_sessions_totals_are_read_once_and_kept(self):
+        now = time.time()
+        sid = self.finished(board='conversation:d0ne1', name='quill')
+        self.transcript(self.home / '.claude' / 'projects' / '-home-alex-code-shop' / 'd0ne1.jsonl',
+                        [prompt('Go', now - 300), answer(now - 290)])
+        first = self.page()[sid]
+        self.assertEqual((first['agent_name'], first['model'], first['project']), ('quill', 'claude-opus-5-5', 'shop'))
+        self.assertEqual(first['tokens'], {'new_input': 12, 'cached_input': 1200, 'output': 30})
+        with patch.object(agents_live.live_transcripts, 'summarize', side_effect=AssertionError('read again')):
+            again = self.page()[sid]
+        self.assertEqual(again['tokens'], first['tokens'])
+        self.assertEqual(again['model'], 'claude-opus-5-5')
+
+    def test_a_session_without_a_transcript_keeps_no_totals_and_is_not_looked_for_again(self):
+        sid = self.finished(client='cursor-vscode')
+        self.assertIsNone(self.page()[sid]['tokens'])
+        with patch.object(agents_live, '_resolve', side_effect=AssertionError('looked again')):
+            self.assertIsNone(self.page()[sid]['tokens'])
+
+    def test_project_and_agent_filters_combine_with_client_and_text_and_page(self):
+        a = self.finished(directory='/home/alex/code/shop', board='conversation:a1', name='quill')
+        b = self.finished(directory='/home/alex/code/site', board='conversation:b1', name='quill')
+        c = self.finished(client='codex-mcp-client', directory='/home/alex/code/shop', board='conversation:c1', name='anvil')
+        self.assertEqual(set(self.page(project='shop')), {a, c})
+        self.assertEqual(set(self.page(agent='quill')), {a, b})
+        self.assertEqual(set(self.page(project='shop', agent='quill', client='claude-code')), {a})
+        self.assertEqual(set(self.page(project='nowhere')), set())
+        first = aa.page_sessions(1, project='shop')
+        second = aa.page_sessions(1, before=first['next'], project='shop')
+        self.assertEqual({s['id'] for s in first['sessions'] + second['sessions']}, {a, c})
+        self.assertEqual(aa.options(), {'projects': ['shop', 'site'], 'agents': ['anvil', 'quill']})
+
+    def test_rows_link_their_tasks_their_outcome_and_their_learned_conversation(self):
+        from imprint import source_snapshots
+        sid = self.finished(board='conversation:abcdef123456', name='quill')
+        made = tasks.create('Fix the total', project='shop', acceptance=['x'], status='ready', workspace='default')
+        tasks.claim(made['id'], actor=tasks.agent('conversation:abcdef123456', name='quill', client='claude-code'), workspace='default')
+        self.assertIsNone(self.page()[sid]['conversation'])
+        with source_snapshots._db() as conn:
+            conn.execute("INSERT INTO heads VALUES ('default', 'shop', 'conversation/abcdef12', 'v1', 0, '{}', x'00')")
+        with patch.object(agents_live, '_dispatch_runs', return_value=[{'conversation': 'abcdef123456', 'session': None,
+                                                                        'outcome': 'review', 'role': 'work'}]):
+            row = self.page()[sid]
+        self.assertEqual(row['tasks'], [made['id']])
+        self.assertEqual((row['outcome'], row['dispatched_role']), ('review', 'work'))
+        self.assertEqual(row['conversation'], {'source': 'conversation/abcdef12', 'project': 'shop'})
 
 
 class WslFolderTests(unittest.TestCase):

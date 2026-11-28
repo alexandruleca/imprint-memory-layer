@@ -352,6 +352,22 @@ class Tail:
         return self.state
 
 
+def summarize(path: str, client: str) -> State | None:
+    """A whole transcript folded at once, for a finished session; not kept.
+    None when it cannot be read."""
+    state = State(client)
+    try:
+        with open(path, 'rb') as handle:
+            for line in handle:
+                try:
+                    state.feed(json.loads(line))
+                except ValueError:
+                    continue
+    except OSError:
+        return None
+    return state
+
+
 _tails: dict[str, Tail] = {}
 _lock = threading.Lock()
 

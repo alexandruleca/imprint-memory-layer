@@ -75,7 +75,7 @@ function quietFor(agent: LiveAgent, now: Date): boolean {
 }
 
 /** Open a Task in the Board's drawer, from any tab of the page. */
-function openTask(id: string) {
+export function openTask(id: string) {
   const url = new URL(window.location.href);
   url.searchParams.set("task", id);
   url.hash = "board";

@@ -1464,18 +1464,24 @@ def api_queue_history(limit: int = 25, before: str | None = None, bounds: str = 
 
 
 @app.get("/api/agents")
-def api_agents(limit: int = 50, before: str | None = None, client: str | None = None, q: str | None = None):
+def api_agents(limit: int = 50, before: str | None = None, client: str | None = None, q: str | None = None,
+               project: str | None = None, agent: str | None = None):
     """The agents that used this Imprint's MCP server (ADR 0117): the
     connected sessions (``running``, first page only), one page of the
     others by last activity (``sessions``, ``next`` cursor for ``before``,
-    ``total``; ADR 0151), optionally of one ``client`` or matching ``q``,
-    and every session totalled by client (``clients``)."""
-    from . import agent_activity
+    ``total``; ADR 0151), optionally of one ``client``, ``project`` or
+    ``agent`` or matching ``q``, every session totalled by client
+    (``clients``), and what the project and agent filters offer
+    (``options``). Each session carries its project, the Tasks it claimed,
+    a Dispatched run's outcome, its model and tokens, and its learned
+    conversation (ADR 0233)."""
+    from . import agent_activity, agents_live
     try:
-        page = agent_activity.page_sessions(limit, before, client=client, query=q)
+        page = agent_activity.page_sessions(limit, before, client=client, query=q, project=project, agent=agent)
     except ValueError:
         return JSONResponse({"error": "Invalid cursor"}, status_code=400)
-    return {**page, "clients": agent_activity.client_totals()}
+    agents_live.history([*page["running"], *page["sessions"]])
+    return {**page, "clients": agent_activity.client_totals(), "options": agent_activity.options()}
 
 
 @app.get("/api/agents/live")

@@ -336,6 +336,106 @@ def live(now: float | None = None) -> dict:
             'today': [{'client': client, **totals} for client, totals in sorted(day_tokens.items())]}
 
 
+# ── History ───────────────────────────────────────────────────────────
+
+HISTORY_TOTALS = 5        # finished sessions whose transcripts one History request may read for totals
+
+
+def _source_key(path: str | None, conversation: str | None) -> str | None:
+    """The source a learned conversation is stored under, as learning keys it
+    (``cli_conversations.identify``)."""
+    if path:
+        from . import transcripts
+        try:
+            session = transcripts.session(path)
+        except OSError:
+            session = None
+        return f"conversation/{session or Path(path.replace(chr(92), '/')).stem[:8]}"
+    return f"conversation/{conversation[:8]}" if conversation else None
+
+
+def _dispatch_runs(conversations: list[str], boards: list[str]) -> list[dict]:
+    from .dispatch import store
+    if not store._db_path().exists() or not (conversations or boards):
+        return []
+    from contextlib import closing
+    try:
+        with closing(store._connect()) as conn:
+            return [dict(row) for row in conn.execute(
+                f"SELECT * FROM runs WHERE conversation IN ({','.join('?' * len(conversations)) or 'NULL'})"
+                f" OR session IN ({','.join('?' * len(boards)) or 'NULL'}) ORDER BY started_at DESC", [*conversations, *boards])]
+    except Exception:  # noqa: BLE001 - History shows sessions without their outcome rather than nothing
+        return []
+
+
+def history(sessions: list[dict], now: float | None = None) -> list[dict]:
+    """History's sessions with what Live knows (ADR 0233): the project, the
+    Tasks each claimed, a Dispatched run's outcome, the model and token
+    totals, and its conversation in Imprint once learned. A finished
+    session's totals are read from its transcript the first time it is
+    shown, at most :data:`HISTORY_TOTALS` a request, and saved on it, so
+    they are never read again; one without a transcript keeps none."""
+    from . import source_snapshots, tasks
+    from .tasks.sessions import conversation_id
+    now = now if now is not None else time.time()
+    boards = {s['id']: s.get('board_session') or f"process:{s['id']}" for s in sessions}
+    by_workspace: dict[str, list[str]] = {}
+    for session in sessions:
+        by_workspace.setdefault(session.get('workspace') or _active_workspace(), []).append(boards[session['id']])
+    claims: dict[str, list[str]] = {}
+    for workspace, names in by_workspace.items():
+        try:
+            claims.update(tasks.claimed_by(names, workspace=workspace))
+        except (ValueError, LookupError, OSError):
+            pass
+    conversations = {s['id']: conversation_id(boards[s['id']]) for s in sessions}
+    runs = _dispatch_runs([c for c in conversations.values() if c], list(boards.values()))
+    pending = [s for s in sessions if not s.get('connected') and s.get('totals_at') is None][:HISTORY_TOTALS]
+    if pending:
+        recorded = {t['conversation']: t for t in agent_activity.transcripts([c for c in (conversations[s['id']] for s in pending) if c])}
+        hooks = agent_activity.transcripts(since=min(s['started_at'] for s in pending) - 86400)
+        for session in pending:
+            session['board_session'] = boards[session['id']]
+        paths = _resolve(pending, recorded, hooks, now)
+        for session in pending:
+            path = paths.get(session['id'])
+            client = 'codex' if _client(session.get('client')) == 'codex' else 'claude'
+            state = live_transcripts.summarize(path, client) if path else None
+            figures = state.tokens() if state else None
+            agent_activity.save_totals(session['id'], model=state.model if state else None, transcript=path if state else None,
+                                       tokens=figures)
+            session.update(model=state.model if state else None, transcript=path if state else None, totals_at=now,
+                           tokens_new=(figures or {}).get('new_input'), tokens_cached=(figures or {}).get('cached_input'),
+                           tokens_out=(figures or {}).get('output'))
+    keys = {s['id']: _source_key(s.get('transcript') or _found.get(s['id']), conversations[s['id']]) for s in sessions}
+    learned: dict[str, str] = {}
+    for workspace in {s.get('workspace') or _active_workspace() for s in sessions}:
+        try:
+            learned.update(source_snapshots.learned([k for k in keys.values() if k], workspace))
+        except Exception:  # noqa: BLE001 - a missing snapshot database means nothing is learned yet
+            pass
+    for session in sessions:
+        board = boards[session['id']]
+        run = next((r for r in runs if (conversations[session['id']] and r.get('conversation') == conversations[session['id']])
+                    or r.get('session') == board), None)
+        session['project'] = _project(session.get('directory'))
+        session['tasks'] = claims.get(board, [])
+        session['outcome'] = (run or {}).get('outcome')
+        session['dispatched_role'] = (run or {}).get('role')
+        if session.get('connected') and session['id'] in _found:  # running: Live's tail, never saved
+            state = live_transcripts.read(_found[session['id']], 'codex' if _client(session.get('client')) == 'codex' else 'claude')
+            figures = state.tokens()
+            session['model'] = state.model
+            session['tokens'] = {key: figures[key] for key in ('new_input', 'cached_input', 'output')}
+        else:
+            session['tokens'] = None if session.get('tokens_new') is None else {
+                'new_input': session['tokens_new'], 'cached_input': session.get('tokens_cached') or 0,
+                'output': session.get('tokens_out') or 0}
+        key = keys[session['id']]
+        session['conversation'] = {'source': key, 'project': learned[key]} if key in learned else None
+    return sessions
+
+
 def _active_workspace() -> str:
     from . import config
     return config.get_active_workspace()
