@@ -451,6 +451,21 @@ See [ADR 0235](adr/0235-cursor-cli-inside-wsl-gets-imprints-mcp-entry-and-rule.m
 
 Not run: the Cursor app over Remote-WSL (no Cursor app on this device), and the installer wizard or repair with a Cursor selection.
 
+## Cursor hooks on every platform (2026-11-28)
+
+See [ADR 0236](adr/0236-cursor-gets-imprints-hooks-wherever-it-runs-and-one-hook-answers-each-event.md). These checks ran on the owner's Windows host with WSL Ubuntu-26.04 and Cursor CLI 2026.11.22. Every Cursor run used a scratch home, signed in through `XDG_CONFIG_HOME`, so the person's `~/.claude` and `~/.cursor` were not read or changed. The scratch hooks ran this tree's code with scratch data folders, never the installed runtime's data; the detached learners they started were stopped afterwards.
+
+| Check | Result | Notes |
+| --- | --- | --- |
+| Which hooks Cursor CLI runs (capture hooks for every event) | Recorded | Claude Code's `~/.claude/settings.json` hooks run with Cursor's payloads (camelCase events, `session_id` = `conversation_id`, `workspace_roots`, no `cwd`); an identical command in both files ran once; print mode fires no `stop`. |
+| Native Linux: `SetupCursor` and Claude Code's hooks in one home, print run | Passed | Each Imprint hook ran once, Claude Code's identical copies did not run; one reminder in the model's context, naming the folder's workspace; one learner from sessionEnd. |
+| Native Linux, interactive turn and `/compact` | Passed | session-start and pre-compact once each; stop for each turn and for sessionEnd. |
+| WSL: Claude Code's and Cursor's registrations (`applyWSLProfile`), print run | Passed | session-start ran through both launchers; the model's context held one reminder, naming the workspace of the folder from its translated root. |
+| WSL, interactive turn and `/compact` | Passed | Five events, each through both launchers where both had it, left one claim each. |
+| Windows: Cursor's commands in Cursor's PowerShell wrapper (cross-compiled hooks test, installed venv's Python) | Passed | Install path with spaces and an apostrophe; PowerShell 5.1 delivered the payload after `EF BB BF`, and the earlier double-quoted command failed to parse. |
+
+Not run: the Cursor app, Cursor CLI on macOS or Windows, PowerShell 7, and an update or repair rewriting an earlier `hooks.json`.
+
 ## Cline setup and learn (2026-10-25)
 
 See [ADR 0056](adr/0056-learn-cline-sessions-from-their-manifests.md). No Cline is installed on this machine and no Cline sessions exist, so sessions are fixtures built from the Cline SDK's schemas (cline/cline@40c5d99). Every check used a temporary installation directory in `%TEMP%`, a disposable WSL home in `/tmp` and the installed Windows interpreter read-only; nothing was written to the installation, its data or a real client profile.

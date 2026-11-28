@@ -3,10 +3,12 @@ title: ADR 0235 — Cursor CLI inside WSL gets Imprint's MCP entry and rule
 description: When Cursor CLI is on a WSL distribution's login PATH, registering Cursor there writes the bridge launcher, an imprint entry in the profile's ~/.cursor/mcp.json and Imprint's rule, as for the other clients that run inside WSL; without it the registration still only lets learn read Cursor's conversations.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-28
 - Amends:
   - [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) — its "Stores": a WSL Cursor registration writes the launcher, MCP entry and rule into the profile when Cursor CLI is in the distribution, which its rejected alternative "Write MCP configuration and hooks into the WSL `~/.cursor`" had ruled out
+- Amended by:
+  - [ADR 0236](0236-cursor-gets-imprints-hooks-wherever-it-runs-and-one-hook-answers-each-event.md) — hooks: a registration with Cursor CLI writes Imprint's Cursor hooks into the profile's `~/.cursor/hooks.json` through the launcher
 - Related: [ADR 0026](0026-windows-installer-wsl-client-bridge.md) (the WSL bridge), [ADR 0091](0091-wsl-homes-with-a-connected-client-get-the-imprint-command.md) (the `imprint` command in WSL homes), [ADR 0214](0214-the-rules-block-shrinks-to-a-stub-once-agents-keep-searching-first.md) (the short rules block), [ADR 0222](0222-only-clients-with-a-sandbox-or-a-check-of-each-action-are-dispatched.md) (a client the Dispatcher starts must be connected to Imprint)
 
 ## Context
