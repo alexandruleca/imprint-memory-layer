@@ -21,7 +21,7 @@ The site's published Volenti settings, read from its loader and UI config on 202
 - **Google Analytics is tagged for Volenti's Basic mode.** `gtag.js` carries `data-volenti-cookies="_ga _ga_* _gid _gat*"`. It is followed by `public/scripts/analytics.js`, which sends the `config` with Google signals and ad personalization off. Both are `type="text/plain" data-volenti-category="statistics"`. No answer, rejecting or Global Privacy Control loads nothing from Google, as under ADR 0194.
 - **Withdrawing on an open page** sets `ga-disable-<id>`, from a `volenti:change` listener in `analytics.js`. Volenti itself updates consent to denied and deletes the cookies.
 - **`events.js` sends an event only while Volenti reports Statistics allowed.** The snippet defines `gtag` for every visitor, so the old test (does `gtag` exist?) no longer means consent. It also ignores clicks on `[data-volenti-open]` controls, which open the cookie settings rather than being visitor actions.
-- **Cookie settings** is the footer link `<a href="#cookie-settings" data-volenti-open>` and the privacy policy's button, both `data-volenti-open`.
+- **Cookie settings** is the link `<a href="#cookie-settings" data-volenti-open>` in the landing footer and in the docs footer (a Starlight `Footer` override that also links the privacy policy), and the privacy policy's button.
 - **`site/public/scripts/consent.js` is removed.** The relay page keeps its banner, now only as `cmd/relay-consent.js`, and ADR 0194 still governs it. The Go test that compared the two copies is gone.
 - The privacy policy describes Volenti: the `volenti_consent` cookie, the consent record sent to `gdpr.sys.cloud.alexandruleca.com`, and Volenti as a recipient.
 
@@ -39,7 +39,7 @@ The site's published Volenti settings, read from its loader and UI config on 202
 - Each decision sends a consent record to Volenti's server. The banner and its texts load from that server, so a visitor's first page also requests Volenti's UI build and config.
 - The banner's texts, colours and categories are managed in Volenti, not in this repository. On 2026-11-28 the banner mentioned "statistics and marketing" although only Statistics is used here, and it linked no privacy policy.
 - Volenti deletes the `_ga` cookies only when a category the visitor had allowed in Volenti is withdrawn. Cookies left from the old banner stay until they expire or the visitor withdraws, but no Google script loads to read them while Statistics is not allowed.
-- Starlight's docs pages still have no Cookie settings link of their own, as under ADR 0194.
+- Starlight's docs pages gain a Cookie settings link of their own, which ADR 0194 had left out.
 
 ## Invalidation conditions
 
@@ -61,5 +61,6 @@ The site's published Volenti settings, read from its loader and UI config on 202
   - **Docs pages** show the banner and load `gtag.js` only after Accept all.
   - **Global Privacy Control:** no banner, a `signal` record with choices 0, and nothing from Google.
   - **Phone:** at 360 px the banner causes no horizontal scroll.
+- The docs footer, in a rebuilt site: all 268 Starlight pages carry its Cookie settings link. In Chromium at 1280 px and at 360 px, 14 checks passed. It sits below the pagination and opens Volenti's panel with the stored rejection, without changing the address, scrolling sideways or throwing an error. In Starlight's dark theme its links are `#a3a3a3` on `#0a0a0a`.
 - `go test ./cmd/ -run Relay`, `go vet ./cmd/` and `gofmt` (Go 1.27.4, Linux) pass after `TestRelayConsentMatchesSite` was removed.
 - Not verified: the production site on `imprintmcp.alexandruleca.com`, real consent records in Volenti's ledger, and hits in the production GA4 property. These need the release.
