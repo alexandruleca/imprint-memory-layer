@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -311,7 +312,9 @@ func TestWSLRegistrationDoesNotOverwriteForeignLauncherOrMalformedConfig(t *test
 	}
 }
 
-func TestWSLCursorRegistrationRecordsItsStoreAndWritesNothing(t *testing.T) {
+// Without Cursor CLI in the distribution, registering Cursor only lets learn
+// read its store (ADRs 0052, 0235).
+func TestWSLCursorRegistrationWithoutCursorCLIRecordsItsStoreAndWritesNothing(t *testing.T) {
 	old := runWSL
 	t.Cleanup(func() { runWSL = old })
 	runWSL = func(args ...string) (string, error) {
@@ -345,10 +348,13 @@ func TestWSLCursorRegistrationRecordsItsStoreAndWritesNothing(t *testing.T) {
 		t.Fatal("a profile without Cursor was registered")
 	}
 
-	// Disable drops the record and touches nothing else.
+	// Disable drops the record and touches nothing else, such as a Linux
+	// installation's own entry.
 	if err := saveWSLRegistration(project, wslRegistration{Profile: p, Target: "cursor"}, false); err != nil {
 		t.Fatal(err)
 	}
+	linux := `{"mcpServers":{"imprint":{"command":"/home/test/.local/share/imprint/.venv/bin/python"}}}`
+	writeCleanupFixture(t, local(path.Join(p.CursorHome, "mcp.json")), linux)
 	runWSL = func(args ...string) (string, error) { return local(args[len(args)-1]), nil }
 	if err := cleanupWSLRegistrations(project, wslTargets()); err != nil {
 		t.Fatal(err)
@@ -358,6 +364,121 @@ func TestWSLCursorRegistrationRecordsItsStoreAndWritesNothing(t *testing.T) {
 	}
 	if _, err := os.Stat(local(p.CursorHome)); err != nil {
 		t.Fatal("the Cursor profile was removed")
+	}
+	if content, _ := os.ReadFile(local(path.Join(p.CursorHome, "mcp.json"))); string(content) != linux {
+		t.Fatalf("another runtime's entry changed: %s", content)
+	}
+}
+
+// Cursor CLI runs inside the distribution: with it on the login shell's
+// PATH, registering Cursor writes the bridge launcher, the MCP entry and the
+// rule into the profile's ~/.cursor, and imprint disconnect cursor takes out
+// only those (ADR 0235).
+func TestWSLCursorCLIRegistrationWritesItsMCPEntryAndRule(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("IMPRINT_INSTRUCTIONS_FULL_RULES", "")
+	root := t.TempDir()
+	project := filepath.Join(root, "runtime")
+	local := func(value string) string {
+		return filepath.Join(root, "profiles", filepath.FromSlash(strings.TrimPrefix(value, "/")))
+	}
+	old := runWSL
+	t.Cleanup(func() { runWSL = old })
+	var probe string
+	runWSL = func(args ...string) (string, error) {
+		if joined := strings.Join(args, " "); strings.Contains(joined, "imprint-probe") {
+			probe = joined
+			return "/home/test\n\n\n/home/test/.claude.json\n/home/test/.cursor\n\n\n/home/test/.local/bin/agent\n", nil
+		}
+		return local(args[len(args)-1]), nil // wslpath -w
+	}
+	p, err := probeWSL("Ubuntu", "", "", "", "")
+	if err != nil || p.CursorCLI != "/home/test/.local/bin/agent" || p.CursorHome != "/home/test/.cursor" {
+		t.Fatalf("profile = %+v, %v", p, err)
+	}
+	// The login shell's PATH, where the Dispatcher looks for clients too (ADR 0222).
+	if !strings.Contains(probe, `HOME=$home sh -lc 'command -v cursor-agent || command -v agent'`) {
+		t.Fatalf("probe does not ask the login shell for Cursor CLI: %s", probe)
+	}
+
+	registry := local(path.Join(p.CursorHome, "mcp.json"))
+	rule := local(path.Join(p.CursorHome, "rules", "imprint.mdc"))
+	userRule := local(path.Join(p.CursorHome, "rules", "mine.mdc"))
+	launcher := path.Join(p.CursorHome, "imprint-wsl")
+	writeCleanupFixture(t, registry, `{"mcpServers":{"other":{"command":"keep-other","args":["serve"]}},"keep":true}`)
+	writeCleanupFixture(t, userRule, "User rule.\n")
+	bp := backendPaths{ProjectDir: project, VenvPython: filepath.Join(project, ".venv", "bin", "python"), DataDir: filepath.Join(project, "data")}
+	var executable []string
+	apply := func() {
+		t.Helper()
+		if err := applyWSLProfile(p, bp, "cursor", local, func(value string) error { executable = append(executable, value); return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := func() []string {
+		var contents []string
+		for _, file := range []string{registry, rule, local(launcher)} {
+			content, err := os.ReadFile(file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			contents = append(contents, string(content))
+		}
+		return contents
+	}
+	apply()
+	first := files()
+	apply()
+	if again := files(); !slices.Equal(first, again) {
+		t.Fatalf("re-running changed the profile:\n%q\n%q", first, again)
+	}
+	data, err := jsonutil.ReadJSON(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	servers := data["mcpServers"].(map[string]any)
+	entry := servers["imprint"].(map[string]any)
+	if entry["command"] != launcher || !slices.Equal(entry["args"].([]any), []any{"mcp"}) || servers["other"] == nil || data["keep"] != true {
+		t.Fatalf("mcp.json = %v", data)
+	}
+	if !strings.HasPrefix(first[2], "#!/bin/sh\n"+wslBridgeMarker+" (imprint-wsl).\n") || !strings.Contains(first[2], shellQuote(wslBridge(project))) {
+		t.Fatalf("launcher = %s", first[2])
+	}
+	// Cursor loads skills, so it gets the short block unless full_rules lists it (ADR 0214).
+	if first[1] != instructions.Rule("cursor", false) {
+		t.Fatalf("rule = %q", first[1])
+	}
+	if !slices.Equal(executable, []string{launcher, launcher}) {
+		t.Fatalf("made executable: %v", executable)
+	}
+
+	// imprint disconnect cursor removes the recorded registration's files.
+	if err := saveWSLRegistration(project, wslRegistration{Profile: p, Target: "cursor"}, false); err != nil {
+		t.Fatal(err)
+	}
+	cursor, _ := selectClients("cursor")
+	if err := disconnectClients(cursor, project); err != nil {
+		t.Fatal(err)
+	}
+	data, err = jsonutil.ReadJSON(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if servers := data["mcpServers"].(map[string]any); servers["imprint"] != nil || servers["other"] == nil || data["keep"] != true {
+		t.Fatalf("removal left %v", data)
+	}
+	for _, gone := range []string{rule, local(launcher)} {
+		if _, err := os.Stat(gone); !os.IsNotExist(err) {
+			t.Fatalf("%s remains", gone)
+		}
+	}
+	if content, _ := os.ReadFile(userRule); string(content) != "User rule.\n" {
+		t.Fatal("removal touched the user's rule")
+	}
+	if records, _ := readWSLRegistrations(project); len(records) != 0 {
+		t.Fatalf("records = %+v", records)
 	}
 }
 
