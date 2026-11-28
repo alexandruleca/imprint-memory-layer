@@ -1257,22 +1257,6 @@ export function sendAgentMessage(sessionId: string, text: string) {
 export function getAgentMessages(sessionId: string) {
   return fetchAPI<{ messages: AgentMessage[] }>(`/api/agents/${encodeURIComponent(sessionId)}/messages`);
 }
-/** One part of a session's conversation, read from its transcript (ADR 0244). */
-export type ConversationEntry = {
-  kind: "prompt" | "reply" | "tool" | "result" | "context"; id: string; at: number | null;
-  text?: string; call?: string; tool?: string; label?: string; detail?: string; input?: string; error?: boolean; origin?: string | null;
-};
-export type ConversationPart = {
-  client: "claude" | "codex" | null; entries: ConversationEntry[]; start: number; next: number; size: number; more_before: boolean;
-  messages: AgentMessage[]; transcript: boolean;
-};
-/** A running session's conversation: its end, an earlier part (`before`), or what was written since `after`. */
-export function getConversation(sessionId: string, at: { after?: number; before?: number } = {}) {
-  const qs = new URLSearchParams();
-  if (at.after !== undefined) qs.set("after", String(at.after));
-  if (at.before !== undefined) qs.set("before", String(at.before));
-  return fetchAPI<ConversationPart>(`/api/agents/${encodeURIComponent(sessionId)}/conversation${qs.size ? `?${qs}` : ""}`);
-}
 export type LiveOther = { name: string | null; client: string | null; device: string | null; task: string; title: string;
   project: string; status: TaskStatus; next: string | null; progress_at: number | null; stalling: boolean };
 export type LiveReport = {

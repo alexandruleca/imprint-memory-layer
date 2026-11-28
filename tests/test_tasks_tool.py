@@ -175,6 +175,20 @@ class TasksToolTests(unittest.TestCase):
         [(_, released)] = self.as_session('conv-3', ('task_edit', {'action': 'release', 'task': task}))
         self.assertIn('Status: Ready', released)
 
+    def test_a_claim_tells_the_persons_unread_comments_once(self):
+        task = tasks.create('Parser', project='imprint', acceptance=['Parses'], status='ready',
+                            workspace='default')['id']
+        tasks.comment(task, 'Keep the old grammar working.\nIt ships tomorrow.', actor=tasks.USER, workspace='default')
+        [(failed, claimed)] = self.as_session('conv-1', ('task_edit', {'action': 'claim', 'task': task}))
+        self.assertFalse(failed, claimed)
+        self.assertIn('From the person on this Task, which outranks your plan', claimed)
+        self.assertIn('Keep the old grammar working.\nIt ships tomorrow.', claimed)  # whole
+        token = re.search(r'claim token: (\S+)', claimed).group(1)
+        [(_, again), (_, board)] = self.as_session('conv-1', ('task_edit', {'action': 'claim', 'task': task, 'token': token}),
+                                                   ('tasks', {}))
+        self.assertNotIn('From the person on this Task', again)  # told once
+        self.assertNotIn('New comment on', board)  # and no notice repeats it
+
     def test_a_lost_claim_is_told_once_on_the_next_reply(self):
         task = tasks.create('Race', project='imprint', acceptance=['x'], status='ready', workspace='default')['id']
         self.as_session('conv-1', ('task_edit', {'action': 'claim', 'task': task}))

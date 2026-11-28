@@ -99,6 +99,48 @@ def _block(text) -> str:
     return '\n'.join([lines[0], *(f'  {line}' if line else '' for line in lines[1:])]) if lines else ''
 
 
+def persons_comments(task: str, workspace: str) -> list[str]:
+    """The person's comments on ``task`` since its last Dispatched run ended,
+    on any paired device, or since it was created; each a prompt line with
+    its time, kept under its bullet, the newest within the notice cap (ADR 0240)."""
+    from ..notices import CAP
+    history = tasks.history(task, workspace=workspace)
+    since = max([e['recorded_at'] for e in history if e['kind'] == 'comment' and e['actor'] == 'system'
+                 and isinstance(e['data'].get('dispatch'), dict)]
+                + [r['ended_at'] for r in store.runs_of(task) if r['ended_at'] and r['workspace'] == workspace]
+                + [0.0])
+    lines = [f"- {time.strftime('%Y-%m-%d %H:%M', time.localtime(e['recorded_at']))}: {_block(e['data']['text'])}"
+             for e in history if e['kind'] == 'comment' and e['actor'] == 'user' and e['recorded_at'] > since
+             and e['data'].get('text')]
+    kept, used = [], 0
+    for line in reversed(lines):
+        if used + len(line) > CAP and kept:
+            break
+        kept.insert(0, line)
+        used += len(line) + 1
+    return kept
+
+
+def _released_at_persons_word(run: dict) -> bool:
+    """Whether this run's session released its claim after a comment from
+    the person, as the skill tells it to on "stop" or "hold" (ADR 0243): a
+    stop, not a failure."""
+    try:
+        history = tasks.history(run['task'], workspace=run['workspace'])
+    except LookupError:
+        return False
+    ours = _our_sessions(run['task'], run['id'], run['workspace'])
+    said = False
+    for event in history:
+        if event['recorded_at'] < run['started_at']:
+            continue
+        if event['kind'] == 'comment' and event['actor'] == 'user':
+            said = True
+        elif event['kind'] == 'released' and said and event['session'] in ours:
+            return True
+    return False
+
+
 def handoff_lines(handoff: dict | None, project: str) -> list[str]:
     """Earlier work on the Task, from its Handoff: where the session continues."""
     if not handoff or not handoff.get('checkpoints'):
@@ -123,7 +165,7 @@ def handoff_lines(handoff: dict | None, project: str) -> list[str]:
 
 
 def prompt(state: dict, *, workspace: str, worktree: dict, token: str, role: str = 'work',
-           note: str = '', handoff: dict | None = None, base: str | None = None) -> str:
+           note: str = '', handoff: dict | None = None, base: str | None = None, said: list[str] = ()) -> str:
     """The Dispatched session's prompt: the Task, where to work, the claim
     token, its Handoff when it was worked on before, its client's ``note``
     about its own sandbox, and the instructions of ``imprint-dispatch``."""
@@ -149,6 +191,8 @@ def prompt(state: dict, *, workspace: str, worktree: dict, token: str, role: str
            '- Your role: review. Follow the "Reviewing" part of the instructions below.'] if role == 'review' else []),
         *(['- Your role: refine. Follow the "Refining" part of the instructions below.'] if role == 'refine' else []),
         *handoff_lines(handoff, state['project']),
+        *(['', "The person's comments on this Task since its last Dispatched run, which outrank the Task and your "
+               'plan: follow them, and reply on the Task.', *said] if said else []),
         *(['', note] if note else []),
         '',
         'Follow these instructions:',
@@ -459,7 +503,7 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
             base = guards.review_base(state, workspace, folder=folder, tip=worktree['tip']) or \
                 f"the merge base of HEAD and {folder.get('branch') or 'the main branch'}"
         text = prompt(claimed['task'], workspace=workspace, worktree=worktree, token=claimed['token'], role=role,
-                      note=runner.note, handoff=handoff, base=base)
+                      note=runner.note, handoff=handoff, base=base, said=persons_comments(state['id'], workspace))
         _call_off(cancelled)  # the last moment it can be called off
         log = store.log_path(run_id)
         log.parent.mkdir(parents=True, exist_ok=True)
@@ -553,6 +597,8 @@ class Session:
             self.lost = who
             return f'lost its claim to {who} and was stopped', False
         if verdict == claimcheck.RELEASED:
+            if _released_at_persons_word(self.run):
+                return "released its claim at the person's word and was stopped", True
             return 'released its claim without finishing and was stopped', False
         if verdict == claimcheck.ENDED:
             return f'was stopped: {who}', True
@@ -723,6 +769,8 @@ def finish(run_id: str, exit_code: int | None, *, reason: str | None = None, sto
     elif not reason and run['role'] == 'refine':
         outcome, detail = _refinement_ended(run, state, label)
     else:
+        if not stopped and not reason and run['role'] == 'work' and _released_at_persons_word(run):
+            stopped, reason = True, "released its claim at the person's word"
         outcome = 'stopped' if stopped else 'failed'
         detail = reason or (f'ended (exit code {exit_code}) without moving the Task to Review'
                             if run['role'] == 'work' else f'ended (exit code {exit_code}) without deciding the review')

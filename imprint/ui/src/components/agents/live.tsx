@@ -3,7 +3,7 @@
 import { useId, useState } from "react";
 import {
   Bot, BookOpen, Brain, Clock, Eye, FlaskConical, Globe, Hammer, Hourglass, KanbanSquare, Library, MessageCircleQuestion,
-  MessageSquare, MessagesSquare, Moon, PencilLine, RotateCw, Send, Split, Square, Terminal, type LucideIcon,
+  MessageSquare, Moon, PencilLine, RotateCw, Send, Split, Square, Terminal, type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -16,15 +16,13 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useNow } from "@/components/timestamp";
 import { getLive, sendAgentMessage, stopDispatched, type AgentMessage, type LiveAgent, type LiveReport, type LiveTokens } from "@/lib/api";
 import { useUiMode } from "@/lib/ui-mode";
 import { useCached } from "@/lib/use-cached";
 import { cn } from "@/lib/utils";
-import { ConversationPanel } from "./conversation";
-import { clientName, folderName, messageState } from "./format";
+import { clientName, folderName } from "./format";
 import { ago } from "./board/format";
 import { TaskLink } from "./board/links";
 
@@ -103,8 +101,6 @@ export function LiveView() {
   const { simple } = useUiMode();
   const now = useNow(1000);
   const live = useCached<LiveReport>("agents-live", getLive, { refreshInterval: POLL_MS, persist: false });
-  // The session whose conversation is open in the side panel (ADR 0244).
-  const [talking, setTalking] = useState<string | null>(null);
   if (!live.data) {
     return (
       <div className="space-y-4 px-4 sm:px-8" aria-busy={!live.error}>
@@ -124,7 +120,6 @@ export function LiveView() {
   const data: LiveReport = { ...live.data, agents: live.data.agents ?? [], others: live.data.others ?? [], today: live.data.today ?? [],
     counts: { working: 0, waiting: 0, idle: 0, others: 0, ...(live.data.counts as Partial<LiveReport["counts"]> | undefined) } };
   const projects = [...new Set(data.agents.map((a) => a.project || ""))];
-  const open = talking ? data.agents.find((a) => a.id === talking) ?? null : null;
   return (
     <div className="space-y-5 px-4 pb-10 sm:px-8">
       <Summary data={data} simple={simple} />
@@ -145,8 +140,7 @@ export function LiveView() {
         // Agents idle for over 30 minutes (a client left open) fold away, so those at work come first.
         const quiet = agents.filter((a) => quietFor(a, now));
         const active = agents.filter((a) => !quietFor(a, now));
-        const card = (agent: LiveAgent) => <AgentCard key={agent.id} agent={agent} now={now} simple={simple} onChanged={() => void live.refresh()}
-          onConversation={() => setTalking(agent.id)} />;
+        const card = (agent: LiveAgent) => <AgentCard key={agent.id} agent={agent} now={now} simple={simple} onChanged={() => void live.refresh()} />;
         return (
           <section key={project || "none"} aria-label={`${project || "No project"}, ${agents.length} ${agents.length === 1 ? "agent" : "agents"}`} className="space-y-2">
             <h2 className="flex items-baseline gap-2 text-sm font-semibold">
@@ -166,11 +160,6 @@ export function LiveView() {
         );
       })}
       {data.others.length > 0 && <Others data={data} now={now} />}
-      <Sheet open={!!open} onOpenChange={(o) => { if (!o) setTalking(null); }}>
-        <SheetContent className="gap-0 data-[side=right]:w-full data-[side=right]:sm:max-w-2xl">
-          {open && <ConversationPanel key={open.id} agent={open} now={now} />}
-        </SheetContent>
-      </Sheet>
       <p className="text-xs text-muted-foreground">
         Read from each agent&apos;s own transcript while this page is open; nothing is sent anywhere, and no model is asked. Commands and
         files are shortened and redacted.
@@ -215,9 +204,7 @@ function Summary({ data, simple }: { data: LiveReport; simple: boolean }) {
   );
 }
 
-function AgentCard({ agent, now, simple, onChanged, onConversation }: {
-  agent: LiveAgent; now: Date; simple: boolean; onChanged: () => void; onConversation: () => void;
-}) {
+function AgentCard({ agent, now, simple, onChanged }: { agent: LiveAgent; now: Date; simple: boolean; onChanged: () => void }) {
   const seconds = now.getTime() / 1000;
   const Icon = ACTIVITY_ICONS[agent.activity.kind] ?? Bot;
   const name = agent.name || clientName(agent.client);
@@ -304,7 +291,6 @@ function AgentCard({ agent, now, simple, onChanged, onConversation }: {
       <div className="mt-auto flex flex-wrap items-center gap-1 border-t border-border pt-2">
         {agent.task && <Button variant="ghost" size="xs" onClick={() => openTask(agent.task!.id)}><KanbanSquare aria-hidden /> Open Task</Button>}
         <Button variant="ghost" size="xs" onClick={() => openHistory(agent.id)}><Clock aria-hidden /> History</Button>
-        <Button variant="ghost" size="xs" onClick={onConversation}><MessagesSquare aria-hidden /> Conversation</Button>
         <Button variant="ghost" size="xs" onClick={() => setMessaging((m) => !m)} aria-expanded={messaging}>
           <MessageSquare aria-hidden /> Message
         </Button>
@@ -385,6 +371,19 @@ function TokenFigures({ figures }: { figures: LiveTokens }) {
       )}
     </div>
   );
+}
+
+/** Where a message got to, in words (ADR 0245). */
+export function messageState(message: AgentMessage): string {
+  if (message.state === "delivered") {
+    return message.via === "inbox" ? "Delivered as a peer message"
+      : message.via === "tool" ? "Told after its next tool call"
+      : message.via === "prompt" ? "Told with its next prompt" : "Told on its next Imprint reply";
+  }
+  if (message.state === "held") return "Held by Claude Code: approve it in the session. Also waiting for its next Imprint call";
+  if (message.state === "refused") return "Refused by Claude Code's inbox. Waiting for its next Imprint call";
+  if (message.state === "failed") return "Its inbox could not be reached. Waiting for its next Imprint call";
+  return "Waiting for its next Imprint call";
 }
 
 /** The person's last messages to this agent, each with how far it got. */

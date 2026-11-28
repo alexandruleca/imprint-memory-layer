@@ -5,7 +5,6 @@ description: One registry of notices, written per conversation and printed by a 
 
 - Status: Accepted
 - Date: 2026-11-28
-- Scope: The registry, the files and the hooks after each tool call (T-31w4v); claims, Dispatched prompts and the skills' rule come with T-7dnj3.
 - Amends: [ADR 0212](0212-agents-talk-through-comments-on-tasks.md) — its "Delivery" and "The prompt hook": a notice also after each tool call, from one registry, refreshed within seconds of a poke
 - Related: [ADR 0220](0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md) (Dispatched sessions), [ADR 0213](0213-built-in-skills-ship-with-each-release-and-a-fork-replaces-them.md) (built-in skills), [ADR 0236](0236-cursor-gets-imprints-hooks-wherever-it-runs-and-one-hook-answers-each-event.md) (Cursor runs Claude Code's hooks)
 
@@ -94,5 +93,10 @@ T-31w4v, 2026-11-28:
   - the cap and the pointer, and keys of unknown prefixes kept;
   - files of earlier releases are swept.
 - **Go tests:** the hook command prints each event's reply once and leaves `.notice-by`, setup writes both hooks and withdraws them, and the WSL profile writes both through its script. `test_hooks`, `test_tasks*`, `test_mcp*` and the Go `cmd` and `internal` packages pass on Linux; the full Linux suite passes (1,835 tests). Natively on Windows, `test_prompt_notices` passes in Git Bash (the timing test is skipped there), as do `test_hooks`, `test_tasks*`, `test_mcp*` and the Go hook tests.
+
+T-7dnj3, 2026-11-28:
+- A claim reply carries the person's unread comments on the Task, whole, marked told, so neither a second claim nor a notice repeats them (`tests/test_tasks_tool.py`). Imprint's command line has no claim command, so the MCP reply is the only one.
+- A Dispatched prompt carries the person's comments since the Task's last Dispatched run ended, with their times, under their bullets. Earlier comments and agents' comments stay out, and a comment cannot add a line of the prompt's own (`tests/test_dispatch_comments.py`).
+- The skills' rule shipped in 7e110d8. A Dispatched session's release at the person's word ends as stopped ([ADR 0243](0243-a-dispatched-session-that-releases-its-task-at-the-persons-word-ends-as-stopped.md)).
 
 Not run: the hook's cost under Git Bash on native Windows, and Codex, which gets no hook (see the rejected alternatives; T-ja5sb).

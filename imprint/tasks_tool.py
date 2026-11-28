@@ -257,6 +257,34 @@ def poked() -> bool:
         return False
 
 
+def persons_comments(task: str, board_session: str, workspace: str | None) -> str:
+    """The person's comments on ``task`` this session has not been told or
+    read, whole, newest kept within the notice cap, marked told (ADR 0240):
+    what a new holder must hear first. '' when there are none."""
+    from . import notices as registry
+    items = [e for e in tasks.history(task, workspace=workspace)
+             if e['kind'] == 'comment' and e['actor'] == 'user' and e['data'].get('text')]
+    if not items:
+        return ''
+    told = set(tasks.unseen(board_session, [f"notified:{e['id']}" for e in items], workspace=workspace))
+    read = set(tasks.unseen(board_session, [f"read:{e['id']}" for e in items], workspace=workspace))
+    items = [e for e in items if f"notified:{e['id']}" in told and f"read:{e['id']}" in read]
+    shown, used = [], 0
+    for event in reversed(items):  # the newest first, within the cap
+        line = f"- {_when(event['recorded_at'])}: {event['data']['text']}"
+        if used + len(line) > registry.CAP and shown:
+            break
+        shown.insert(0, (event, line))
+        used += len(line) + 1
+    if not shown:
+        return ''
+    tasks.take_unseen(board_session, [f"notified:{e['id']}" for e, _ in shown], workspace=workspace)
+    earlier = len(items) - len(shown)
+    return ("From the person on this Task, which outranks your plan: act on it and reply on the Task before going on."
+            + (f' ({earlier} earlier: tasks(action="get"))' if earlier else '') + '\n'
+            + '\n'.join(line for _, line in shown) + '\n')
+
+
 def inbox_text(items: list[dict]) -> str:
     if not items:
         return 'No unread comments.'
@@ -628,12 +656,13 @@ def change(action: str, task: str, *, actor: dict, workspace: str = '', title=No
         actor, told = _named(actor, workspace)
         claimed = tasks.claim(task, actor=actor, token=token or None, workspace=workspace or None)
         state = claimed['task']
+        said = persons_comments(state['id'], actor['session'], workspace or None)
         if not claimed['token']:
-            return f"{told}You already hold {state['id']}.\n{detail(state)}"
+            return f"{told}You already hold {state['id']}.\n{said}{detail(state)}"
         return (f"{told}Claimed {state['id']}. Your claim token: {claimed['token']}\n"
                 'Keep the token in this conversation, not on the Board; if your session restarts, take the '
                 f'claim back with task_edit(action="claim", task="{state["id"]}", token="…"). Record a '
-                'checkpoint at each step and at least every 30 minutes.\n' + detail(state))
+                'checkpoint at each step and at least every 30 minutes.\n' + said + detail(state))
     if action == 'comment':
         actor, told = _named(actor, workspace)
         state = tasks.comment(task, text, to=to or (), **{**where, 'actor': actor})

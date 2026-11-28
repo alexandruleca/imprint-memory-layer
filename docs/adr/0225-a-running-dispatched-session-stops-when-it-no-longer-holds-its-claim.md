@@ -3,9 +3,10 @@ title: ADR 0225 — A running Dispatched session stops when it no longer holds i
 description: While a Dispatched session runs, the Dispatcher stops it as soon as its run no longer holds the Task's claim, recording a claim another session took as lost, the session's own release as failed, and the person's or Imprint's release, cancel or Done as stopped; at most one session keeps running for a Task.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-28
 - Amends: [ADR 0224](0224-a-dispatched-session-starts-only-after-its-claim-has-reached-the-paired-devices.md) — its "While the session runs", for claims that end without another claim winning, and its consequence that exactly one of two devices starts its client
+- Amended by: [ADR 0243](0243-a-dispatched-session-that-releases-its-task-at-the-persons-word-ends-as-stopped.md) — its "the session released it unfinished: failed", for a release after a comment from the person
 - Related: [ADR 0220](0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md) (failures and stops), [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) (claims, tokens and staleness), [ADR 0223](0223-dispatched-sessions-work-in-a-worktree-outside-the-project-and-never-push-or-merge.md) (worktrees and their cleanup)
 
 ## Context

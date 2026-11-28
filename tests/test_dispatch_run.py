@@ -67,6 +67,16 @@ FAKE_CLAUDE = textwrap.dedent('''\
         open(os.environ['FAKE_RECORD'] + '.took', 'w').write('1')
         time.sleep(600)
     tasks.claim(task, actor=me, token=token)
+    if mode == 'stop-on-comment':
+        # Works until the person says stop, then checkpoints and releases, as its skill says (ADR 0243).
+        deadline = time.time() + 60
+        while time.time() < deadline and not any(e['kind'] == 'comment' and e['actor'] == 'user'
+                                                 for e in tasks.history(task)):
+            time.sleep(0.2)
+        tasks.checkpoint(task, "Stopped at the person's word", actor=me)
+        tasks.release(task, actor=me)
+        print(json.dumps({{'type': 'result', 'subtype': 'success', 'result': 'Released it, as the person asked'}}))
+        sys.exit(0)
     if '- Your role: review' in prompt:
         verdict = os.environ.get('FAKE_REVIEW', 'pass')
         if verdict == 'pass':

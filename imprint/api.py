@@ -1523,32 +1523,6 @@ def api_agent_messages(session_id: str):
     return {"messages": agent_messages.messages(board_session) if board_session else []}
 
 
-@app.get("/api/agents/{session_id}/conversation")
-def api_agent_conversation(session_id: str, after: int | None = None, before: int | None = None):
-    """A running session's conversation from its transcript on this device,
-    redacted, without its thinking (ADR 0244): the end of it, an earlier
-    part (``before``), or what was written since ``after``; with the
-    person's messages to it and their states."""
-    from . import agent_conversation, agent_messages, agents_live
-    found = agents_live.transcript_for(session_id)
-    board_session = agent_messages.board_session_of(session_id, running=False)
-    sent = agent_messages.messages(board_session) if board_session else []
-    if found is None:
-        return {"client": None, "entries": [], "start": 0, "next": 0, "size": 0, "more_before": False,
-                "messages": sent, "transcript": False}
-    path, client = found
-    try:
-        part = agent_conversation.read(path, client, after=after, before=before)
-    except OSError as error:
-        return JSONResponse({"error": f"Its transcript could not be read: {error}"}, status_code=409)
-    raw = part.pop("raw")
-    shown = agent_conversation.seen(raw, sent)
-    if shown:
-        agent_messages.mark_seen(shown)
-        sent = agent_messages.messages(board_session)
-    return {**part, "client": client, "messages": sent, "transcript": True}
-
-
 @app.get("/api/agents/waiting")
 def api_agents_waiting():
     """The agents on this device waiting for you, for the desktop app's orb
