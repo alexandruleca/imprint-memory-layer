@@ -143,14 +143,27 @@ def _signal_group(pid: int, force: bool) -> None:
             pass
 
 
+def alive(run: dict) -> bool:
+    """Whether a run's client still runs: its pid is still the process it
+    started as (``pid_started``), never a process that got the pid later."""
+    return processes.same(run.get('pid'), run.get('pid_started'))
+
+
+def watching(run: dict) -> bool:
+    """Whether the process that watches a run (``watcher``) still runs."""
+    return processes.same(run.get('watcher'), run.get('watcher_started'))
+
+
 def kill(pid: int, proc: subprocess.Popen | None = None, grace: float = STOP_GRACE, *,
-         distro: str | None = None, run_id: str | None = None) -> None:
+         distro: str | None = None, run_id: str | None = None, identity: str | None = None) -> None:
     """End a client and everything it started: SIGTERM to its process group
     (a tree kill on Windows; the group inside its WSL distribution for a
     project there), then SIGKILL after ``grace`` seconds. Works on a
-    session another process started, by its pid."""
+    session another process started, by its pid and the ``identity`` it
+    started with (``processes.started``): a pid that now belongs to another
+    process, or one whose identity is unknown, is never signalled."""
     def alive():
-        return proc.poll() is None if proc else processes.is_alive(pid)
+        return proc.poll() is None if proc else processes.same(pid, identity)
     if distro and run_id:
         # The group inside the distribution first: ending wsl.exe alone leaves it running.
         from . import wsl
@@ -303,7 +316,7 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
                      'project': state['project'], 'client': runner.client, 'role': role,
                      'session': session_of(run_id), 'conversation': conversation, 'worktree': worktree['path'],
                      'branch': worktree['branch'], 'base': worktree['base'], 'started_at': time.time(),
-                     'watcher': os.getpid(), 'distro': distro})
+                     'watcher': os.getpid(), 'watcher_started': processes.started(os.getpid()), 'distro': distro})
     claimed_at = time.time()
     try:
         claimed = tasks.claim(state['id'], actor=actor, pid=os.getpid(), workspace=workspace)
@@ -339,8 +352,9 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
         with open(log, 'wb') as output:
             proc = subprocess.Popen(argv, cwd=None if distro else worktree['cwd'], stdin=subprocess.PIPE,
                                     stdout=output, stderr=subprocess.STDOUT, env=env, **_group())
+        identity = processes.started(proc.pid)
         tasks.renew(session_of(run_id), pid=proc.pid)
-        store.update(run_id, pid=proc.pid)
+        store.update(run_id, pid=proc.pid, pid_started=identity)
         try:
             proc.stdin.write(text.encode('utf-8'))
             proc.stdin.close()
@@ -351,7 +365,7 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
     except Exception as error:
         finish(run_id, None, reason=f'could not start: {error}')
         raise
-    return {**run, 'pid': proc.pid}, proc
+    return {**run, 'pid': proc.pid, 'pid_started': identity}, proc
 
 
 class Session:
@@ -369,14 +383,15 @@ class Session:
         self.checked = time.monotonic()
 
     def running(self) -> bool:
-        return self.proc.poll() is None if self.proc else processes.is_alive(self.pid)
+        return self.proc.poll() is None if self.proc else alive(self.run)
 
     def stop(self, reason: str, *, stopped: bool = True) -> None:
         """End the session: ``stopped`` (by the person or the server's
         shutdown) unless it is a failure, such as its time limit."""
         if not self.reason:
             self.reason, self.stopped = reason, stopped
-        kill(self.pid, self.proc, distro=self.run.get('distro'), run_id=self.run['id'])
+        kill(self.pid, self.proc, distro=self.run.get('distro'), run_id=self.run['id'],
+             identity=self.run.get('pid_started'))
 
     def step(self) -> dict | None:
         """None while the session runs; the run's record once it has ended."""
@@ -434,7 +449,7 @@ def request_stop(run_id: str, reason: str = 'was stopped by the person') -> dict
     if run['ended_at'] is not None:
         raise ValueError(f"Dispatched session {run_id} already ended: {run['detail']}")
     store.update(run_id, stop_reason=reason)
-    kill(run['pid'], distro=run.get('distro'), run_id=run_id)
+    kill(run['pid'], distro=run.get('distro'), run_id=run_id, identity=run.get('pid_started'))
     return store.get(run_id)
 
 

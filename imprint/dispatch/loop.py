@@ -8,7 +8,8 @@ across every project with a folder on this device.
 
 Sessions started elsewhere, such as by ``imprint tasks dispatch run``, are
 counted against the limit and left to the process watching them; one whose
-watcher went away is adopted by its pid. When the server stops, the
+watcher went away is adopted by its pid, while that pid is still the
+process the session started as. When the server stops, the
 sessions it watches are stopped and their claims released.
 """
 
@@ -45,7 +46,7 @@ def server_running() -> bool:
 
 def running_runs() -> list[dict]:
     """Runs on this device whose client still runs, whoever started them."""
-    return [run for run in store.unfinished() if processes.is_alive(run['pid'])]
+    return [run for run in store.unfinished() if dispatched.alive(run)]
 
 
 def candidates(workspace: str, *, choices: list[str] | None = None) -> list[dict]:
@@ -178,10 +179,12 @@ class Dispatcher:
             return
         for run in unfinished:
             try:
-                if run['id'] in self.sessions or (run['watcher'] != os.getpid() and processes.is_alive(run['watcher'])):
+                if run['id'] in self.sessions or (run['watcher'] != os.getpid() and dispatched.watching(run)):
                     continue
-                if processes.is_alive(run['pid']):
-                    self.sessions[run['id']] = dispatched.Session(run)
+                if dispatched.alive(run):  # its own process, never one that got its pid later
+                    mine = {'watcher': os.getpid(), 'watcher_started': processes.started(os.getpid())}
+                    store.update(run['id'], **mine)
+                    self.sessions[run['id']] = dispatched.Session({**run, **mine})
                 else:
                     dispatched.finish(run['id'], None, reason='ended while no Dispatcher watched it')
             except Exception as error:

@@ -155,10 +155,42 @@ class StoppingTests(LoopCase):
 
 
 class RecoveryTests(LoopCase):
-    def _run(self, *, pid, watcher):
+    def _run(self, *, pid, watcher, identity=None):
+        # As the process that started it records them: each process's identity at the start.
         return store.add({'id': f'r{pid}', 'workspace': 'default', 'task': self.task, 'title': 't', 'project': 'shop',
                           'client': 'claude-code', 'role': 'work', 'session': 'dispatch:r', 'pid': pid,
-                          'watcher': watcher, 'started_at': time.time()})
+                          'pid_started': identity or processes.started(pid), 'watcher': watcher,
+                          'watcher_started': processes.started(watcher), 'started_at': time.time()})
+
+    def test_a_pid_another_process_got_later_is_not_the_session(self):
+        unrelated = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], start_new_session=True)
+        self.addCleanup(lambda: (unrelated.kill(), unrelated.wait()))
+        gone = subprocess.Popen([sys.executable, '-c', 'pass'])
+        gone.wait()
+        # The session's client ended, and the system gave its pid to an unrelated process.
+        run = self._run(pid=unrelated.pid, watcher=gone.pid, identity='an-earlier-process')
+        self.assertEqual(loop.running_runs(), [])
+        self.dispatcher.recover()
+
+        self.assertNotIn(run['id'], self.dispatcher.sessions)
+        self.assertEqual(store.get(run['id'])['detail'], 'ended while no Dispatcher watched it')
+        self.assertIsNone(unrelated.poll())  # never signalled
+
+    def test_stop_never_signals_a_process_that_got_the_sessions_pid(self):
+        unrelated = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], start_new_session=True)
+        self.addCleanup(lambda: (unrelated.kill(), unrelated.wait()))
+        run = self._run(pid=unrelated.pid, watcher=os.getpid(), identity='an-earlier-process')
+        dispatched.request_stop(run['id'])
+        time.sleep(0.3)
+        self.assertIsNone(unrelated.poll())
+
+    def test_the_sessions_own_process_has_the_identity_it_started_with(self):
+        alive = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
+        self.addCleanup(lambda: (alive.kill(), alive.wait()))
+        identity = processes.started(alive.pid)
+        self.assertTrue(identity)
+        self.assertTrue(processes.same(alive.pid, identity))
+        self.assertFalse(processes.same(alive.pid, None))
 
     def test_a_gone_session_nobody_watched_is_recorded_as_ended(self):
         gone = subprocess.Popen([sys.executable, '-c', 'pass'])

@@ -16,9 +16,12 @@ from .. import config
 
 COLUMNS = ('id', 'workspace', 'task', 'title', 'project', 'client', 'role', 'session', 'conversation', 'claim',
            'pid', 'worktree', 'branch', 'base', 'started_at', 'ended_at', 'exit_code', 'outcome', 'detail',
-           'watcher', 'stop_reason', 'distro', 'cleaned')
-# Columns later Tasks of the Dispatcher added to a store that existed before them.
-_ADDED = {'watcher': 'INTEGER', 'stop_reason': 'TEXT', 'distro': 'TEXT', 'cleaned': 'REAL'}
+           'watcher', 'stop_reason', 'distro', 'cleaned', 'pid_started', 'watcher_started')
+# Columns later Tasks of the Dispatcher added to a store that existed before them. ``pid_started``
+# and ``watcher_started`` identify the processes behind ``pid`` and ``watcher`` (processes.started),
+# so a pid the system gave to another process later is never taken for them.
+_ADDED = {'watcher': 'INTEGER', 'stop_reason': 'TEXT', 'distro': 'TEXT', 'cleaned': 'REAL', 'pid_started': 'TEXT',
+          'watcher_started': 'TEXT'}
 
 
 def _db_path() -> Path:
