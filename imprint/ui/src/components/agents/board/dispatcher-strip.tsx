@@ -178,14 +178,14 @@ export function DispatcherStrip({ now, onOpen }: { now: Date; onOpen: (task: str
         </div>
       ))}
 
-      {data.on && data.held && (
+      {(data.on || data.refine) && data.held && (
         <p className="text-xs text-amber-700 dark:text-amber-300">Starting nothing now: {data.held}.</p>
       )}
 
-      {data.on && !data.held && data.running.length === 0 && (
+      {(data.on || data.refine) && !data.held && data.running.length === 0 && (
         <p className="text-xs text-muted-foreground">
           {data.next.length > 0
-            ? <>Next: <Button variant="link" size="sm" className="h-auto px-0 text-xs font-mono" onClick={() => onOpen(data.next[0].id)}>{data.next[0].id}</Button> {data.next[0].title}, for {data.clients.find((c) => c.client === data.next[0].client)?.label ?? data.next[0].client}</>
+            ? <>Next: <Button variant="link" size="sm" className="h-auto px-0 text-xs font-mono" onClick={() => onOpen(data.next[0].id)}>{data.next[0].id}</Button> {data.next[0].title}, {data.next[0].role === "refine" ? "to refine with" : "for"} {data.clients.find((c) => c.client === data.next[0].client)?.label ?? data.next[0].client}</>
             : "Nothing to take: no Ready standalone task is open to it."}
         </p>
       )}

@@ -113,6 +113,29 @@ def reviews(workspace: str, *, choices: list[str] | None = None) -> list[dict]:
     return sorted(found, key=board_order)
 
 
+def refinements(workspace: str, *, choices: list[str] | None = None) -> list[dict]:
+    """Backlog Tasks a refinement would groom in ``workspace`` (ADR 0230),
+    in the Board's order, each with its ``client``: no acceptance criteria,
+    not a Feature, not the person's, not held, not for another device, and
+    not refined since the person's last change to it."""
+    device = tasks.device_name()
+    known: dict = {}
+    found = []
+    for state in tasks.listing(status='backlog', workspace=workspace):
+        if state['acceptance'] or 'user' in state['assignees'] or state.get('tasks') or state.get('holder'):
+            continue
+        devices = [a for a in state['assignees'] if '@' in a]
+        if devices and not any(a.split('@', 1)[1].lower() == device for a in devices):
+            continue
+        if guards.refined_since_change(state['id'], workspace):
+            continue
+        here = choices if choices is not None else _choices_where(state['project'], workspace, known)
+        client = clients.for_task(state, here, device)
+        if client:
+            found.append({**state, 'client': client, 'role': 'refine'})
+    return sorted(found, key=board_order)
+
+
 def cleanup() -> int:
     """Remove the worktrees of Tasks that reached Done or Cancelled, or are
     gone, keeping their branches (ADR 0223). A worktree still in use (on
@@ -121,6 +144,17 @@ def cleanup() -> int:
     removed = 0
     for run in store.uncleaned():
         if any(r['task'] == run['task'] for r in running_runs()):
+            continue
+        if run['role'] == 'refine':  # its throwaway copy goes whatever the Task's status (ADR 0230)
+            try:
+                folder = folders.resolve(run['project'], run['workspace'])
+                if folder['ok']:
+                    worktrees.remove_scratch(folder, run['task'])
+                store.mark_run_cleaned(run['id'])
+                removed += 1
+            except Exception as error:
+                print(f"[imprint] dispatcher could not remove the copy refinement used for {run['task']} yet: {error}",
+                      file=sys.stderr, flush=True)
             continue
         state = dispatched._state_or_none(run['task'], run['workspace'])  # None: deleted, or its workspace is gone
         if state is not None and state['status'] not in ('done', 'cancelled'):
@@ -232,38 +266,55 @@ class Dispatcher:
 
     def dispatch(self) -> dict | None:
         """Start one Dispatched session when there is room and work: the
-        started run, or None."""
+        started run, or None. Reviews, then Stale and Ready Tasks, in the
+        workspaces switched on; only when none of them started, a Backlog
+        refinement in the workspaces it is switched on for (ADR 0230)."""
         if len(running_runs()) >= max(0, int(_setting('dispatch.concurrency'))) or guards.held():
             return None
         self.skipped = {}
         for workspace in store.switched_on_workspaces():
             for state in [*reviews(workspace), *candidates(workspace)]:  # reviews first (ADR 0221)
-                if state['project'] in self.skipped:
-                    continue
-                folder = folders.resolve(state['project'], workspace)
-                if not folder['ok']:
-                    self.skipped[state['project']] = folder['reason']
-                    continue
-                if state['role'] == 'review' and not guards.takeover(state, folder, workspace, doing='review this Task')[0]:
-                    continue
-                if state['stale'] and not guards.takeover(state, folder, workspace)[0]:
-                    continue
-                try:
-                    run, proc = dispatched.start(state['id'], workspace=workspace, client=state['client'],
-                                                 role=state['role'],
-                                                 on_wait=self.watch)  # its sessions are watched while the claim travels
-                except dispatched.StartFailed as failed:
-                    # A claimed Task that would not start: it counts toward switching off, and ends
-                    # the pass, so a broken setup fails one Task a pass, not every one (ADR 0228).
-                    print(f"[imprint] dispatcher {failed}", file=sys.stderr, flush=True)
-                    guards.switch_off_after_failures(failed.run)
-                    return None
-                except (LookupError, PermissionError, ValueError, OSError, RuntimeError) as error:
-                    print(f"[imprint] dispatcher passed over {state['id']}: {error}", file=sys.stderr, flush=True)
-                    continue
-                self.sessions[run['id']] = dispatched.Session({**run, 'watcher': os.getpid()}, proc)
-                return run
+                started = self._start(state, workspace)
+                if started is not _PASSED:
+                    return started
+        for workspace in store.refining_workspaces():
+            for state in refinements(workspace):
+                started = self._start(state, workspace)
+                if started is not _PASSED:
+                    return started
         return None
+
+    def _start(self, state: dict, workspace: str):
+        """Start a session for ``state``: its run; None when the pass must
+        end (a failed start, ADR 0228); ``_PASSED`` when it was passed over."""
+        if state['project'] in self.skipped:
+            return _PASSED
+        folder = folders.resolve(state['project'], workspace)
+        if not folder['ok']:
+            self.skipped[state['project']] = folder['reason']
+            return _PASSED
+        if state['role'] == 'review' and not guards.takeover(state, folder, workspace, doing='review this Task')[0]:
+            return _PASSED
+        if state.get('stale') and not guards.takeover(state, folder, workspace)[0]:
+            return _PASSED
+        try:
+            run, proc = dispatched.start(state['id'], workspace=workspace, client=state['client'],
+                                         role=state['role'],
+                                         on_wait=self.watch)  # its sessions are watched while the claim travels
+        except dispatched.StartFailed as failed:
+            # A claimed Task that would not start: it counts toward switching off, and ends
+            # the pass, so a broken setup fails one Task a pass, not every one (ADR 0228).
+            print(f"[imprint] dispatcher {failed}", file=sys.stderr, flush=True)
+            guards.switch_off_after_failures(failed.run)
+            return None
+        except (LookupError, PermissionError, ValueError, OSError, RuntimeError) as error:
+            print(f"[imprint] dispatcher passed over {state['id']}: {error}", file=sys.stderr, flush=True)
+            return _PASSED
+        self.sessions[run['id']] = dispatched.Session({**run, 'watcher': os.getpid()}, proc)
+        return run
+
+
+_PASSED = object()  # a Task the pass went past, unlike None, which ends the pass
 
 
 _dispatcher: Dispatcher | None = None

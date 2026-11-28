@@ -23,6 +23,8 @@ from ..tasks.actors import SYSTEM
 from . import folders, runners, store, worktrees
 
 DISPATCH = 'dispatch:'
+# How the Dispatcher's checkpoint starts when it starts a refinement: a refinement since the person's last change (ADR 0230).
+REFINE_MARK = 'Dispatched to refine'
 SKILL = 'imprint-dispatch'
 WORKABLE = ('backlog', 'ready', 'in_progress')
 STOP_GRACE = 3.0
@@ -100,7 +102,14 @@ def prompt(state: dict, *, workspace: str, worktree: dict, token: str, role: str
     """The Dispatched session's prompt: the Task, where to work, the claim
     token, its Handoff when it was worked on before, its client's ``note``
     about its own sandbox, and the instructions of ``imprint-dispatch``."""
-    doing = 'work on' if role == 'work' else 'review'
+    doing = {'work': 'work on', 'review': 'review', 'refine': 'refine'}[role]
+    if worktree.get('scratch'):
+        where = (f"- Your worktree: {worktree['cwd']}, a throwaway copy of {worktree['base']} at "
+                 f"{worktree['base_commit']}: read it, change nothing")
+    else:
+        where = f"- Your worktree: {worktree['cwd']}, on branch {worktree['branch']}, " + (
+            f"made from {worktree['base']} at {worktree['base_commit']}" if worktree.get('fresh', True)
+            else f"continuing at {worktree.get('tip') or worktree['base_commit']}")
     return '\n'.join([
         f"You are a Dispatched session. Imprint's Dispatcher started you, without the person, to {doing} "
         'one Task of its Board.',
@@ -108,12 +117,11 @@ def prompt(state: dict, *, workspace: str, worktree: dict, token: str, role: str
         f"- Task: {state['id']}: {state['title']}",
         f'- Workspace: {workspace}: pass workspace="{workspace}" on every Imprint call',
         f"- Project: {state['project']}: pass project=\"{state['project']}\" when you create a Task",
-        f"- Your worktree: {worktree['cwd']}, on branch {worktree['branch']}, " + (
-            f"made from {worktree['base']} at {worktree['base_commit']}" if worktree.get('fresh', True)
-            else f"continuing at {worktree.get('tip') or worktree['base_commit']}"),
+        where,
         f'- Your claim token: {token}',
         *([f'- Review against: {base} (`git diff {base}...HEAD` when it is a commit)',
            '- Your role: review. Follow the "Reviewing" part of the instructions below.'] if role == 'review' else []),
+        *(['- Your role: refine. Follow the "Refining" part of the instructions below.'] if role == 'refine' else []),
         *handoff_lines(handoff, state['project']),
         *(['', note] if note else []),
         '',
@@ -292,6 +300,8 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
                          'a Dispatched session works on Backlog, Ready or Stale Tasks')
     if role == 'review' and state['status'] != 'review':
         raise ValueError(f"{state['id']} is not in Review: a Dispatched review checks finished work")
+    if role == 'refine' and state['status'] != 'backlog':
+        raise ValueError(f"{state['id']} is not in Backlog: a Dispatched refinement grooms Backlog Tasks (ADR 0230)")
     folder = folders.resolve(state['project'], workspace)
     if not folder['ok']:
         raise LookupError(folder['reason'])
@@ -317,14 +327,15 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
         raise LookupError(f'{runner.label} was not found{where}: put {runner.binary} on PATH or set {runner.setting}')
     # A Task worked on before continues from its Handoff: on its own task
     # branch, at its last commit when that branch is not here yet (ADR 0223).
-    handoff = tasks.handoff(state['id'], workspace=workspace) if state.get('checkpoints') else None
+    handoff = tasks.handoff(state['id'], workspace=workspace) if state.get('checkpoints') and role != 'refine' else None
     start_at = None
     on_branch = (handoff or {}).get('branch') or ''
     if handoff and handoff.get('commit') and (role == 'review' or on_branch.startswith(worktrees.branch_prefix(state['id']))):
         # A review checks the work where it ends, on whatever branch it was done.
         from . import git
         start_at = handoff['commit'] if git.has_commit(folder['path'], handoff['commit']) else None
-    worktree = worktrees.prepare(folder, state['id'], state['title'], start=start_at)
+    worktree = (worktrees.scratch(folder, state['id']) if role == 'refine'  # read only, no branch (ADR 0230)
+                else worktrees.prepare(folder, state['id'], state['title'], start=start_at))
     run_id = uuid.uuid4().hex[:12]
     conversation = str(uuid.uuid4())
     last_message = str(last_message_path(run_id))
@@ -349,12 +360,18 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
         store.update(run_id, ended_at=time.time(), outcome='refused', detail=str(error))
         raise
     try:
-        # The branch's own last commit; the base only when the branch was just made from it (ADR 0223).
-        where_from = (f"made from {worktree['base']} at {worktree['base_commit']}" if worktree['fresh']
-                      else f"continuing at {worktree['tip']}")
-        tasks.checkpoint(state['id'], f"Dispatched to {runner.label} on this device{where}: worktree {worktree['path']} "
-                         f"on {worktree['branch']}, {where_from}.",
-                         branch=worktree['branch'], commit=worktree['tip'],
+        if role == 'refine':
+            text = (f"{REFINE_MARK} with {runner.label} on this device{where}: a read-only copy at {worktree['path']} "
+                    f"of {worktree['base']} at {worktree['base_commit']}.")
+            branch = commit = None
+        else:
+            # The branch's own last commit; the base only when the branch was just made from it (ADR 0223).
+            where_from = (f"made from {worktree['base']} at {worktree['base_commit']}" if worktree['fresh']
+                          else f"continuing at {worktree['tip']}")
+            text = (f"Dispatched to {runner.label} on this device{where}: worktree {worktree['path']} "
+                    f"on {worktree['branch']}, {where_from}.")
+            branch, commit = worktree['branch'], worktree['tip']
+        tasks.checkpoint(state['id'], text, branch=branch, commit=commit,
                          next_step='The Dispatched session takes the claim over and works the Task.',
                          actor=actor, workspace=workspace)
         # The claim must reach the paired devices before the client starts (ADR 0224).
@@ -484,12 +501,55 @@ def request_stop(run_id: str, reason: str = 'was stopped by the person') -> dict
     return store.get(run_id)
 
 
+def _remove_scratch(run: dict) -> None:
+    """A refinement's throwaway copy goes as soon as it ends; cleanup tries again when it is in use."""
+    try:
+        folder = folders.resolve(run['project'], run['workspace'])
+        if folder['ok']:
+            worktrees.remove_scratch(folder, run['task'])
+        store.mark_run_cleaned(run['id'])
+    except Exception:  # in use (Windows keeps a folder a process still has open): cleanup takes it later
+        pass
+
+
+def _refinement_ended(run: dict, state: dict, label: str) -> tuple[str, str]:
+    """The outcome of a refinement that ended on its own (ADR 0230): ``refined``
+    when the Task gained acceptance criteria or the session commented on it,
+    else ``failed``. Its claim goes back to Backlog, and a Task it moved out
+    of Backlog is moved back."""
+    task, workspace = run['task'], run['workspace']
+    ours = _our_sessions(task, run['id'], workspace)
+    commented = any(e['kind'] == 'comment' and e['session'] in ours and e['recorded_at'] >= run['started_at']
+                    for e in tasks.history(task, workspace=workspace))
+    left = state['status'] not in ('backlog', 'in_progress')
+    holder = state.get('holder') or (state.get('previous_holder') if state.get('stale') else None)
+    if holder and holder['session'] in ours:
+        tasks.release(task, status='backlog', actor=SYSTEM, workspace=workspace)
+    if tasks.get(task, workspace=workspace)['status'] != 'backlog':
+        tasks.move(task, 'backlog', actor=SYSTEM, workspace=workspace)  # refinement never moves a Task on
+    if left:
+        outcome, detail = 'failed', (f"moved the Task to {tasks.STATUS_LABELS.get(state['status'], state['status'])}, "
+                                     'which a refinement never does')
+    elif state['acceptance'] or commented:
+        return 'refined', 'refined the Task, which stays in Backlog'
+    else:
+        outcome, detail = 'failed', 'ended without refining the Task'
+    tail = log_tail(store.log_path(run['id']))
+    text = f'The Dispatched refinement ({label}) {detail}.'
+    if tail:
+        text += f'\n\nThe end of its log:\n\n{tail}'
+    tasks.comment(task, text, actor=SYSTEM, workspace=workspace)
+    return outcome, detail
+
+
 def _lost(run: dict, winner: str, started: bool) -> str:
     """Record a run whose claim another device's earlier claim beat
     (ADR 0224): its worktree goes, its commits stay on the branch."""
     detail = (f'lost its claim to {winner} and was stopped' if started else
               f'was not started: {winner} claimed the Task first')
-    if started:
+    if started and run['role'] == 'refine':
+        _remove_scratch(run)
+    elif started:
         try:
             folder = folders.resolve(run['project'], run['workspace'])
             if folder['ok']:
@@ -542,6 +602,8 @@ def finish(run_id: str, exit_code: int | None, *, reason: str | None = None, sto
         store.update(run_id, ended_at=time.time(), exit_code=exit_code, outcome=outcome, detail=detail)
         guards.after_review(store.get(run_id), outcome)
         return store.get(run_id)
+    elif not reason and run['role'] == 'refine':
+        outcome, detail = _refinement_ended(run, state, label)
     else:
         outcome = 'stopped' if stopped else 'failed'
         detail = reason or (f'ended (exit code {exit_code}) without moving the Task to Review'
@@ -551,7 +613,9 @@ def finish(run_id: str, exit_code: int | None, *, reason: str | None = None, sto
         released = False
         if holder and holder['session'] in _our_sessions(task, run_id, workspace) and \
                 (state['status'] != 'review' or run['role'] == 'review'):
-            tasks.release(task, actor=SYSTEM, workspace=workspace)  # a reviewer's release leaves it in Review
+            # A reviewer's release leaves it in Review; a refinement's puts it back in Backlog (ADR 0230).
+            tasks.release(task, actor=SYSTEM, workspace=workspace,
+                          **({'status': 'backlog'} if run['role'] == 'refine' else {}))
             released = True
         tail = log_tail(store.log_path(run_id))
         text = f'The Dispatched session ({label}) {detail}.'
@@ -561,6 +625,8 @@ def finish(run_id: str, exit_code: int | None, *, reason: str | None = None, sto
             text += f'\n\nThe end of its log:\n\n{tail}'
         tasks.comment(task, text, actor=SYSTEM, workspace=workspace)
     store.update(run_id, ended_at=time.time(), exit_code=exit_code, outcome=outcome, detail=detail)
+    if run['role'] == 'refine':
+        _remove_scratch(run)
     if run.get('distro'):
         from . import wsl
         try:

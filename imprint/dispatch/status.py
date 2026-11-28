@@ -43,7 +43,8 @@ def status(workspace: str, *, projects: bool = True, refresh: bool = False) -> d
         'autonomy': tasks.autonomy(workspace), 'running': loop.running_runs(), 'recent': store.recent(8),
         'held': guards.held(), 'clients': clients.listing(refresh=refresh, places=folders.distributions(workspace)),
         'next': [{'id': s['id'], 'title': s['title'], 'project': s['project'], 'client': s['client'], 'role': s['role']}
-                 for s in [*loop.reviews(workspace), *loop.candidates(workspace)]][:5],
+                 for s in [*loop.reviews(workspace), *loop.candidates(workspace),
+                           *(loop.refinements(workspace) if store.refining(workspace) else [])]][:5],
         'devices': [d for d in tasks.dispatching(workspace) if d['on'] and d['device'] != here],
     }
     if projects:

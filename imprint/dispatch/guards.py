@@ -124,6 +124,25 @@ def fed_by_dispatched(task: str, workspace: str, dispatched: set[str]) -> bool:
     return fed
 
 
+# The person's changes that make a refined Task worth refining again (ADR 0230).
+_PERSONS_CHANGES = ('created', 'edited', 'appended', 'moved', 'comment', 'assigned', 'tagged', 'linked')
+
+
+def refined_since_change(task: str, workspace: str) -> bool:
+    """Whether a Dispatched refinement started on ``task`` after the person's
+    last change to it (ADR 0230): each Task is refined once, until the
+    person changes it."""
+    from .dispatched import REFINE_MARK
+    refined = False
+    for event in tasks.history(task, workspace=workspace):
+        if event['kind'] == 'checkpoint' and (event['session'] or '').startswith('dispatch:') and \
+                (event['data'].get('text') or '').startswith(REFINE_MARK):
+            refined = True
+        elif event['actor'] == 'user' and event['kind'] in _PERSONS_CHANGES:
+            refined = False
+    return refined
+
+
 MISSING_WORK = "is not in this device's copy of the repository"
 
 

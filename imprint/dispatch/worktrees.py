@@ -127,6 +127,42 @@ def prepare(folder: dict, task_id: str, title: str, *, start: str | None = None)
             'tip': tip, 'fresh': fresh, 'git_dir': git_dir, 'created': created}
 
 
+def scratch_location(folder: dict, task_id: str) -> str:
+    """Where a refinement's throwaway copy goes: beside the Task's own worktree's place."""
+    return location(folder, task_id) + '.refine'
+
+
+def scratch(folder: dict, task_id: str) -> dict:
+    """A throwaway copy of the project at its checked-out commit, for a
+    refinement to read (ADR 0230): a detached worktree with no branch,
+    made afresh each time; ``remove_scratch`` takes it away. Returns the
+    keys ``prepare`` returns, ``branch`` None and ``scratch`` True."""
+    path = scratch_location(folder, task_id)
+    if any(_same(listed, path) for listed in _worktrees(folder)):
+        git.run(folder['path'], 'worktree', 'remove', '--force', path)
+    elif _exists(folder, path):
+        raise FileExistsError(f'{path} exists and is not a worktree of {folder["repository"]}: move it away')
+    _make_parent(folder, path)
+    git.run(folder['path'], 'worktree', 'add', '--detach', path, folder['commit'])
+    join = posixpath.join if folder.get('distro') else os.path.join
+    cwd = join(path, *folder['subfolder'].split('/')) if folder.get('subfolder') else path
+    git_dir = git.run(wsl_native(folder, path), 'rev-parse', '--path-format=absolute', '--git-common-dir')
+    if not folder.get('distro'):
+        git_dir = os.path.normpath(git_dir)
+    return {'path': path, 'cwd': cwd, 'branch': None, 'base': folder.get('branch') or folder['commit'],
+            'base_commit': folder['commit'], 'tip': folder['commit'], 'fresh': False, 'git_dir': git_dir,
+            'created': True, 'scratch': True}
+
+
+def remove_scratch(folder: dict, task_id: str) -> bool:
+    """Remove a refinement's throwaway copy; False when there was none."""
+    path = scratch_location(folder, task_id)
+    if not any(_same(listed, path) for listed in _worktrees(folder)):
+        return False
+    git.run(folder['path'], 'worktree', 'remove', '--force', path)
+    return True
+
+
 def wsl_native(folder: dict, path: str) -> str:
     """A worktree path as this runtime reaches it, for running git there."""
     if folder.get('distro'):

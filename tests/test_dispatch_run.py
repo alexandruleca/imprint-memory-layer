@@ -67,6 +67,15 @@ FAKE_CLAUDE = textwrap.dedent('''\
             tasks.move(task, 'ready', actor=me)
         print(json.dumps({{'type': 'result', 'subtype': 'success', 'result': 'Reviewed: ' + verdict}}))
         sys.exit(0)
+    if '- Your role: refine' in prompt:
+        verdict = os.environ.get('FAKE_REFINE', 'criteria')
+        if verdict in ('criteria', 'ready'):
+            tasks.edit(task, acceptance=['It works when run twice'], actor=me)
+            tasks.comment(task, 'Added a criterion: it works when run twice', to=['user'], actor=me)
+        if verdict == 'ready':
+            tasks.move(task, 'ready', actor=me)
+        print(json.dumps({{'type': 'result', 'subtype': 'success', 'result': 'Refined: ' + verdict}}))
+        sys.exit(0)
     print(json.dumps({{'type': 'assistant', 'message': {{'content': [{{'type': 'text', 'text': 'Working on it'}}]}}}}))
     if mode == 'review':
         open('done.txt', 'w').write('done')
