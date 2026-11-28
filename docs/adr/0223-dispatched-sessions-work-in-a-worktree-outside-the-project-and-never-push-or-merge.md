@@ -3,8 +3,9 @@ title: ADR 0223 — Dispatched sessions work in a worktree outside the project a
 description: Each Dispatched session works on its Task's branch in a git worktree that Imprint makes outside the project, starting from the branch checked out in the project; it commits there and never pushes, merges or touches the person's checkout, and merging stays the person's.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-27
+- Amended by: [ADR 0238](0238-task-branches-travel-through-the-base-branchs-remote.md) — its "Never push or merge" and "Takeovers from another device": Imprint pushes the Task's branch when it reaches Review, and a device fetches before it checks for the commit
 - Related: [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) (Task branches and pushing), [ADR 0220](0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md) (the Dispatcher), [ADR 0221](0221-dispatched-sessions-review-tasks-in-review-with-another-client.md) (reviews), [ADR 0224](0224-a-dispatched-session-starts-only-after-its-claim-has-reached-the-paired-devices.md) (lost claims)
 
 ## Context

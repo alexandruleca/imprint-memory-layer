@@ -11,7 +11,7 @@ Imprint's Dispatcher started you to work on one Task of the Board. Nobody is wat
 
 - **Pass the workspace** your prompt names on every Imprint call (`workspace="…"`), and the project when you create a Task (`project="…"`).
 - **Work only in your worktree.** Never change, check out or reset the project's own folder or another worktree. Commit on your branch only.
-- **Never push, merge, rebase onto another branch, tag or open a pull request.** The person merges your branch after a review.
+- **Never push, merge, rebase onto another branch, tag or open a pull request.** When you move the Task to Review, Imprint pushes your branch for you; the person merges it after a review.
 - **One Task.** Do not take other Tasks. A Task you create for work you found goes to Backlog; never move it to Ready.
 - **If you lose your claim, stop at once.** An Imprint reply that says you lost it, or `tasks(action="get")` showing another holder, means another session works on this Task.
 - Your client's safety checks stay on. Do not try to get around a refused action: record it on the Task and continue without it, or stop.

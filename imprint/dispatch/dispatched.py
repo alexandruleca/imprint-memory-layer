@@ -396,7 +396,8 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
     on_branch = (handoff or {}).get('branch') or ''
     if handoff and handoff.get('commit') and (role == 'review' or on_branch.startswith(worktrees.branch_prefix(state['id']))):
         # A review checks the work where it ends, on whatever branch it was done.
-        from . import git
+        from . import git, guards
+        guards.fetch_work(state['id'], folder, workspace, handoff)  # from the remote, when not here (ADR 0238)
         start_at = handoff['commit'] if git.has_commit(folder['path'], handoff['commit']) else None
     worktree = (worktrees.scratch(folder, state['id']) if role == 'refine'  # read only, no branch (ADR 0230)
                 else worktrees.prepare(folder, state['id'], state['title'], start=start_at))
@@ -652,6 +653,29 @@ def _lost(run: dict, winner: str, started: bool) -> str:
     return detail
 
 
+def _push(run: dict) -> str:
+    """Push a run's Task branch to the remote its base tracks, never with
+    force, as Imprint and not as the session (ADR 0238); what happened, or
+    '' when there is nowhere to push. A failed push tells the person."""
+    from . import git, guards
+    if not run.get('branch'):
+        return ''
+    folder = folders.resolve(run['project'], run['workspace'])
+    if not folder.get('ok'):
+        return ''
+    remote = guards.remote_of(folder, run.get('base'))
+    if not remote:
+        return ''
+    try:
+        git.push_branch(folder['path'], remote, run['branch'])
+    except git.GitError as error:
+        tasks.comment(run['task'], f"Imprint could not push {run['branch']} to {remote}: {error}. Other devices "
+                      'cannot review or take over this work until the branch is pushed.', to=['user'], actor=SYSTEM,
+                      workspace=run['workspace'])
+        return f"could not push {run['branch']} to {remote}"
+    return f"pushed {run['branch']} to {remote}"
+
+
 def finish(run_id: str, exit_code: int | None, *, reason: str | None = None, stopped: bool = False,
            lost: str | None = None, started: bool = True) -> dict:
     """Record how the run ended. A worker whose Task is in Review succeeded;
@@ -676,6 +700,9 @@ def finish(run_id: str, exit_code: int | None, *, reason: str | None = None, sto
         outcome, detail = 'stopped', reason or f'ended: {GONE}'
     elif not reason and run['role'] == 'work' and state['status'] == 'review':
         outcome, detail = 'review', 'moved the Task to Review'
+        pushed = _push(run)  # so another device can review it (ADR 0238)
+        if pushed:
+            detail = f'{detail}; {pushed}'
     elif not reason and run['role'] == 'review' and state['status'] in ('done', 'ready'):
         from . import guards
         if state['status'] == 'done':

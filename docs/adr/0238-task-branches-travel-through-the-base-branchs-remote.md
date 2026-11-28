@@ -3,9 +3,10 @@ title: ADR 0238 — Task branches travel through the base branch's remote
 description: When a Dispatched work run ends in Review, Imprint, not the session, pushes the Task's branch to the remote its base branch tracks, and other devices fetch it before they review, take over or deploy.
 ---
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-28
-- Related: [ADR 0223](0223-dispatched-sessions-work-in-a-worktree-outside-the-project-and-never-push-or-merge.md) (its "Never push or merge" and "Takeovers from another device", which this would amend), [ADR 0237](0237-a-devices-dispatcher-does-only-the-roles-the-person-switches-on.md) (roles), [ADR 0239](0239-the-dispatcher-deploys-tasks-a-dispatched-review-passed.md) (deploy)
+- Amends: [ADR 0223](0223-dispatched-sessions-work-in-a-worktree-outside-the-project-and-never-push-or-merge.md) — its "Never push or merge" (Imprint, not the session, pushes the Task's branch) and its "Takeovers from another device" (a device fetches before it checks for the commit)
+- Related: [ADR 0237](0237-a-devices-dispatcher-does-only-the-roles-the-person-switches-on.md) (roles), [ADR 0239](0239-the-dispatcher-deploys-tasks-a-dispatched-review-passed.md) (deploy)
 
 ## Context
 
@@ -43,4 +44,15 @@ With roles ([ADR 0237](0237-a-devices-dispatcher-does-only-the-roles-the-person-
 
 ## Validation
 
-Proposed; not yet implemented. To be validated by T-713d6, including a test with two clones of one bare remote.
+T-713d6, on Linux and natively on Windows:
+- `tests/test_dispatch_remote.py` sets up two clones of one bare remote, the second cloned before any Task branch existed:
+  - a run that reaches Review has its branch pushed, at the commit its Handoff names;
+  - a base without an upstream pushes nothing and says nothing;
+  - a failed push leaves a comment to the person and the Task in Review;
+  - on the other clone, the review check fetches the branch into `refs/remotes/origin/…`, and a Dispatched review starts at the work's last commit and passes;
+  - without an upstream there, the Task is left and the comment says the work was not pushed;
+  - a failing fetch runs once, not once per check.
+- Disabling the push fails three of these tests, and disabling the fetch fails three.
+- The other `test_dispatch_*` modules pass unchanged. Their projects have no remote, so nothing is pushed.
+
+Not yet run: two physical devices with a real hosted remote (credentials, SSH agents, a slow network).

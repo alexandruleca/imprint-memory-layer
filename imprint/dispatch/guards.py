@@ -181,23 +181,81 @@ def refined_since_change(task: str, workspace: str) -> bool:
 MISSING_WORK = "is not in this device's copy of the repository"
 
 
+# How often one Task's branch is fetched at most: about once a pass (ADR 0238).
+FETCH_EVERY = 60.0
+_fetched: dict[tuple[str, str], float] = {}
+NO_UPSTREAM = 'no upstream'
+_BASE_BRANCH = re.compile(r', made from (\S+) at [0-9a-f]{7,40}\.')
+
+
+def recorded_base(task: str, workspace: str) -> str | None:
+    """The branch the Dispatcher made the Task's branch from, as its first
+    checkpoint says (ADR 0223); None when it did not make it."""
+    for event in tasks.history(task, workspace=workspace):
+        if event['kind'] == 'checkpoint' and (event['session'] or '').startswith('dispatch:'):
+            made = _BASE_BRANCH.search(event['data'].get('text') or '')
+            if made:
+                return made.group(1)
+    return None
+
+
+def remote_of(folder: dict, base: str | None = None) -> str | None:
+    """The remote Task branches travel through (ADR 0238): the one ``base``
+    tracks here, else the one the folder's checked-out branch tracks."""
+    from . import git
+    for branch in dict.fromkeys(b for b in (base, folder.get('branch')) if b):
+        remote = git.upstream_remote(folder['path'], branch)
+        if remote:
+            return remote
+    return None
+
+
+def fetch_work(task: str, folder: dict, workspace: str, handoff: dict) -> str | None:
+    """Fetch the Handoff's branch when its last commit is not here (ADR
+    0238), at most once a pass for a branch. None when the commit is here
+    or the fetch ran; otherwise why it could not (``NO_UPSTREAM`` when the
+    base tracks no remote). A failed fetch is logged, and the caller goes on
+    with what is here."""
+    from . import git
+    commit, branch = handoff.get('commit'), handoff.get('branch')
+    if not commit or not branch or git.has_commit(folder['path'], commit):
+        return None
+    remote = remote_of(folder, recorded_base(task, workspace))
+    if not remote:
+        return NO_UPSTREAM
+    key, now = (folder['path'], branch), time.monotonic()
+    if key in _fetched and now - _fetched[key] < FETCH_EVERY:
+        return None
+    _fetched[key] = now
+    try:
+        git.fetch_branch(folder['path'], remote, branch)
+    except git.GitError as error:
+        print(f'[imprint] dispatcher could not fetch {branch} from {remote}: {error}', file=sys.stderr, flush=True)
+        return f'fetching {branch} from {remote} failed: {error}'
+    return None
+
+
 def takeover(state: dict, folder: dict, workspace: str, *, doing: str = 'take this Stale Task over') -> tuple[bool, dict]:
     """Whether this device can take ``state`` over (ADR 0223): it has no
-    commit yet, or its Handoff's last commit exists here. When it cannot,
-    the Task gets one comment saying so, and is left to the device that
-    has the work. Returns (whether to take it, its Handoff)."""
+    commit yet, or its Handoff's last commit is here, fetched first from
+    the remote when it is not (ADR 0238). When it cannot, the Task gets one
+    comment saying so, and is left to the device that has the work.
+    Returns (whether to take it, its Handoff)."""
     from . import git
     handoff = tasks.handoff(state['id'], workspace=workspace)
     commit = handoff.get('commit')
+    why = fetch_work(state['id'], folder, workspace, handoff) if commit else None
     if not commit or git.has_commit(folder['path'], commit):
         return True, handoff
     marker = f'{commit[:12]} {MISSING_WORK}'
     said = any(e['kind'] == 'comment' and e['actor'] == 'system' and marker in e['data'].get('text', '')
                for e in tasks.history(state['id'], workspace=workspace))
     if not said:
+        unpushed = (" This project's branch has no upstream here, so the work was not pushed anywhere this "
+                    'device can fetch it from.' if why == NO_UPSTREAM else '')
         tasks.comment(state['id'], f"The Dispatcher on this device did not {doing}: its last commit "
                       f"{marker} (branch {handoff.get('branch') or 'unknown'}), so it is left to the device that has "
-                      "the work, or to you once that commit is pushed and fetched here.",
+                      f"the work, or to you once that commit is pushed and fetched here.{unpushed}",
                       actor=SYSTEM, workspace=workspace)
     return False, handoff
 
