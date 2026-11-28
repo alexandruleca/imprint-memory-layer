@@ -109,6 +109,7 @@ class WslStartTests(DispatchCase):
         with patch.object(folders, 'resolve', return_value=FOLDER), \
              patch.object(worktrees, 'prepare', return_value=worktree), \
              patch.object(clients, 'allowed', return_value=['claude-code']), \
+             patch.object(clients, 'detected', return_value=[{'client': 'claude-code', 'available': True}]), \
              patch.object(clients, 'binary', return_value='/home/me/bin/claude'), \
              patch.object(wsl, 'linux_path', return_value='/mnt/c/data/dispatch/r.last'), \
              patch.object(dispatched.subprocess, 'Popen', side_effect=popen), \
@@ -131,6 +132,49 @@ class WslStartTests(DispatchCase):
         self.assertIn(['rm', '-f', f"/tmp/imprint-dispatch-{run['id']}.pid"], [c.args[1] for c in ran.call_args_list])
         first = next(e for e in tasks.history(self.task) if e['kind'] == 'checkpoint')
         self.assertIn(f'on this device in {DISTRO}', first['data']['text'])
+
+
+
+def _allowed_by_place(here, there):
+    """clients.allowed answering ``here`` for this system and ``there`` for the distribution."""
+    return lambda refresh=False, where=None: list(there if where == DISTRO else here)
+
+
+class WslChoiceTests(DispatchCase):
+    """Clients are chosen where the project lives (T-k1f96, ADR 0222)."""
+
+    def test_a_wsl_projects_worker_is_one_of_the_distributions_clients(self):
+        from imprint.dispatch import loop
+        with patch.object(folders, 'resolve', return_value=FOLDER), \
+             patch.object(clients, 'allowed', side_effect=_allowed_by_place(['codex'], ['claude-code'])):
+            [chosen] = loop.candidates('default')
+        self.assertEqual(chosen['client'], 'claude-code')
+
+    def test_a_device_whose_clients_are_only_in_wsl_dispatches_that_distributions_projects(self):
+        from imprint.dispatch import loop
+        with patch.object(folders, 'resolve', return_value=FOLDER), \
+             patch.object(clients, 'allowed', side_effect=_allowed_by_place([], ['claude-code'])):
+            self.assertEqual([c['client'] for c in loop.candidates('default')], ['claude-code'])
+
+    def test_a_wsl_projects_reviewer_is_one_of_the_distributions_clients(self):
+        from imprint.dispatch import loop
+        worker = tasks.agent('conversation:w', client='claude-code')
+        tasks.claim(self.task, actor=worker)
+        tasks.move(self.task, 'review', actor=worker)
+        with patch.object(folders, 'resolve', return_value=FOLDER), \
+             patch.object(clients, 'allowed', side_effect=_allowed_by_place(['claude-code'], ['claude-code', 'codex'])):
+            [review] = loop.reviews('default')
+        self.assertEqual(review['client'], 'codex')
+
+    def test_start_refuses_a_client_not_available_where_the_project_lives(self):
+        with patch.object(folders, 'resolve', return_value=FOLDER), \
+             patch.object(clients, 'detected', return_value=[
+                 {'client': 'claude-code', 'available': False, 'reason': 'this version lacks --permission-mode'}]):
+            with self.assertRaises(LookupError) as refused:
+                dispatched.start(self.task, client='claude-code')
+        self.assertIn(f'Claude Code is not available in {DISTRO}', str(refused.exception))
+        self.assertIsNone(tasks.get(self.task)['holder'])  # nothing was claimed
+        self.assertEqual(store.recent(5), [])
 
 
 if __name__ == '__main__':

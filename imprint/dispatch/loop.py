@@ -23,7 +23,7 @@ import time
 
 from .. import config, processes, tasks
 from ..tasks.view import _order as board_order
-from . import clients, dispatched, folders, guards, store, worktrees
+from . import clients, dispatched, folders, guards, runners, store, worktrees
 
 PASS_SECONDS = 30.0
 CLEANUP_SECONDS = 600.0
@@ -49,15 +49,26 @@ def running_runs() -> list[dict]:
     return [run for run in store.unfinished() if dispatched.alive(run)]
 
 
+def _choices_where(project: str, workspace: str, known: dict) -> list[str]:
+    """The clients allowed where ``project`` lives: on this system, or in
+    the WSL distribution its folder is in (ADR 0222). A project without a
+    folder here gets this system's; the pass skips it anyway."""
+    if project not in known:
+        folder = folders.resolve(project, workspace)
+        known[project] = clients.allowed(where=folder.get('distro') if folder['ok'] else None)
+    return known[project]
+
+
 def candidates(workspace: str, *, choices: list[str] | None = None) -> list[dict]:
     """The Tasks the Dispatcher would take in ``workspace``, in the Board's
     order, each with the ``client`` that would work it: Ready and
-    standalone, open to one of the clients allowed on this device, as the
-    workspace's autonomy allows, and not fed by dispatched work (ADR 0227)."""
-    choices = clients.allowed() if choices is None else choices
+    standalone, open to one of the clients allowed where its project lives
+    (``choices`` instead, when given), as the workspace's autonomy allows,
+    and not fed by dispatched work (ADR 0227)."""
     device = tasks.device_name()
+    known: dict = {}
     found, seen = [], set()
-    for client in choices:
+    for client in (choices if choices is not None else runners.RUNNERS):
         for state in tasks.takeable(client=client, device=device, workspace=workspace):
             if state['id'] not in seen and (state['stale'] or state['status'] == 'ready'):
                 seen.add(state['id'])
@@ -69,7 +80,8 @@ def candidates(workspace: str, *, choices: list[str] | None = None) -> list[dict
     dispatched = tasks.dispatched_sessions(workspace)
     chosen = []
     for state in found:
-        client = clients.for_task(state, choices, device)
+        here = choices if choices is not None else _choices_where(state['project'], workspace, known)
+        client = clients.for_task(state, here, device)
         if client and not guards.fed_by_dispatched(state['id'], workspace, dispatched):
             chosen.append({**state, 'client': client, 'role': 'work'})
     return chosen
@@ -82,8 +94,8 @@ def reviews(workspace: str, *, choices: list[str] | None = None) -> list[dict]:
     (ADR 0227), as autonomy allows."""
     if tasks.autonomy(workspace) == 'off':
         return []
-    choices = clients.allowed() if choices is None else choices
     device = tasks.device_name()
+    known: dict = {}
     found = []
     dispatched = tasks.dispatched_sessions(workspace)
     for state in tasks.listing(status='review', workspace=workspace):
@@ -94,7 +106,8 @@ def reviews(workspace: str, *, choices: list[str] | None = None) -> list[dict]:
         devices = [a for a in state['assignees'] if '@' in a]
         if devices and not any(a.split('@', 1)[1].lower() == device for a in devices):
             continue
-        client = guards.reviewer(state, choices, workspace)
+        here = choices if choices is not None else _choices_where(state['project'], workspace, known)
+        client = guards.reviewer(state, here, workspace)
         if client:
             found.append({**state, 'client': client, 'role': 'review'})
     return sorted(found, key=board_order)

@@ -307,6 +307,11 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
             raise LookupError(f"No client this device may start for {state['id']}{where}: "
                               '`imprint tasks dispatch status` says which are available')
     runner = runners.get(client)
+    # Only a client available where the project lives: new enough and connected to Imprint (ADR 0222).
+    found = next((f for f in clients.detected(where=distro) if f['client'] == runner.client), None)
+    if not found or not found['available']:
+        raise LookupError(f"{runner.label} is not available{where}: "
+                          f"{(found or {}).get('reason') or 'no runner checked it'}")
     binary = clients.binary(runner, distro)  # before claiming: a missing client claims nothing
     if not binary:
         raise LookupError(f'{runner.label} was not found{where}: put {runner.binary} on PATH or set {runner.setting}')
