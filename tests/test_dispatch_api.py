@@ -53,8 +53,11 @@ class StripTests(DispatchApiCase):
             folders._running['at'] -= folders.RUNNING_TTL + 1
             self.api.get('/api/tasks/dispatch')
             self.assertEqual(asked.call_count, 2)
-            folders.distributions('default')  # the Dispatcher itself asks afresh
-            self.assertEqual(asked.call_count, 3)
+            # The Dispatcher itself asks afresh, even with the clock standing still (Windows' coarse monotonic clock).
+            with patch('time.monotonic', return_value=folders._running['at']):
+                folders.distributions('default')
+                folders.distributions('default')
+            self.assertEqual(asked.call_count, 4)
 
     def test_switching_on_the_board_is_switching_on_the_device(self):
         with patch.object(loop, 'poke') as poke:

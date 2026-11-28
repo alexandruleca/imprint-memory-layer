@@ -104,7 +104,9 @@ def _running_distributions(max_age: float) -> list[str]:
     import time
     from ..wsl_paths import running_distributions
     now = time.monotonic()
-    if _running['names'] is None or now - _running['at'] > max_age:
+    # No age allowed means ask now: on Windows the monotonic clock moves in ~15 ms steps, so an
+    # age test alone would let two calls in one step share an answer.
+    if max_age <= 0 or _running['names'] is None or now - _running['at'] > max_age:
         _running.update(at=now, names=running_distributions() or [])
     return _running['names']
 
