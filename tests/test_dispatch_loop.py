@@ -282,7 +282,7 @@ class CommandLineTests(LoopCase):
         for n in range(10):
             store.add({'id': f'today{n}', 'workspace': 'default', 'task': self.task, 'title': 't', 'project': 'shop',
                        'client': 'claude-code', 'role': 'work', 'started_at': time.time(), 'ended_at': time.time(),
-                       'outcome': 'review'})
+                       'outcome': 'review', 'pid': 4242})
         self.assertIn('daily limit', self.refused('run', self.task))
         self.assertFalse(self.record.exists())
 

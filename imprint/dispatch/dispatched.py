@@ -42,6 +42,12 @@ class ClaimLost(LookupError):
     """Another device's earlier claim on the Task won (ADR 0224)."""
 
 
+class Cancelled(Exception):
+    """The run was called off before its client started, such as when the
+    Dispatcher was switched off while its claim travelled (T-2tsmh): the
+    run is recorded as stopped and its claim released."""
+
+
 class StartFailed(RuntimeError):
     """The session could not start after its Task was claimed: its run is
     recorded as failed (``run``), and the claim released (ADR 0228)."""
@@ -234,6 +240,47 @@ def kill(pid: int, proc: subprocess.Popen | None = None, grace: float = STOP_GRA
         proc.wait()
 
 
+def _group_alive(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def end_leftovers(run: dict, grace: float = STOP_GRACE) -> None:
+    """End what a session's client left running in its process group once
+    the client itself has ended: a server or a watcher it started would
+    keep its worktree in use (T-2tsmh). Called as soon as the client is
+    seen to end: a group with members keeps its id, so it is never another
+    process's. On Windows the group cannot be found once its first process
+    has ended, and nothing is done."""
+    try:
+        if run.get('distro'):
+            from . import wsl
+            if wsl.group_alive(run['distro'], run['id']):
+                kill(0, grace=grace, distro=run['distro'], run_id=run['id'])
+            return
+        pgid = run.get('pid')
+        if sys.platform == 'win32' or not pgid or not _group_alive(pgid):
+            return
+        for force in (False, True):
+            try:
+                os.killpg(pgid, signal.SIGKILL if force else signal.SIGTERM)
+            except OSError:
+                return
+            deadline = time.monotonic() + grace
+            while _group_alive(pgid) and time.monotonic() < deadline:
+                time.sleep(0.1)
+            if not _group_alive(pgid):
+                return
+    except Exception as error:  # what it left must not keep the run from being recorded
+        print(f"[imprint] dispatcher could not end what run {run.get('id')} left running: {error}",
+              file=sys.stderr, flush=True)
+
+
 def last_message_path(run_id: str):
     """Where a client that writes its final message to a file (Codex) puts it."""
     return store.log_path(run_id).with_suffix('.last')
@@ -299,10 +346,13 @@ def _our_sessions(task: str, run_id: str, workspace: str) -> set[str]:
 
 
 def start(task: str, *, workspace: str | None = None, client: str | None = None,
-          role: str = 'work', on_wait=None) -> tuple[dict, subprocess.Popen]:
+          role: str = 'work', on_wait=None, cancelled=None) -> tuple[dict, subprocess.Popen]:
     """Claim ``task`` and start a Dispatched session of ``client`` on it
     (by default, the client the Task is assigned to, else the default
-    client, ADR 0222): (the run's record, the client's process)."""
+    client, ADR 0222): (the run's record, the client's process).
+    ``cancelled`` says why the run must not start after all, or None; it
+    is asked while the claim travels and once more before the client
+    starts, and an answer raises ``Cancelled``."""
     workspace = _workspace(workspace)
     state = tasks.get(task, workspace=workspace)
     if role == 'work' and state['status'] not in WORKABLE:
@@ -312,6 +362,10 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
         raise ValueError(f"{state['id']} is not in Review: a Dispatched review checks finished work")
     if role == 'refine' and state['status'] != 'backlog':
         raise ValueError(f"{state['id']} is not in Backlog: a Dispatched refinement grooms Backlog Tasks (ADR 0230)")
+    under = next((r for r in store.unfinished() if r['task'] == state['id'] and r['workspace'] == workspace), None)
+    if under:  # one session a Task on this device: a reviewer never shares a worker's worktree (T-2tsmh)
+        raise ValueError(f"{state['id']} already has a Dispatched session on this device "
+                         f"({under['role']}, run {under['id']}): one at a time")
     folder = folders.resolve(state['project'], workspace)
     if not folder['ok']:
         raise LookupError(folder['reason'])
@@ -362,13 +416,18 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
                      'session': session_of(run_id), 'conversation': conversation, 'worktree': worktree['path'],
                      'branch': worktree['branch'], 'base': worktree['base'], 'started_at': time.time(),
                      'watcher': os.getpid(), 'watcher_started': processes.started(os.getpid()), 'distro': distro})
-    claimed_at = time.time()
     proc = None
     try:
         claimed = tasks.claim(state['id'], actor=actor, pid=os.getpid(), workspace=workspace)
     except (PermissionError, ValueError) as error:
         store.update(run_id, ended_at=time.time(), outcome='refused', detail=str(error))
         raise
+    claimed_at = time.time()  # after the claim is recorded: an exchange that began earlier did not carry it
+
+    def waiting():
+        if on_wait:
+            on_wait()
+        _call_off(cancelled)
     try:
         if role == 'refine':
             text = (f"{REFINE_MARK} with {runner.label} on this device{where}: a read-only copy at {worktree['path']} "
@@ -386,7 +445,7 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
                          actor=actor, workspace=workspace)
         # The claim must reach the paired devices before the client starts (ADR 0224).
         from . import claimcheck
-        verdict, who = claimcheck.confirm(state['id'], workspace, session_of(run_id), claimed_at, on_wait=on_wait)
+        verdict, who = claimcheck.confirm(state['id'], workspace, session_of(run_id), claimed_at, on_wait=waiting)
         if verdict == claimcheck.LOST:
             finish(run_id, None, lost=who, started=False)
             raise ClaimLost(f"{state['id']} was claimed first by {who}: no session started")
@@ -400,6 +459,7 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
                 f"the merge base of HEAD and {folder.get('branch') or 'the main branch'}"
         text = prompt(claimed['task'], workspace=workspace, worktree=worktree, token=claimed['token'], role=role,
                       note=runner.note, handoff=handoff, base=base)
+        _call_off(cancelled)  # the last moment it can be called off
         log = store.log_path(run_id)
         log.parent.mkdir(parents=True, exist_ok=True)
         env = _env(workspace, run_id)
@@ -410,7 +470,9 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
                                     stdout=output, stderr=subprocess.STDOUT, env=env, **_group())
         identity = processes.started(proc.pid)
         tasks.renew(session_of(run_id), pid=proc.pid)
-        store.update(run_id, pid=proc.pid, pid_started=identity)
+        # From here the session runs: its time limit counts from now, not from the claim (T-2tsmh).
+        began = time.time()
+        store.update(run_id, pid=proc.pid, pid_started=identity, started_at=began)
         try:
             proc.stdin.write(text.encode('utf-8'))
             proc.stdin.close()
@@ -418,12 +480,21 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
             pass  # The client ended at once; its log says why.
     except ClaimLost:
         raise
+    except Cancelled as called_off:
+        finish(run_id, None, reason=f'was not started: {called_off}', stopped=True, started=False)
+        raise
     except Exception as error:
         if proc is not None:
             kill(proc.pid, proc)  # it started, but what had to follow did not
         ended = finish(run_id, None, reason=f'could not start: {error}')
         raise StartFailed(f"{state['id']} could not start: {error}", ended) from error
-    return {**run, 'pid': proc.pid, 'pid_started': identity}, proc
+    return {**run, 'pid': proc.pid, 'pid_started': identity, 'started_at': began}, proc
+
+
+def _call_off(cancelled) -> None:
+    why = cancelled() if cancelled else None
+    if why:
+        raise Cancelled(why)
 
 
 class Session:
@@ -464,6 +535,7 @@ class Session:
             if self.running():
                 return None
         code = self.proc.wait() if self.proc else None  # An adopted session's exit code is not known.
+        end_leftovers(self.run)
         return finish(self.run['id'], code, reason=self.reason, stopped=self.stopped, lost=self.lost)
 
     def _claim_ended(self) -> tuple[str, bool] | None:

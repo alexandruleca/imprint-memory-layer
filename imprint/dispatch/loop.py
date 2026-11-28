@@ -59,6 +59,12 @@ def _choices_where(project: str, workspace: str, known: dict) -> list[str]:
     return known[project]
 
 
+def _under_way(workspace: str) -> set[str]:
+    """The Tasks of ``workspace`` with an unfinished run on this device: one
+    session a Task, so a reviewer never shares a worker's worktree (T-2tsmh)."""
+    return {run['task'] for run in store.unfinished() if run['workspace'] == workspace}
+
+
 def candidates(workspace: str, *, choices: list[str] | None = None) -> list[dict]:
     """The Tasks the Dispatcher would take in ``workspace``, in the Board's
     order, each with the ``client`` that would work it: Ready and
@@ -78,8 +84,11 @@ def candidates(workspace: str, *, choices: list[str] | None = None) -> list[dict
     # Stale Tasks before Ready ones (ADR 0220), each in the Board's order across the clients' lists.
     found.sort(key=lambda state: (not state['stale'], board_order(state)))
     dispatched = tasks.dispatched_sessions(workspace)
+    busy = _under_way(workspace)
     chosen = []
     for state in found:
+        if state['id'] in busy:
+            continue
         here = choices if choices is not None else _choices_where(state['project'], workspace, known)
         client = clients.for_task(state, here, device)
         if client and not guards.fed_by_dispatched(state['id'], workspace, dispatched):
@@ -90,16 +99,20 @@ def candidates(workspace: str, *, choices: list[str] | None = None) -> list[dict
 def reviews(workspace: str, *, choices: list[str] | None = None) -> list[dict]:
     """Tasks in Review the Dispatcher would review (ADR 0221), in the
     Board's order, each with its reviewer's ``client``: standalone, not the
-    person's, not held, not for another device, not fed by dispatched work
-    (ADR 0227), as autonomy allows."""
+    person's, not held, not Blocked or waiting on another Task, not for
+    another device, not fed by dispatched work (ADR 0227), with no session
+    of its own still running here, as autonomy allows."""
     if tasks.autonomy(workspace) == 'off':
         return []
     device = tasks.device_name()
     known: dict = {}
     found = []
     dispatched = tasks.dispatched_sessions(workspace)
+    busy = _under_way(workspace)
     for state in tasks.listing(status='review', workspace=workspace):
         if 'user' in state['assignees'] or state.get('feature') or state.get('tasks') or state.get('holder'):
+            continue
+        if state.get('blocked') or state.get('open_blockers') or state['id'] in busy:
             continue
         if guards.fed_by_dispatched(state['id'], workspace, dispatched):
             continue  # dispatched work that put itself in Review (ADR 0227)
@@ -121,8 +134,11 @@ def refinements(workspace: str, *, choices: list[str] | None = None) -> list[dic
     device = tasks.device_name()
     known: dict = {}
     found = []
+    busy = _under_way(workspace)
     for state in tasks.listing(status='backlog', workspace=workspace):
         if state['acceptance'] or 'user' in state['assignees'] or state.get('tasks') or state.get('holder'):
+            continue
+        if state['id'] in busy:
             continue
         devices = [a for a in state['assignees'] if '@' in a]
         if devices and not any(a.split('@', 1)[1].lower() == device for a in devices):
@@ -300,7 +316,11 @@ class Dispatcher:
         try:
             run, proc = dispatched.start(state['id'], workspace=workspace, client=state['client'],
                                          role=state['role'],
-                                         on_wait=self.watch)  # its sessions are watched while the claim travels
+                                         on_wait=self.watch,  # its sessions are watched while the claim travels
+                                         cancelled=lambda: self._called_off(workspace, state['role']))
+        except dispatched.Cancelled as called_off:
+            print(f"[imprint] dispatcher did not start {state['id']}: {called_off}", file=sys.stderr, flush=True)
+            return None  # switched off or stopping: the pass ends
         except dispatched.StartFailed as failed:
             # A claimed Task that would not start: it counts toward switching off, and ends
             # the pass, so a broken setup fails one Task a pass, not every one (ADR 0228).
@@ -312,6 +332,15 @@ class Dispatcher:
             return _PASSED
         self.sessions[run['id']] = dispatched.Session({**run, 'watcher': os.getpid()}, proc)
         return run
+
+
+    def _called_off(self, workspace: str, role: str) -> str | None:
+        """Why a run waiting for its claim to travel must not start after all (T-2tsmh)."""
+        if self._stopping.is_set():
+            return 'the dashboard server is stopping'
+        if role == 'refine':
+            return None if store.refining(workspace) else 'Backlog refinement was switched off'
+        return None if store.switched_on(workspace) else 'the Dispatcher was switched off'
 
 
 _PASSED = object()  # a Task the pass went past, unlike None, which ends the pass

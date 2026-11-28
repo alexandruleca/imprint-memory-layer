@@ -32,9 +32,12 @@ def _setting(key: str) -> int:
 
 
 def started_today(now: float | None = None) -> int:
-    """Sessions started on this device since local midnight."""
+    """Sessions started on this device since local midnight: runs whose
+    client started, and runs still starting. A run refused, lost, stopped
+    or failed before its client started spent no session (T-2tsmh)."""
     midnight = datetime.datetime.combine(datetime.date.fromtimestamp(now or time.time()), datetime.time()).timestamp()
-    return sum(1 for run in store.recent(500) if run['started_at'] >= midnight and run['outcome'] != 'refused')
+    return sum(1 for run in store.recent(500)
+               if run['started_at'] >= midnight and (run['pid'] is not None or run['ended_at'] is None))
 
 
 def held() -> str | None:

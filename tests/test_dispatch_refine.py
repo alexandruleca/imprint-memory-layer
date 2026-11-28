@@ -111,7 +111,7 @@ class RunTests(RefineCase):
         for n in range(10):
             store.add({'id': f'today{n}', 'workspace': 'default', 'task': self.task, 'title': 't', 'project': 'shop',
                        'client': 'claude-code', 'role': 'work', 'started_at': __import__('time').time(),
-                       'ended_at': __import__('time').time(), 'outcome': 'review'})
+                       'ended_at': __import__('time').time(), 'outcome': 'review', 'pid': 4242})
         with redirect_stderr(io.StringIO()):
             self.assertIsNone(self.dispatcher.dispatch())
 

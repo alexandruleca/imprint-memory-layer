@@ -15,12 +15,13 @@ from imprint.dispatch import dispatched, guards, loop, status, store
 from test_dispatch_loop import LoopCase
 
 
-def _ended(task, outcome, *, started=None, workspace='default'):
-    """A finished run, as the Dispatcher records one."""
+def _ended(task, outcome, *, started=None, workspace='default', pid=4242):
+    """A finished run, as the Dispatcher records one: with the ``pid`` its
+    client ran as, None for a run that never started a client."""
     now = started or time.time()
     # A random id: two runs made in a row can read the same time.time() where the clock is coarse (Windows).
     return store.add({'id': f'{outcome[:2]}{uuid.uuid4().hex[:12]}', 'workspace': workspace, 'task': task,
-                      'title': 't', 'project': 'shop', 'client': 'claude-code', 'role': 'work',
+                      'title': 't', 'project': 'shop', 'client': 'claude-code', 'role': 'work', 'pid': pid,
                       'started_at': now, 'ended_at': now + 1, 'outcome': outcome, 'detail': outcome})
 
 
@@ -41,7 +42,7 @@ class DailyLimitTests(LoopCase):
 
     def test_refused_runs_started_nothing_and_do_not_count(self):
         for _ in range(10):
-            _ended('T-other', 'refused')
+            _ended('T-other', 'refused', pid=None)
         self.assertIsNone(guards.held())
 
 

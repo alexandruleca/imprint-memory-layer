@@ -42,6 +42,12 @@ FAKE_CLAUDE = textwrap.dedent('''\
     mode = os.environ.get('FAKE_MODE', 'review')
     if mode == 'hang':
         time.sleep(600)
+    if mode == 'spawn-and-exit':
+        # Leaves a child running in its process group, as a server or a watcher it started would.
+        import subprocess
+        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(600)'])
+        open(os.environ['FAKE_RECORD'] + '.child', 'w').write(str(child.pid))
+        sys.exit(0)
     task = re.search(r'- Task: (T-[0-9a-z]+)', prompt).group(1)
     token = re.search(r'- Your claim token: (\\S+)', prompt).group(1)
     me = tasks.agent('conversation:' + session, client='claude-code')
