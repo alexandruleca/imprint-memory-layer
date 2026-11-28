@@ -76,6 +76,15 @@ def _connect() -> sqlite3.Connection:
         );
         CREATE INDEX IF NOT EXISTS idx_agent_calls_session
             ON agent_calls(session_id, id DESC);
+
+        -- Where a client keeps a conversation's transcript, from its hooks (ADR 0233).
+        CREATE TABLE IF NOT EXISTS agent_transcripts (
+            conversation TEXT PRIMARY KEY,
+            client       TEXT,
+            cwd          TEXT,
+            path         TEXT NOT NULL,
+            recorded_at  REAL NOT NULL
+        );
         """
     )
     columns = {row[1] for row in conn.execute("PRAGMA table_info(agent_sessions)")}
@@ -114,6 +123,7 @@ def start_session(directory: str | None, workspace: str | None) -> str:
     _session_id = uuid.uuid4().hex
     now = time.time()
     _write("DELETE FROM agent_sessions WHERE last_seen < ?", (now - RETENTION_DAYS * 86400,))
+    _write("DELETE FROM agent_transcripts WHERE recorded_at < ?", (now - RETENTION_DAYS * 86400,))
     _write(
         "INSERT INTO agent_sessions (id, pid, directory, workspace, started_at, last_seen) VALUES (?, ?, ?, ?, ?, ?)",
         (_session_id, os.getpid(), directory, workspace, now, now),
@@ -139,6 +149,45 @@ def set_board(board_session: str, name: str | None = None) -> None:
 def rename(board_session: str, name: str) -> None:
     """Show ``name`` for every session of this Board session."""
     _write("UPDATE agent_sessions SET agent_name = ? WHERE board_session = ?", (name, board_session))
+
+
+def record_transcript(conversation: str, client: str | None, cwd: str | None, path: str) -> None:
+    """Where a client keeps a conversation's transcript, told by its
+    SessionStart or Stop hook (ADR 0233). The first record's time stays: it
+    is when the conversation started, which matches a Codex session to it."""
+    _write("INSERT INTO agent_transcripts (conversation, client, cwd, path, recorded_at) VALUES (?, ?, ?, ?, ?)"
+           " ON CONFLICT (conversation) DO UPDATE SET path = excluded.path,"
+           " client = COALESCE(excluded.client, client), cwd = COALESCE(excluded.cwd, cwd)",
+           (conversation[:200], client, cwd, path, time.time()))
+
+
+def transcripts(conversations: list[str] | None = None, *, since: float | None = None) -> list[dict]:
+    """Recorded transcripts: of the given conversations, or recorded since a time."""
+    if not _db_path().exists():
+        return []
+    try:
+        conn = _connect()
+        if conversations is not None:
+            if not conversations:
+                return []
+            rows = conn.execute(f"SELECT * FROM agent_transcripts WHERE conversation IN ({','.join('?' * len(conversations))})",
+                                conversations).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM agent_transcripts WHERE recorded_at >= ?", (since or 0,)).fetchall()
+    except (sqlite3.Error, OSError):
+        return []
+    return [dict(row) for row in rows]
+
+
+def connected_sessions(*, seen_since: float | None = None) -> list[dict]:
+    """Sessions whose process still runs, and, with ``seen_since``, those
+    that ended after it, newest first."""
+    if not _db_path().exists():
+        return []
+    conn = _connect()
+    rows = conn.execute(f"SELECT {_SESSION_COLUMNS} FROM agent_sessions s WHERE s.ended_at IS NULL OR s.last_seen >= ?"
+                        " ORDER BY s.last_seen DESC", (seen_since if seen_since is not None else time.time() + 1,)).fetchall()
+    return [s for s in map(_session, rows) if s["connected"] or seen_since is not None]
 
 
 def current() -> dict:

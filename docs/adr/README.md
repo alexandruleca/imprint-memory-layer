@@ -190,6 +190,7 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0114](0114-linux-desktop-app-runs-unpacked-with-an-apparmor-profile.md) **Linux desktop app runs unpacked with an AppArmor profile.** Setup unpacks the AppImage (no FUSE) and, where AppArmor restricts user namespaces, installs a profile with sudo after asking; `ui open` falls back to the browser with the reason when the app dies at startup.
 - [ADR 0117](0117-the-dashboard-shows-each-agent-session-and-its-calls.md) **The dashboard shows each agent session and its calls.** Each MCP server process records its client, folder, workspace and tool calls (arguments shortened and redacted, kept 30 days) in `data/agent_activity.sqlite3`; the Agents page lists them. Amended by [ADR 0151](0151-agent-sessions-page-by-last-activity-with-a-cursor.md) (sessions page by last activity with a cursor).
 - [ADR 0151](0151-agent-sessions-page-by-last-activity-with-a-cursor.md) **Agent sessions page by last activity with a cursor.** `GET /api/agents` lists connected sessions apart and the others 50 at a time, newest activity first, resumed from a `(last_seen, id)` cursor; client totals cover every session; the Agents page groups the history by calendar period in the viewer's time zone.
+- [ADR 0233](0233-live-reads-running-agents-from-local-records-and-transcripts-without-a-model.md) **Live reads what running agents do from local records and transcripts, by rule and without a model.** Session records, the Board, the Dispatcher and the tails of the clients' transcripts; only new bytes, only while asked; tokens and context, no prices.
 - [ADR 0152](0152-dashboard-summaries-are-served-stale-while-they-refresh.md) **Dashboard summaries are served stale while they refresh.** `GET /api/dashboard` answers from a per-workspace snapshot rebuilt in the background after writes, jobs or 60 s, marked `stale` meanwhile; the dashboard's `useCached` shows the last answer per workspace (memory and `sessionStorage`) while it fetches again.
 - [ADR 0154](0154-the-dashboard-and-desktop-app-follow-a-light-dark-or-system-theme.md) **The dashboard and desktop app follow a light, dark or system theme.** Colour tokens with light and dark values (status `success`/`warning` and passage `mark` tokens at WCAG AA), applied before first paint and in every open window; the desktop app takes the choice through a validated `theme-set` IPC message that sets `nativeTheme.themeSource`, the window backgrounds and the next start's theme.
 - [ADR 0182](0182-the-dashboard-has-a-simple-and-an-advanced-form.md) **The dashboard has a simple and an advanced form.** One dashboard shown two ways, chosen per device by `ui.mode` and settled once per installation; Simple lists eleven pages under plain names, trims the shared pages and offers settings as plain choices over the same keys; nothing is disabled and every address works in both. Amended by [ADR 0217](0217-the-simple-dashboard-lists-the-board-as-tasks.md) (Tasks, a twelfth simple page).
@@ -297,6 +298,7 @@ The records in force, by area. An amended record is listed with the records that
 Under consideration; not current behavior.
 
 - [ADR 0009](0009-model-profiles-and-embedding-identity.md) **Model profiles and embedding identity.** Evaluate local model profiles with explicit embedding identity and safe re-embedding.
+- [ADR 0232](0232-agents-get-their-own-desktop-window-and-a-fourth-orb-action.md) **Agents get their own desktop window and a fourth action around the orb.** Live, Board and History in a window without the sidebar, opened from the tray, the orb's ring and Task notifications; the main window keeps recordings and updates.
 
 ## Decision log
 
@@ -535,6 +537,8 @@ Every record in number order. *Date* is when the decision was made.
 | [0229](0229-dispatched-sessions-cannot-switch-the-dispatcher-on-or-start-more-sessions.md) | 2026-11-28 | Accepted | Dispatched sessions cannot switch the Dispatcher on or start more sessions |
 | [0230](0230-the-dispatcher-refines-backlog-tasks-when-the-person-switches-refinement-on.md) | 2026-11-28 | Accepted | The Dispatcher refines Backlog Tasks when the person switches refinement on |
 | [0231](0231-the-website-asks-for-consent-with-volenti.md) | 2026-11-28 | Accepted | The website asks for consent with Volenti |
+| [0232](0232-agents-get-their-own-desktop-window-and-a-fourth-orb-action.md) | 2026-11-28 | Proposed | Agents get their own desktop window and a fourth action around the orb |
+| [0233](0233-live-reads-running-agents-from-local-records-and-transcripts-without-a-model.md) | 2026-11-28 | Accepted | Live reads what running agents do from local records and transcripts, by rule and without a model |
 
 ## How to write and maintain ADRs
 

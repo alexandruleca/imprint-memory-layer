@@ -1478,6 +1478,15 @@ def api_agents(limit: int = 50, before: str | None = None, client: str | None = 
     return {**page, "clients": agent_activity.client_totals()}
 
 
+@app.get("/api/agents/live")
+def api_agents_live():
+    """This device's running agents and what each is doing, paired devices'
+    Board holders, counts and today's tokens (ADR 0233). Read from session
+    records, the Board, the Dispatcher and the clients' transcripts; no model."""
+    from . import agents_live
+    return agents_live.live()
+
+
 @app.get("/api/agents/search-first")
 def api_agents_search_first():
     """For each client that got the short rules block (ADR 0214): its
