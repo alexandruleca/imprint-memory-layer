@@ -35,6 +35,7 @@ type wslProfile struct {
 	CursorHome     string `json:"cursor_home,omitempty"`
 	ClineHome      string `json:"cline_home,omitempty"`
 	CopilotHome    string `json:"copilot_home,omitempty"`
+	CursorCLI      string `json:"cursor_cli,omitempty"` // cursor-agent, else agent, on the login shell's PATH (ADR 0235)
 }
 
 // The clients a WSL profile can be registered for, and where each keeps its
@@ -103,6 +104,8 @@ cline=${CLINE_DIR:-$home/.cline}
 if [ -d "$cline" ]; then printf '%s\n' "$cline"; else printf '\n'; fi
 copilot=${COPILOT_HOME:-$home/.copilot}
 if [ -d "$copilot" ]; then printf '%s\n' "$copilot"; else printf '\n'; fi
+cli=$(HOME=$home sh -lc 'command -v cursor-agent || command -v agent' </dev/null 2>/dev/null | tail -n 1) || cli=
+case "$cli" in /*) printf '%s\n' "$cli";; *) printf '\n';; esac
 `
 
 func probeWSL(distro, user, home, claude, codex string) (wslProfile, error) {
@@ -119,7 +122,10 @@ func probeWSL(distro, user, home, claude, codex string) (wslProfile, error) {
 	}
 	p := wslProfile{Distribution: distro, Home: lines[0], ClaudeHome: lines[1], CodexHome: lines[2], ClaudeRegistry: lines[3], CursorHome: lines[4],
 		ClineHome: lines[5], CopilotHome: lines[6]}
-	for _, dir := range []string{p.ClaudeHome, p.CodexHome, p.ClaudeRegistry, p.CursorHome, p.ClineHome, p.CopilotHome} {
+	if len(lines) > 7 {
+		p.CursorCLI = lines[7]
+	}
+	for _, dir := range []string{p.ClaudeHome, p.CodexHome, p.ClaudeRegistry, p.CursorHome, p.ClineHome, p.CopilotHome, p.CursorCLI} {
 		if dir != "" && !validLinuxPath(dir) {
 			return wslProfile{}, fmt.Errorf("invalid WSL client path")
 		}
@@ -414,9 +420,13 @@ type wslHook struct {
 
 // wslLayout is what imprint wsl setup writes into a target's WSL profile and
 // imprint wsl remove takes out again. A layout without a registry writes
-// nothing: Cursor's registration only lets learn read its store.
+// nothing. An idle layout's client does not run in the profile (Cursor
+// without Cursor CLI, ADR 0235): setup writes nothing and the registration
+// only lets learn read its store, while remove still takes out what an
+// earlier setup wrote.
 type wslLayout struct {
 	registry, rootKey string // MCP server registry and its server table
+	idle              bool
 	toml              bool
 	spec              map[string]any
 	rules             string // instructions file
@@ -452,6 +462,12 @@ func wslLayoutOf(p wslProfile, target, dir string) wslLayout {
 			spec:  copilotServer(launcher, []any{"mcp"}, map[string]any{}),
 			rules: path.Join(dir, "copilot-instructions.md"), rule: instructions.CopilotRule,
 			ownedHooks: path.Join(dir, "hooks", "imprint.json")}
+	case "cursor":
+		// Cursor CLI runs inside the distribution and reads the profile's
+		// MCP servers and user rules; the Windows app's agent is wired by
+		// Imprint's Windows Cursor setup (ADRs 0052, 0235). No hooks yet.
+		return wslLayout{registry: path.Join(dir, "mcp.json"), rootKey: "mcpServers", spec: stdio, idle: p.CursorCLI == "",
+			rules: path.Join(dir, "rules", "imprint.mdc"), rule: instructions.CursorRule, ownRules: true}
 	case "cline":
 		// Cline's data and rules under its directory; its hooks receive no
 		// transcript, so it gets none (ADR 0056).
@@ -472,7 +488,7 @@ func applyWSLProfile(p wslProfile, bp backendPaths, target string, local func(st
 		return fmt.Errorf("%s profile not detected in %s", target, p.Distribution)
 	}
 	layout := wslLayoutOf(p, target, dir)
-	if layout.registry == "" {
+	if layout.registry == "" || layout.idle {
 		return nil
 	}
 	launcher := path.Join(dir, "imprint-wsl")
@@ -563,7 +579,8 @@ func removeWSLProfile(p wslProfile, target string, local func(string) string) er
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	if err == nil && !strings.Contains(string(previous), wslBridgeMarker) {
+	written := err == nil
+	if written && !strings.Contains(string(previous), wslBridgeMarker) {
 		return fmt.Errorf("unrecognized launcher; refusing removal")
 	}
 	var data map[string]any
@@ -583,6 +600,11 @@ func removeWSLProfile(p wslProfile, target string, local func(string) string) er
 	}
 	if servers, ok := data[layout.rootKey].(map[string]any); ok {
 		if entry, ok := servers["imprint"].(map[string]any); ok && entry["command"] != launcher {
+			if !written {
+				// No launcher, so this registration wrote nothing here (Cursor
+				// without Cursor CLI): another runtime's files stay as they are.
+				return nil
+			}
 			return fmt.Errorf("imprint now points to another runtime; refusing to remove it")
 		}
 	}
@@ -619,7 +641,8 @@ func removeWSLProfile(p wslProfile, target string, local func(string) string) er
 	}
 	if content, err := os.ReadFile(local(layout.rules)); err == nil {
 		if layout.ownRules {
-			if string(content) == layout.rule {
+			// The full rule, or the short one setup writes for a client that loads skills (ADR 0214).
+			if string(content) == layout.rule || string(content) == instructions.Rule(target, false) {
 				if err := os.Remove(local(layout.rules)); err != nil {
 					return err
 				}
@@ -781,14 +804,17 @@ func WSL(args []string) {
 		} else {
 			output.Warn(fmt.Sprintf("Left %s in WSL %s as it is: it is not Imprint's WSL command (a Linux installation's link, for one)", wslCommand(p), p.Distribution))
 		}
-		if *target == "cursor" {
-			output.Success(fmt.Sprintf("Registered Cursor's conversations in WSL %s for imprint learn. Its MCP server and hooks come from Imprint's Windows Cursor setup.", p.Distribution))
+		if *target == "cursor" && p.CursorCLI == "" {
+			output.Success(fmt.Sprintf("Registered Cursor's conversations in WSL %s for imprint learn. No Cursor CLI there; the Cursor app's MCP server and hooks come from Imprint's Windows Cursor setup.", p.Distribution))
 			return
 		}
 		next := "Restart the client and review/trust its hooks."
 		dir, _ := wslClientDir(p, *target)
 		if layout := wslLayoutOf(p, *target, dir); layout.hooks == "" && layout.ownedHooks == "" {
 			next = "Restart the client."
+		}
+		if *target == "cursor" {
+			next = "Start a new Cursor CLI session and approve the imprint server when it asks; Cursor's conversations there are learned too."
 		}
 		output.Success(fmt.Sprintf("Registered Imprint for %s in WSL %s. %s", *target, p.Distribution, next))
 	default:
