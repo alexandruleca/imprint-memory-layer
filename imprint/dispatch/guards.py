@@ -14,6 +14,7 @@ is no failure.
 from __future__ import annotations
 
 import datetime
+import re
 import time
 
 from .. import tasks
@@ -158,12 +159,30 @@ def reviewer(state: dict, choices: list[str], workspace: str) -> str | None:
     return did if did in choices else None
 
 
-def review_base(state: dict, workspace: str) -> str | None:
-    """The commit the Task's branch was made from, from the Dispatcher's first checkpoint on it (ADR 0223)."""
-    for event in tasks.history(state['id'], workspace=workspace):
-        if event['kind'] == 'checkpoint' and (event['session'] or '').startswith('dispatch:') and event['data'].get('commit'):
-            return event['data']['commit']
-    return None
+_MADE_FROM = re.compile(r', made from .+ at ([0-9a-f]{7,40})\.')
+
+
+def review_base(state: dict, workspace: str, *, folder: dict | None = None, tip: str | None = None) -> str | None:
+    """What a reviewer diffs the work against (ADR 0223): the commit the
+    Task's branch was made from, when the Dispatcher made it fresh and said
+    so in its checkpoint; else, for other work (an interactive session's,
+    or a branch made elsewhere), the merge base of the work's last commit
+    (``tip``, else the Handoff's) and the project's checked-out branch."""
+    events = tasks.history(state['id'], workspace=workspace)
+    for event in events:
+        if event['kind'] == 'checkpoint' and (event['session'] or '').startswith('dispatch:'):
+            made = _MADE_FROM.search(event['data'].get('text') or '')
+            if made:
+                return made.group(1)
+    commit = tip or next((e['data']['commit'] for e in reversed(events)
+                          if e['kind'] == 'checkpoint' and e['data'].get('commit')), None)
+    if not folder or not commit:
+        return None
+    from . import git
+    try:
+        return git.run(folder['path'], 'merge-base', commit, 'HEAD') or None
+    except git.GitError:
+        return None
 
 
 REVIEW_ROUNDS = 2

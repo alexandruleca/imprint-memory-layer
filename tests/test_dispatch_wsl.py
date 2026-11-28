@@ -94,8 +94,8 @@ class WslClientTests(DispatchCase):
 class WslStartTests(DispatchCase):
     def test_a_task_in_a_distribution_starts_its_client_there_and_stops_it_there(self):
         worktree = {'path': '/home/me/.imprint/worktrees/shop/T-1', 'cwd': '/home/me/.imprint/worktrees/shop/T-1',
-                    'branch': 'task/1-x', 'base': 'dev', 'base_commit': 'a' * 40, 'git_dir': '/home/me/code/shop/.git',
-                    'created': True}
+                    'branch': 'task/1-x', 'base': 'dev', 'base_commit': 'a' * 40, 'tip': 'a' * 40, 'fresh': True,
+                    'git_dir': '/home/me/code/shop/.git', 'created': True}
         started = {}
         real_popen = subprocess.Popen
 

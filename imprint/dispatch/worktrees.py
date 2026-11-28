@@ -90,14 +90,17 @@ def _task_branch(folder: dict, task_id: str) -> str | None:
 
 def prepare(folder: dict, task_id: str, title: str, *, start: str | None = None) -> dict:
     """The Task's worktree, made or reused: ``{'path', 'cwd', 'branch',
-    'base', 'base_commit', 'git_dir', 'created'}``. ``cwd`` is the
-    project's folder inside the worktree, where the session starts. A new
-    branch starts at ``start`` (a takeover's last commit on its task
-    branch, made on another device) when given, else at the branch checked
-    out in the project's folder."""
+    'base', 'base_commit', 'tip', 'fresh', 'git_dir', 'created'}``.
+    ``cwd`` is the project's folder inside the worktree, where the session
+    starts. A new branch starts at ``start`` (a takeover's last commit on
+    its task branch, made on another device) when given, else at the branch
+    checked out in the project's folder: then it is ``fresh``, and
+    ``base_commit`` is where it was made from. ``tip`` is the branch's last
+    commit now."""
     path = location(folder, task_id)
     base = start or folder.get('branch') or folder['commit']
     existing = next((branch for listed, branch in _worktrees(folder).items() if _same(listed, path)), None)
+    fresh = False
     if existing is not None:
         branch, created = existing or _task_branch(folder, task_id) or branch_name(task_id, title), False
     else:
@@ -110,6 +113,7 @@ def prepare(folder: dict, task_id: str, title: str, *, start: str | None = None)
         else:
             branch = branch_name(task_id, title)
             git.run(folder['path'], 'worktree', 'add', '-b', branch, path, base)
+            fresh = start is None
         created = True
     join = posixpath.join if folder.get('distro') else os.path.join
     cwd = join(path, *folder['subfolder'].split('/')) if folder.get('subfolder') else path
@@ -118,8 +122,9 @@ def prepare(folder: dict, task_id: str, title: str, *, start: str | None = None)
     git_dir = git.run(where, 'rev-parse', '--path-format=absolute', '--git-common-dir')
     if not folder.get('distro'):
         git_dir = os.path.normpath(git_dir)  # Windows git answers with forward slashes; clients get the native form
+    tip = git.run(where, 'rev-parse', 'HEAD')
     return {'path': path, 'cwd': cwd, 'branch': branch, 'base': base, 'base_commit': start or folder['commit'],
-            'git_dir': git_dir, 'created': created}
+            'tip': tip, 'fresh': fresh, 'git_dir': git_dir, 'created': created}
 
 
 def wsl_native(folder: dict, path: str) -> str:

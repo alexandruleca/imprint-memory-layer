@@ -99,8 +99,9 @@ def prompt(state: dict, *, workspace: str, worktree: dict, token: str, role: str
         f"- Task: {state['id']}: {state['title']}",
         f'- Workspace: {workspace}: pass workspace="{workspace}" on every Imprint call',
         f"- Project: {state['project']}: pass project=\"{state['project']}\" when you create a Task",
-        f"- Your worktree: {worktree['cwd']}, on branch {worktree['branch']}, made from {worktree['base']} "
-        f"at {worktree['base_commit']}",
+        f"- Your worktree: {worktree['cwd']}, on branch {worktree['branch']}, " + (
+            f"made from {worktree['base']} at {worktree['base_commit']}" if worktree.get('fresh', True)
+            else f"continuing at {worktree.get('tip') or worktree['base_commit']}"),
         f'- Your claim token: {token}',
         *([f'- Review against: {base} (`git diff {base}...HEAD` when it is a commit)',
            '- Your role: review. Follow the "Reviewing" part of the instructions below.'] if role == 'review' else []),
@@ -324,9 +325,12 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
         store.update(run_id, ended_at=time.time(), outcome='refused', detail=str(error))
         raise
     try:
+        # The branch's own last commit; the base only when the branch was just made from it (ADR 0223).
+        where_from = (f"made from {worktree['base']} at {worktree['base_commit']}" if worktree['fresh']
+                      else f"continuing at {worktree['tip']}")
         tasks.checkpoint(state['id'], f"Dispatched to {runner.label} on this device{where}: worktree {worktree['path']} "
-                         f"on {worktree['branch']}, made from {worktree['base']} at {worktree['base_commit']}.",
-                         branch=worktree['branch'], commit=worktree['base_commit'],
+                         f"on {worktree['branch']}, {where_from}.",
+                         branch=worktree['branch'], commit=worktree['tip'],
                          next_step='The Dispatched session takes the claim over and works the Task.',
                          actor=actor, workspace=workspace)
         # The claim must reach the paired devices before the client starts (ADR 0224).
@@ -341,7 +345,8 @@ def start(task: str, *, workspace: str | None = None, client: str | None = None,
         base = None
         if role == 'review':
             from . import guards
-            base = guards.review_base(state, workspace) or f"the merge base of HEAD and {folder.get('branch') or 'the main branch'}"
+            base = guards.review_base(state, workspace, folder=folder, tip=worktree['tip']) or \
+                f"the merge base of HEAD and {folder.get('branch') or 'the main branch'}"
         text = prompt(claimed['task'], workspace=workspace, worktree=worktree, token=claimed['token'], role=role,
                       note=runner.note, handoff=handoff, base=base)
         log = store.log_path(run_id)

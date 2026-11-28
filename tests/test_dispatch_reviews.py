@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -11,6 +12,7 @@ from imprint.dispatch import dispatched, loop, status, store
 
 from test_dispatch_clients import ClientsCase
 from test_dispatch_loop import LoopCase
+from test_dispatch_run import _git
 
 
 def _settle(dispatcher, case):
@@ -88,6 +90,55 @@ class ReviewOutcomeTests(LoopCase):
     def test_a_review_is_refused_for_a_task_not_in_review(self):
         with self.assertRaises(ValueError):
             dispatched.run(self.task, role='review')
+
+
+
+class ReviewBaseTests(LoopCase):
+    """What a reviewer diffs against (T-parfe): exact commits, not just their shape."""
+
+    def _commit(self, name, where=None):
+        where = where or self.repo
+        (Path(where) / name).write_text(name)
+        _git(Path(where), 'add', name)
+        _git(Path(where), 'commit', '-q', '-m', name)
+        return subprocess.run(['git', '-C', str(where), 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
+
+    def _review_against(self):
+        prompt = json.loads(self.record.read_text())['prompt']
+        return re.search(r'- Review against: (\S+)', prompt).group(1)
+
+    def test_a_reviewer_of_dispatched_work_diffs_against_where_its_branch_was_made(self):
+        base = subprocess.run(['git', '-C', str(self.repo), 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
+        dispatched.run(self.task)
+        self._commit('later.txt')  # the checked-out branch moves on meanwhile
+        dispatched.run(self.task, role='review')
+        self.assertEqual(self._review_against(), base)
+
+    def test_a_reviewer_of_interactive_work_diffs_against_its_merge_base(self):
+        fork = subprocess.run(['git', '-C', str(self.repo), 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
+        _git(self.repo, 'checkout', '-q', '-b', 'feature/x')
+        tip = self._commit('work.txt')
+        _git(self.repo, 'checkout', '-q', 'dev')
+        self._commit('later.txt')
+        me = tasks.agent('conversation:interactive', client='codex')
+        tasks.claim(self.task, actor=me)
+        tasks.checkpoint(self.task, 'Done on feature/x', branch='feature/x', commit=tip, actor=me)
+        tasks.move(self.task, 'review', actor=me)
+
+        dispatched.run(self.task, role='review')
+        self.assertEqual(self._review_against(), fork)
+        self.assertNotEqual(fork, tip)
+
+    def test_a_continued_branch_is_checkpointed_at_its_own_last_commit(self):
+        worked = dispatched.run(self.task)
+        tip = self._commit('more.txt', where=worked['worktree'])
+        with patch.dict(os.environ, {'FAKE_REVIEW': 'return'}):
+            dispatched.run(self.task, role='review')
+        self._commit('later.txt')  # the project's HEAD is elsewhere now
+        dispatched.run(self.task)
+        mine = [e for e in tasks.history(self.task) if e['kind'] == 'checkpoint' and e['session'].startswith('dispatch:')]
+        self.assertEqual(mine[-1]['data']['commit'], tip)
+        self.assertIn(f'continuing at {tip}', mine[-1]['data']['text'])
 
 
 class CrossClientTests(ClientsCase):
