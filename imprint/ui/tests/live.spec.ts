@@ -67,7 +67,7 @@ async function mockLive(page: Page, data = report(agents(), [{ name: 'anvil', cl
 test('Live groups agents by project, waiting first, with what each is doing', async ({ page }) => {
   await base(page, { mode: 'advanced', tutorials: false });
   await mockLive(page);
-  await page.goto('/agents/#live');
+  await page.goto('/agents/');  // Live is the page's first tab
   const strip = page.getByRole('group', { name: 'Agents right now' });
   await expect(strip).toContainText('1 waiting for you');
   await expect(strip).toContainText('1 working');
@@ -118,16 +118,16 @@ test('Live opens a Task, a History entry, messages an agent and stops only a Dis
   await expect(page.getByRole('tab', { name: 'Board', includeHidden: true })).toHaveAttribute('aria-selected', 'true');
   await page.goto('/agents/#live');
   await page.locator('li[data-agent="w1"]').getByRole('button', { name: 'History' }).click();
-  await expect(page.getByRole('tab', { name: 'Sessions', includeHidden: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tab', { name: 'History', includeHidden: true })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('dialog')).toBeVisible();
-  await expect(page).toHaveURL(/\?session=w1#sessions$/);
+  await expect(page).toHaveURL(/\?session=w1#history$/);
 });
 
 test('simple mode shows Live with token figures behind Details', async ({ page }) => {
   await base(page, { mode: 'simple', tutorials: false });
   await mockLive(page);
   await page.goto('/agents/#live');
-  await expect(page.getByRole('tab', { name: 'Sessions' })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'History' })).toHaveCount(0);
   const working = page.locator('li[data-agent="w1"]');
   await expect(working).toContainText('Testing');
   await expect(working).not.toContainText('Context');

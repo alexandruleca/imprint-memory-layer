@@ -27,7 +27,7 @@ The dashboard is Imprint's local web interface. It shows what your AI tools reme
 The dashboard comes in two forms over the same pages, memory and settings ([ADR 0182](adr/0182-the-dashboard-has-a-simple-and-an-advanced-form.md)). **Advanced** is every page and every setting, as the rest of this document describes. **Simple** is for people who use Imprint without setting it up in detail: fewer pages, plainer words, and a short list of settings. Nothing is turned off in either, and every address works in both.
 
 - **Which one shows** is the `ui.mode` setting of this device, so the browser, the desktop app and Echo's window agree. The first start of a version that has it chooses once: Advanced for an installation that had already run a job or served an agent session, Simple for a new one. The top-bar menu, the welcome and Settings switch it at any time; another open window follows at once.
-- **Simple lists twelve pages:** Home (Dashboard), Chat, Search, Echo (Voice), Recordings, Reminders and Tasks (the Agents page's Board alone, [ADR 0217](adr/0217-the-simple-dashboard-lists-the-board-as-tasks.md)); under *Your memory* Library (Projects), About you (Core memories) and Skills; under *This device* Devices (Sync) and Settings. Graph, Topics, Sources, Organize, Queue and Commands are not listed. Opened by their address they work, under a note that says the page belongs to the advanced dashboard and offers **Switch to Advanced**.
+- **Simple lists twelve pages:** Home (Dashboard), Chat, Search, Echo (Voice), Recordings, Reminders and Tasks (the Agents page's Live and Board, [ADR 0217](adr/0217-the-simple-dashboard-lists-the-board-as-tasks.md), [ADR 0233](adr/0233-live-reads-running-agents-from-local-records-and-transcripts-without-a-model.md)); under *Your memory* Library (Projects), About you (Core memories) and Skills; under *This device* Devices (Sync) and Settings. Graph, Topics, Sources, Organize, Queue and Commands are not listed. Opened by their address they work, under a note that says the page belongs to the advanced dashboard and offers **Switch to Advanced**.
 - **What Simple leaves out of the shared pages:**
   - *Home:* the commands behind **Add to memory** and its fetch-again and link-following options, the Topics and Languages tiles, and **What is in memory**. **Needs your review** takes the place of **Needs attention**: a job that did not finish in the last day (**Try again**), up to three sources Organize would move (**Move to …**, **Keep where it is**), up to three guidelines it drafted (**Yes, remember this**, **No, that is wrong**) and up to three contradictions (**Use the newer**, **Keep the earlier**, **Keep both**), each with **Undo** in its toast; more than three link to the full list. These are the writes Organize and Core memories make.
   - *The running job,* on Home and in the top bar, is named in plain words ("Reading your AI conversations") without its phase and counts; the top-bar pill opens a panel with its progress and what waits, and links to Queue.
@@ -160,7 +160,7 @@ Imprint runs one job at a time ([ADR 0064](adr/0064-single-slot-command-queue-an
 
 ### Agents
 
-The page has three tabs, **Live**, **Sessions** and **Board**; the address keeps the open one (`/agents/#live`, `#sessions`, `#board`).
+The page has three tabs, **Live** (the first), **Board** and **History**; the address keeps the open one (`/agents/#live`, `#board`, `#history`). Older `#sessions` addresses open History, and a `?task=T-…` link without a tab opens the Task on the Board.
 
 **Live** shows what each agent on this device is doing right now ([ADR 0233](adr/0233-live-reads-running-agents-from-local-records-and-transcripts-without-a-model.md)). It reads Imprint's session records, the Board, the Dispatcher and the tail of each agent's own transcript every 3 seconds while open, and asks no model.
 
@@ -171,10 +171,10 @@ The page has three tabs, **Live**, **Sessions** and **Board**; the address keeps
   - the Task it holds, as Working on, Reviewing or Taking over, with its last checkpoint's next step;
   - its context in use (with a bar where the client reports its window, as Codex does), its new, cached and output tokens, Codex's rate-limit use, and its last three actions.
 - A call without a result for a minute says it may be waiting for your approval, which the transcript cannot show.
-- **Open Task** opens it in the Board's drawer, **History** opens the session under Sessions, and **Message** comments on its Task, addressed to it. **Stop** appears only on a Dispatched session and asks first.
+- **Open Task** opens it in the Board's drawer, **History** opens the session in History, and **Message** comments on its Task, addressed to it. **Stop** appears only on a Dispatched session and asks first.
 - Agents idle for over 30 minutes (a client left open) fold under a line per project, dimmed.
 - Paired devices' agents are listed from the Board: name, client, device, Task and next step.
-- The simple dashboard shows Live and the Board, with token figures behind **Details**.
+- The simple dashboard lists the page as **Tasks** with Live and the Board, Live first, and token figures behind **Details**.
 
 Every AI client that uses Imprint starts its own MCP server, and each one is a session here ([ADR 0117](adr/0117-the-dashboard-shows-each-agent-session-and-its-calls.md)). A session that used the Board shows the name its agent chose, which **Rename** in its panel changes ([ADR 0216](adr/0216-agents-choose-their-own-names.md)).
 
@@ -200,7 +200,7 @@ Every AI client that uses Imprint starts its own MCP server, and each one is a s
 - Above the columns, in both dashboards, the **Dispatcher** strip switches this device's Dispatcher on or off for the workspace (off by default; [ADR 0220](adr/0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md)): while it is on and the dashboard server runs, the device starts Claude Code or Codex sessions, one at a time, each in a worktree of its own: reviews of tasks in Review first, then Stale and Ready tasks ([ADR 0221](adr/0221-dispatched-sessions-review-tasks-in-review-with-another-client.md)). The strip lists the sessions running, each with **Stop**, what it would take next, the other paired devices whose Dispatcher is on, and the last results. Its clients button lists the clients this device can start unattended, each with its version or why it cannot ([ADR 0222](adr/0222-only-clients-with-a-sandbox-or-a-check-of-each-action-are-dispatched.md)): untick one to keep the Dispatcher from it, and choose which works tasks assigned to no client. The same switch is `imprint tasks dispatch on|off` ([the Board](tasks.md#from-the-terminal)). Beside it, **Refine Backlog** (off by default) has the device, when no review or work is waiting, start an agent that adds acceptance criteria and detail to Backlog tasks without any and leaves them in Backlog for you ([ADR 0230](adr/0230-the-dispatcher-refines-backlog-tasks-when-the-person-switches-refinement-on.md)); `imprint tasks dispatch refine on|off`.
 - Below the Board, the advanced dashboard sets what agents take unasked in this workspace (`tasks.autonomy`).
 - On any page, a comment an agent addressed to you, or a Task reaching Review, shows a toast with **Open**; in the desktop app it is also a native notification while the dashboard is not in front.
-- The simple dashboard lists this page as **Tasks** and shows the Board alone, without the Sessions tab, the history, lease times, branch and files. The Agents page's tutorial walks through the tabs, what needs you and the columns.
+- The simple dashboard lists this page as **Tasks** with Live and the Board, without History, the Board's history, lease times, branch and files. The Agents page's tutorial walks through the tabs, who needs you and the Board's columns.
 
 ### Commands
 

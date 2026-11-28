@@ -84,12 +84,12 @@ export function openTask(id: string) {
   window.dispatchEvent(new Event("imprint:board-task"));
 }
 
-/** Open a session's entry in History (the Sessions tab). */
+/** Open a session's entry in History. */
 function openHistory(id: string) {
   const url = new URL(window.location.href);
   url.searchParams.set("session", id);
   url.searchParams.delete("task");
-  url.hash = "sessions";
+  url.hash = "history";
   window.history.replaceState(null, "", url);
   window.dispatchEvent(new HashChangeEvent("hashchange"));
   window.dispatchEvent(new Event("imprint:agents-session"));
@@ -116,7 +116,9 @@ export function LiveView() {
       </div>
     );
   }
-  const data = live.data;
+  // A partial answer (an older server, a proxy) shows as nothing running rather than failing the page.
+  const data: LiveReport = { ...live.data, agents: live.data.agents ?? [], others: live.data.others ?? [], today: live.data.today ?? [],
+    counts: { working: 0, waiting: 0, idle: 0, others: 0, ...(live.data.counts as Partial<LiveReport["counts"]> | undefined) } };
   const projects = [...new Set(data.agents.map((a) => a.project || ""))];
   return (
     <div className="space-y-5 px-4 pb-10 sm:px-8">
@@ -174,7 +176,7 @@ function Summary({ data, simple }: { data: LiveReport; simple: boolean }) {
     { key: "others", count: data.counts.others, label: "on other devices", tone: "text-muted-foreground" },
   ];
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2" role="group" aria-label="Agents right now">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2" role="group" aria-label="Agents right now" data-tour="live-summary">
       <div className="flex flex-wrap gap-1.5">
         {chips.map((c) => (
           <span key={c.key} className={cn("rounded-md border border-border bg-card px-2 py-1 text-xs", c.tone, !c.count && "opacity-60")}>

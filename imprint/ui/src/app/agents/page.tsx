@@ -28,15 +28,17 @@ import { groupByTime } from "@/lib/time-groups";
 import { useCached } from "@/lib/use-cached";
 import { cn } from "@/lib/utils";
 
-const DESCRIPTION = "Every AI client that uses Imprint starts its own MCP server: each one is a session here, with the tools it called. Calls are kept for 30 days, with their arguments shortened and secrets redacted.";
+const DESCRIPTION = "Every session an AI client ran with Imprint: its agent, Tasks, tokens and the tools it called. Calls are kept for 30 days, with their arguments shortened and secrets redacted.";
 const BOARD_DESCRIPTION = "The workspace's Tasks, shared by every connected agent: what is ready, who is working on what, and what is stuck or waiting for you.";
 const SIMPLE_DESCRIPTION = "What your AI agents are working on, what is ready for them, and what waits for you.";
 const LIVE_DESCRIPTION = "What each agent on this device is doing right now, its Task and its tokens, read from its own transcript without asking any model.";
 /** The page's tabs; the address keeps the open one (/agents/#board). */
-const TABS = ["live", "sessions", "board"] as const;
+const TABS = ["live", "board", "history"] as const;
 type Tab = (typeof TABS)[number];
 /** The simple dashboard's tabs: no session history (ADR 0217). */
 const SIMPLE_TABS: Tab[] = ["live", "board"];
+/** Addresses from before History had its name. */
+const ALIASES: Record<string, Tab> = { sessions: "history" };
 
 function onHashChange(changed: () => void) {
   window.addEventListener("hashchange", changed);
@@ -57,15 +59,18 @@ function linkedSession(): string | null {
 
 function linkedTab(): Tab {
   const hash = window.location.hash.slice(1);
-  return (TABS as readonly string[]).includes(hash) ? (hash as Tab) : "sessions";
+  if ((TABS as readonly string[]).includes(hash)) return hash as Tab;
+  if (ALIASES[hash]) return ALIASES[hash];
+  // A link to a Task without a tab (a notification's) opens it on the Board.
+  return new URLSearchParams(window.location.search).has("task") ? "board" : "live";
 }
 
 export default function AgentsPage() {
   // The static page renders the first tab; the browser then opens the linked one.
-  const linked = useSyncExternalStore(onHashChange, linkedTab, () => "sessions" as Tab);
+  const linked = useSyncExternalStore(onHashChange, linkedTab, () => "live" as Tab);
   // The simple dashboard lists this page as Tasks: Live and the Board, its session history left to the advanced one (ADR 0217).
   const { simple } = useUiMode();
-  const tab: Tab = simple && !SIMPLE_TABS.includes(linked) ? "board" : linked;
+  const tab: Tab = simple && !SIMPLE_TABS.includes(linked) ? "live" : linked;
   function open(next: Tab) {
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${next}`);
     window.dispatchEvent(new HashChangeEvent("hashchange"));
@@ -78,13 +83,13 @@ export default function AgentsPage() {
         <div className="px-4 sm:px-8">
           <TabsList variant="line" data-tour="agents-tabs" className="w-full justify-start border-b border-border">
             <TabsTrigger value="live" className="flex-none px-2.5 sm:px-3">Live</TabsTrigger>
-            {!simple && <TabsTrigger value="sessions" className="flex-none px-2.5 sm:px-3">Sessions</TabsTrigger>}
             <TabsTrigger value="board" className="flex-none px-2.5 sm:px-3">Board</TabsTrigger>
+            {!simple && <TabsTrigger value="history" className="flex-none px-2.5 sm:px-3">History</TabsTrigger>}
           </TabsList>
         </div>
         <TabsContent value="live"><LiveView /></TabsContent>
-        {!simple && <TabsContent value="sessions"><SessionsView /></TabsContent>}
         <TabsContent value="board"><BoardView /></TabsContent>
+        {!simple && <TabsContent value="history"><SessionsView /></TabsContent>}
       </Tabs>
     </div>
   );
@@ -127,9 +132,11 @@ function useAgentSessions({ client, q, project, agent }: Filters) {
 
   // Each new first page (another filter's replaces what is loaded).
   if (head.data && merged?.head !== head.data) {
-    const page = head.data;
+    // A partial answer shows as no sessions rather than failing the page.
+    const page: AgentsPage = { ...head.data, running: head.data.running ?? [], sessions: head.data.sessions ?? [],
+      next: head.data.next ?? null, total: head.data.total ?? 0, clients: head.data.clients ?? [] };
     const replace = merged?.key !== key;
-    setMerged({ key, head: page });
+    setMerged({ key, head: head.data });
     setData((prev) => (replace || !prev ? { ...page, olderLoaded: false } : mergeHead(prev, page)));
     if (replace) { setOlderFailed(false); setOlderError(null); }
   }

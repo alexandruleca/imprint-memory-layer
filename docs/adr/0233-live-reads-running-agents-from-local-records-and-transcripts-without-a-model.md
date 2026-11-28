@@ -5,6 +5,7 @@ description: The dashboard's Live view joins the Imprint servers' session record
 
 - Status: Accepted
 - Date: 2026-11-28
+- Amends: [ADR 0217](0217-the-simple-dashboard-lists-the-board-as-tasks.md) — its "the Board alone": the simple dashboard's Tasks page shows Live beside the Board
 - Related: [ADR 0117](0117-the-dashboard-shows-each-agent-session-and-its-calls.md) (the session records this builds on), [ADR 0151](0151-agent-sessions-page-by-last-activity-with-a-cursor.md) (the session history), [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) (claims and the Board's session), [ADR 0220](0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md) (Dispatched runs and their roles), [ADR 0060](0060-redact-secrets-before-memories-are-stored.md) (redaction), [dashboard](../dashboard.md)
 
 ## Context
@@ -32,6 +33,8 @@ What is already on the device, checked that day:
 **Activity, by rule.** The newest tool call without a result decides the label. Edit, Write and apply_patch read as Editing *file*. Build commands (npm/pnpm/yarn build, next/vite/astro build, tsc, go/cargo build, make, gradle, mvn, docker build) read as Building. Test commands (pytest, unittest, playwright, jest, vitest, go/cargo test, npm test) read as Testing. Any other command is Running. Read, Grep and Glob are Reading code, WebFetch and WebSearch are Searching the web, Task is Delegating. Imprint's tools are Searching Imprint, Saving to Imprint or Updating the Board. AskUserQuestion is Asking you, which counts as waiting.
 
 A call without a result after 60 seconds is flagged: it may be waiting for approval, which a transcript cannot show. A turn with nothing running is Thinking. After a turn ends, the agent is Waiting for you for 15 minutes, then Idle. A session without a transcript shows a recent Imprint call (under 60 seconds) as its activity, else Idle. Commands and files are shortened to 80 characters and redacted.
+
+**Where it shows.** Live is the Agents page's first tab, before the Board and History. The simple dashboard's Tasks page shows it beside the Board, with token figures folded behind Details, and still leaves the session history out.
 
 **Tokens.** Context in use (the last reply's input with cache, or Codex's last input), the model's window where the client reports it (Codex), the session's new input, cached input, output and thinking, the cache share, Codex's rate-limit use, and today's tokens per client on this device. No prices.
 

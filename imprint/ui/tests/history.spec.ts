@@ -42,7 +42,7 @@ async function mockHistory(page: Page) {
 test('a History row shows its agent, model, tokens, Tasks and outcome, and links them', async ({ page }) => {
   await base(page, { mode: 'advanced', tutorials: false });
   await mockHistory(page);
-  await page.goto('/agents/#sessions');
+  await page.goto('/agents/#history');
   const row = page.getByRole('listitem').filter({ hasText: 'quill' });
   await expect(row).toContainText('claude-opus-5-5');
   await expect(row).toContainText('5.00M tokens');
@@ -59,7 +59,7 @@ test('a History row shows its agent, model, tokens, Tasks and outcome, and links
 test('History filters by project and agent alongside the text filter', async ({ page }) => {
   await base(page, { mode: 'advanced', tutorials: false });
   const asked = await mockHistory(page);
-  await page.goto('/agents/#sessions');
+  await page.goto('/agents/#history');
   await page.getByRole('combobox', { name: 'Project' }).click();
   await page.getByRole('option', { name: 'shop' }).click();
   await expect(page.getByRole('listitem').filter({ hasText: 'quill' })).toBeVisible();

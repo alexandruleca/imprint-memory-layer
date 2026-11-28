@@ -3,9 +3,10 @@ title: ADR 0217 — The simple dashboard lists the Board as Tasks
 description: The simple dashboard lists a twelfth page, Tasks, among its everyday pages after Reminders; it is the Agents page showing the Board alone, while the sessions and their tool calls stay in the advanced dashboard.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-27
 - Amends: [ADR 0182](0182-the-dashboard-has-a-simple-and-an-advanced-form.md) — the simple dashboard's page list (eleven pages)
+- Amended by: [ADR 0233](0233-live-reads-running-agents-from-local-records-and-transcripts-without-a-model.md) — its "the Board alone": the Tasks page shows Live beside the Board
 - Related: [ADR 0208](0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md) (the Board), [ADR 0183](0183-each-page-has-a-short-tutorial-that-can-be-skipped.md) (tutorials), [dashboard](../dashboard.md#simple-and-advanced)
 
 ## Context

@@ -107,8 +107,11 @@ test('the Board tab opens from its address and lays Tasks out by status', async 
   await expect(working).toContainText('grimforge');
   await expect(page.getByRole('region', { name: 'Done, 0 tasks, folded' })).toBeVisible();
   await expect(page.locator('li[data-task="T-dddd4"]')).toContainText('Stale');
-  await page.getByRole('tab', { name: 'Sessions' }).click();
-  await expect(page).toHaveURL(/#sessions$/);
+  await page.getByRole('tab', { name: 'History' }).click();
+  await expect(page).toHaveURL(/#history$/);
+  // Addresses from before History had its name still open it.
+  await page.goto('/agents/#sessions');
+  await expect(page.getByRole('tab', { name: 'History' })).toHaveAttribute('aria-selected', 'true');
 });
 
 test('a new Task is created from the dialog and opens', async ({ page }) => {
@@ -201,7 +204,8 @@ test('simple mode lists the Board as Tasks, without sessions, history and lease 
   await page.goto('/agents/');
   await expect(page.getByRole('navigation', { name: 'Pages' }).getByRole('link', { name: 'Tasks' })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('heading', { name: 'Tasks', level: 1 })).toBeVisible();
-  await expect(page.getByRole('tab', { name: 'Sessions' })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'History' })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'Live' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('note')).toHaveCount(0);
   await page.goto('/agents/?task=T-cccc3');
   const drawer = page.getByRole('dialog', { name: /Upload retries/ });
