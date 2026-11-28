@@ -33,5 +33,14 @@ func cursorShellCommand(t *testing.T, command, payload string) *exec.Cmd {
 	}
 	script := "$OutputEncoding = [System.Text.Encoding]::UTF8; Get-Content -LiteralPath '" +
 		strings.ReplaceAll(file, "'", "''") + "' -Raw | & { $input | " + command + " }"
-	return exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script)
+	child := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script)
+	// Cursor starts the shell from Node. A test run from PowerShell 7 would
+	// hand Windows PowerShell 7's module path, which can keep it from
+	// loading its own modules (Get-Content among them).
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(strings.ToUpper(entry), "PSMODULEPATH=") {
+			child.Env = append(child.Env, entry)
+		}
+	}
+	return child
 }

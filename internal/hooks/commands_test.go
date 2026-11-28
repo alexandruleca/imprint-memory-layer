@@ -3,6 +3,7 @@ package hooks
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -123,12 +124,15 @@ func TestCursorHookCommandsExecuteInCursorsShell(t *testing.T) {
 			}
 		}
 	}
+	var stderr bytes.Buffer
 	run := func(command, payload string) map[string]any {
 		t.Helper()
 		child := cursorShellCommand(t, command, payload)
+		stderr.Reset()
+		child.Stderr = &stderr
 		output, err := child.Output()
 		if err != nil {
-			t.Fatalf("%s: %v %s", command, err, output)
+			t.Fatalf("%s: %v %s %s", command, err, output, stderr.Bytes())
 		}
 		var answer map[string]any
 		if len(bytes.TrimSpace(output)) > 0 && json.Unmarshal(output, &answer) != nil {
@@ -136,13 +140,20 @@ func TestCursorHookCommandsExecuteInCursorsShell(t *testing.T) {
 		}
 		return answer
 	}
+	// What the hook was given, for a failure's message.
+	received := func(payload string) string {
+		child := cursorShellCommand(t, quote(interpreter)+` -c "import sys;print(repr(sys.stdin.buffer.read()[:48]))"`, payload)
+		output, err := child.CombinedOutput()
+		return fmt.Sprintf("%s %v; the shell said %q", bytes.TrimSpace(output), err, stderr.String())
+	}
 	cursor := `"session_id":"c1","conversation_id":"c1","cursor_version":"2026.11.22","workspace_roots":[]`
 	start := run(CursorSessionStartCommand(bp), `{"hook_event_name":"sessionStart","generation_id":"c1",`+cursor+`}`)
 	if output, _ := start["hookSpecificOutput"].(map[string]any); output == nil || output["additionalContext"] == "" {
 		t.Fatalf("sessionStart answered %v", start)
 	}
-	if compact := run(CursorPreCompactCommand(bp), `{"hook_event_name":"preCompact","generation_id":"g1",`+cursor+`}`); compact["user_message"] == nil {
-		t.Fatalf("preCompact answered %v", compact)
+	compactPayload := `{"hook_event_name":"preCompact","generation_id":"g1",` + cursor + `}`
+	if compact := run(CursorPreCompactCommand(bp), compactPayload); compact["user_message"] == nil {
+		t.Fatalf("preCompact answered %v; the hook got %s", compact, received(compactPayload))
 	}
 	read := `{"hook_event_name":"postToolUse","generation_id":"g1","tool_name":"Read",` + cursor + `}`
 	if reminded := run(CursorPostReadCommand(bp), read); reminded["additional_context"] == nil {

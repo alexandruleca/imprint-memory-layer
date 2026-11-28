@@ -347,8 +347,11 @@ class HookTests(Fixture):
         context = json.loads(result.stdout)['additionalContext']
         self.assertIn("workspace is 'beta' (project file", context)
         self.assertNotIn('use_workspace', context)
-        # Without a cwd (Cursor's payload) nothing is claimed about the directory.
+        # Cursor's payloads name no cwd: their first workspace root stands for it (ADR 0236).
         context = json.loads(self.hook('session-start', {'workspace_roots': [str(repo)]}).stdout)
+        self.assertIn("workspace is 'beta' (project file", context['hookSpecificOutput']['additionalContext'])
+        # A payload that names no directory at all claims nothing about one.
+        context = json.loads(self.hook('session-start', {'session_id': 's'}).stdout)
         self.assertEqual(context['hookSpecificOutput']['additionalContext'], hook_entry.REMINDER)
 
     def test_stop_imports_in_the_sessions_workspace(self):
