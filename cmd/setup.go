@@ -1109,7 +1109,8 @@ type hookSpec struct {
 }
 
 // claudeCodeHooks are the hooks Imprint registers with Claude Code; the
-// prompt hook only where a shell runs it (ADR 0212).
+// notice hooks, on each prompt and after each tool call, only where a shell
+// runs them (ADRs 0212, 0240).
 func claudeCodeHooks(hp hooks.Paths, promptHook bool) []hookSpec {
 	specs := []hookSpec{
 		{"Stop", "", hooks.StopCommand(hp), 120, true},
@@ -1119,7 +1120,8 @@ func claudeCodeHooks(hp hooks.Paths, promptHook bool) []hookSpec {
 		{"PreToolUse", "Read|Grep|Glob", hooks.PreReadGateCommand(hp), 10, false},
 	}
 	if promptHook {
-		specs = append(specs, hookSpec{"UserPromptSubmit", "", hooks.PromptNoticesCommand(hp), 5, false})
+		specs = append(specs, hookSpec{"UserPromptSubmit", "", hooks.PromptNoticesCommand(hp), 5, false},
+			hookSpec{"PostToolUse", "", hooks.ToolNoticesCommand(hp), 5, false})
 	}
 	return specs
 }
@@ -1139,12 +1141,12 @@ func writeClaudeCodeHooks(settingsPath string, bp backendPaths, promptHook bool)
 	}
 	if !promptHook {
 		if _, err := jsonutil.RemoveHooksMatching(settingsPath, []string{promptNoticesMarker}); err != nil && !os.IsNotExist(err) {
-			output.Fail("Could not remove the UserPromptSubmit hook: " + err.Error())
+			output.Fail("Could not remove the notice hooks: " + err.Error())
 		}
 	}
 }
 
-// promptNoticesMarker is in every prompt hook command Imprint registers.
+// promptNoticesMarker is in every notice hook command Imprint registers.
 const promptNoticesMarker = "prompt_notices.sh"
 
 // gitBashFound reports whether Claude Code on Windows has Git Bash to run

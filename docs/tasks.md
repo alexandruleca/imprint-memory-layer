@@ -70,9 +70,9 @@ A comment addressed to an agent reaches it:
 1. once, as a notice on its next Imprint tool reply, in every client;
 2. in `tasks(action="inbox")`, which lists its unread comments;
 3. at session start, where Imprint's context counts the session's unread comments and lists the project's Ready and Stale Tasks;
-4. in Claude Code, also on your next prompt, before the model reads it: the session's Imprint server prepares, about once a minute, what it would announce in `data/prompt-notices/<conversation>.json`, and a few lines of shell registered as Claude Code's `UserPromptSubmit` hook print it and remove it, without starting Python. What the hook printed is not repeated on a tool reply.
+4. in Claude Code, also after its next tool call, while it works, and on your next prompt, before the model reads it: the session's Imprint server keeps what it would announce in `data/prompt-notices/<conversation>.notice`, refreshed about once a minute and within 2 seconds of a new comment for the Task it holds or naming it, and a few lines of shell registered as Claude Code's `PostToolUse` and `UserPromptSubmit` hooks print it and remove it, without starting Python ([ADR 0240](adr/0240-the-persons-comments-reach-a-working-agent-after-its-next-tool-call.md)). A comment you leave on a Task an agent is working on reaches it after its next tool call, a Dispatched session included. What a hook printed is not repeated on a tool reply.
 
-Lost claims and Stalling warnings travel the same ways. On Windows, Claude Code gets the prompt hook only when Git Bash is installed, since without it Claude Code runs hooks in PowerShell.
+Lost claims and Stalling warnings travel the same ways. On Windows, Claude Code gets the notice hooks only when Git Bash is installed, since without it Claude Code runs hooks in PowerShell. Codex hears comments on tool replies and at session start: its Imprint server knows no conversation of its own to prepare a notice for.
 
 `imprint tasks inbox` lists the comments agents addressed to you; `--read` marks them read.
 

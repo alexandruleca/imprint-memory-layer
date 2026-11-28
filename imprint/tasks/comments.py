@@ -47,7 +47,32 @@ def comment(task: str, text: str, *, to=(), actor: dict | None = None, workspace
     data = {'text': text, 'to': _addresses(to, text)}
     if dispatch is not None:
         data['dispatch'] = _dispatch_tag(dispatch, actor)
-    return _change(task, 'comment', data, actor, workspace)
+    state = _change(task, 'comment', data, actor, workspace)
+    _poke(state, data['to'], workspace)
+    return state
+
+
+def _poke(state: dict, to: list[str], workspace: str | None) -> None:
+    """Have the sessions a comment reaches hear it within seconds rather than
+    at their server's next renewal (ADR 0240): the Task's holder when the
+    comment is for it, and the sessions it names. Clients and devices it
+    names hear it at the renewal."""
+    try:
+        from .. import notices
+        sessions = []
+        holder = state.get('holder')
+        if holder and (not to or 'holder' in to):
+            sessions.append(holder['session'])
+        names = {a.lstrip('@').lower() for a in to if '@' not in a[1:]} - {'user', 'holder'}
+        if names:
+            with _reading(workspace) as conn:
+                if conn is not None:
+                    marks = ','.join('?' * len(names))
+                    sessions += [row['session'] for row in
+                                 conn.execute(f'SELECT session FROM names WHERE lower IN ({marks})', tuple(names))]
+        notices.poke(sessions)
+    except Exception:  # A comment is never refused because a notice could not be hurried.
+        pass
 
 
 def _dispatch_tag(tag: dict, actor: dict | None) -> dict:

@@ -201,27 +201,36 @@ func TestPromptNoticesCommandPrintsOnce(t *testing.T) {
 	if err := os.MkdirAll(notices, 0755); err != nil {
 		t.Fatal(err)
 	}
-	prepared := `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"New comment"}}`
-	if err := os.WriteFile(filepath.Join(notices, "conversation-1.json"), []byte(prepared), 0644); err != nil {
-		t.Fatal(err)
-	}
-	run := func() string {
-		child := exec.Command(shell.Path, append(shell.Args[1:], PromptNoticesCommand(bp))...)
-		child.Stdin = bytes.NewBufferString(`{"session_id":"conversation-1","hook_event_name":"UserPromptSubmit","prompt":"hi"}`)
-		output, err := child.CombinedOutput()
-		if err != nil {
-			t.Fatalf("%s: %v", output, err)
+	// The server writes the text as one JSON string; the hook answers as the event it was registered for (ADR 0240).
+	for _, hook := range []struct{ event, command string }{
+		{"UserPromptSubmit", PromptNoticesCommand(bp)}, {"PostToolUse", ToolNoticesCommand(bp)},
+	} {
+		if err := os.WriteFile(filepath.Join(notices, "conversation-1.notice"), []byte(`"New comment"`), 0644); err != nil {
+			t.Fatal(err)
 		}
-		return string(output)
-	}
-	if got := run(); got != prepared {
-		t.Fatalf("first prompt: %q", got)
-	}
-	if got := run(); got != "" {
-		t.Fatalf("second prompt: %q", got)
-	}
-	var decoded map[string]any
-	if json.Unmarshal([]byte(prepared), &decoded) != nil {
-		t.Fatal("fixture")
+		run := func() string {
+			child := exec.Command(shell.Path, append(shell.Args[1:], hook.command)...)
+			child.Stdin = bytes.NewBufferString(`{"session_id":"conversation-1","hook_event_name":"` + hook.event + `","prompt":"hi"}`)
+			output, err := child.CombinedOutput()
+			if err != nil {
+				t.Fatalf("%s: %v", output, err)
+			}
+			return string(output)
+		}
+		want := `{"hookSpecificOutput":{"hookEventName":"` + hook.event + `","additionalContext":"New comment"}}` + "\n"
+		got := run()
+		if got != want {
+			t.Fatalf("%s, first: %q", hook.event, got)
+		}
+		var decoded map[string]any
+		if json.Unmarshal([]byte(got), &decoded) != nil {
+			t.Fatalf("%s printed no JSON: %q", hook.event, got)
+		}
+		if again := run(); again != "" {
+			t.Fatalf("%s, second: %q", hook.event, again)
+		}
+		if by, err := os.ReadFile(filepath.Join(notices, "conversation-1.notice-by")); err != nil || string(by) != hook.event {
+			t.Fatalf("%s left %q (%v) for the server", hook.event, by, err)
+		}
 	}
 }

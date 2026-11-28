@@ -74,3 +74,11 @@ func PromptNoticesCommand(bp Paths) string {
 	return "IMPRINT_PROMPT_DATA=" + quote(filepath.ToSlash(bp.DataDir)) + " . " +
 		quote(filepath.ToSlash(filepath.Join(bp.ProjectDir, "imprint", "prompt_notices.sh")))
 }
+
+// ToolNoticesCommand prints the same notice after each tool call (ADR
+// 0240), so a working agent hears the person's comment mid-turn: the
+// prompt hook's script, answering as a PostToolUse hook.
+func ToolNoticesCommand(bp Paths) string {
+	return "IMPRINT_PROMPT_DATA=" + quote(filepath.ToSlash(bp.DataDir)) + " IMPRINT_NOTICE_EVENT=PostToolUse . " +
+		quote(filepath.ToSlash(filepath.Join(bp.ProjectDir, "imprint", "prompt_notices.sh")))
+}

@@ -312,13 +312,14 @@ func wslLauncher(p wslProfile, bp backendPaths, name string, action ...string) s
 
 func wslBridge(project string) string { return filepath.Join(project, "imprint", "wsl_bridge.py") }
 
-// wslPromptScript is Claude Code's prompt hook in a WSL profile (ADR 0212):
-// the Windows installation's shell script over the Windows data folder,
-// where the conversation's Windows Imprint server writes, without Python.
+// wslPromptScript is Claude Code's notice hook in a WSL profile (ADRs 0212,
+// 0240): the Windows installation's shell script over the Windows data
+// folder, where the conversation's Windows Imprint server writes, without
+// Python. Its first argument is the hook event, UserPromptSubmit by default.
 func wslPromptScript(bp backendPaths) string {
 	return "#!/bin/sh\n" + wslBridgeMarker + " (imprint-prompt).\n" +
 		"exec sh \"$(wslpath -u " + shellQuote(filepath.Join(bp.ProjectDir, "imprint", "prompt_notices.sh")) + ")\"" +
-		" \"$(wslpath -u " + shellQuote(bp.DataDir) + ")\"\n"
+		" \"$(wslpath -u " + shellQuote(bp.DataDir) + ")\" \"${1:-UserPromptSubmit}\"\n"
 }
 
 // wslCommand is where a registration puts the imprint command: the directory
@@ -565,6 +566,10 @@ func applyWSLProfile(p wslProfile, bp backendPaths, target string, local func(st
 			return err
 		}
 		if err := jsonutil.SetOwnedHookWithMatcher(local(layout.hooks), "UserPromptSubmit", "", shellQuote(layout.prompt), 5, false); err != nil {
+			return err
+		}
+		// After each tool call too, so a working agent hears a comment mid-turn (ADR 0240).
+		if err := jsonutil.SetOwnedHookWithMatcher(local(layout.hooks), "PostToolUse", "", shellQuote(layout.prompt)+" PostToolUse", 5, false); err != nil {
 			return err
 		}
 	}

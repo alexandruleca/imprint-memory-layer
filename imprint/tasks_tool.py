@@ -88,16 +88,22 @@ def renew_now() -> int:
 
 def start_renewing(interval: float = 60) -> None:
     """Renew this session's leases now and then every ``interval`` seconds,
-    for as long as the process runs."""
+    for as long as the process runs, and prepare its notices again within
+    ``POKE_SECONDS`` of a poke (ADR 0240)."""
     import threading
 
     def loop():
+        renewed = None
         while True:
             try:
-                renew_now()
+                if renewed is None or time.monotonic() - renewed >= interval:
+                    renewed = time.monotonic()
+                    renew_now()
+                elif poked():
+                    refresh_prompt_notices()
             except Exception:  # A busy or missing store must not end the renewals.
                 pass
-            time.sleep(interval)
+            time.sleep(min(POKE_SECONDS, interval))
     threading.Thread(target=loop, name='imprint-task-leases', daemon=True).start()
 
 
@@ -150,116 +156,103 @@ def _pending(me: dict, workspace: str | None) -> tuple[list[str], list[str]]:
     return keys, lines
 
 
+def _board_section(me: dict, workspace: str | None):
+    """The Board's part of a notice (ADRs 0212, 0240)."""
+    from . import notices as registry
+    keys, lines = _pending(me, workspace)
+    return registry.Section('From the Imprint Board:', keys, lines,
+                            more='More waits on the Imprint Board: tasks(action="inbox").') if keys else None
+
+
+def _board_settle(keys: list[str], session: str, via: str, at: float, *, workspace: str | None = None) -> list[str]:
+    return tasks.take_unseen(session, keys, workspace=workspace)
+
+
+def _register() -> None:
+    from . import notices as registry
+    registry.register_provider('board', _board_section)
+    for prefix in BOARD_KEYS:
+        registry.register_settler(prefix, _board_settle)
+
+
+# The prefixes of what the Board tells a session: claims it lost, comments, Stalling claims.
+BOARD_KEYS = ('lost', 'notified', 'stalling')
+_register()
+
+
 def notices(workspace: str | None = None, client: str | None = None) -> str:
-    """What this session should hear on its next reply, each thing once:
-    claims it lost, new comments addressed to it, and its claims that are
-    Stalling. What its prompt file held, unless the prompt hook took it
-    first, is told here instead."""
+    """What this session should hear on its next reply, each thing once,
+    from every source in the registry (ADR 0240): claims it lost, new
+    comments addressed to it, its Stalling claims, other sessions'
+    messages. What its notice file held, unless a hook printed it first,
+    is told here instead."""
+    from . import notices as registry
     me = actor(client, workspace or '')
     workspace = workspace or None
     _settle_prompt_file(me['session'], workspace)
-    keys, lines = _pending(me, workspace)
+    keys, text = registry.gather(me, workspace)
     if not keys:
         return ''
-    told = set(tasks.take_unseen(me['session'], keys, workspace=workspace))
-    if not told:  # Another reply told it meanwhile.
-        return ''
-    return '\n'.join(lines)
+    if not registry.settle(keys, me['session'], 'reply', workspace=workspace):
+        return ''  # Another reply or a hook told it meanwhile.
+    return text
 
 
-# ── Claude Code's prompt hook (ADR 0212) ─────────────────────────
+# ── Claude Code's hooks (ADRs 0212, 0240) ────────────────────────
 #
-# Claude Code runs a hook on each prompt, before the model reads it; a shell
-# script (prompt_notices.sh) prints `<conversation>.json` from this folder
-# and removes it, without starting Python. This server keeps the file
-# current on each renewal tick. `<conversation>.keys` holds what the file
-# says; a keys file whose notice file is gone means the hook took it.
+# After each tool call and on each prompt, Claude Code runs a shell script
+# (prompt_notices.sh) that prints `<conversation>.notice` from
+# data/prompt-notices as the hook's reply, without starting Python. This
+# server keeps the file current on each renewal and when poked
+# (imprint/notices.py).
 
-PROMPT_DIR = 'prompt-notices'
-_CONVERSATION_ID = re.compile(r'[A-Za-z0-9-]{8,128}')
-
-
-def _prompt_paths(board_session: str):
-    kind, _, conversation = board_session.partition(':')
-    if kind != 'conversation' or not _CONVERSATION_ID.fullmatch(conversation):
-        return None
-    from . import config
-    folder = Path(config.get_data_dir()) / PROMPT_DIR
-    return folder, folder / f'{conversation}.json', folder / f'{conversation}.keys'
+POKE_SECONDS = 2.0
+_refreshed = {'at': 0.0}
 
 
 def _settle_prompt_file(board_session: str, workspace: str | None) -> None:
-    """Take back the prompt file, or, if the hook printed it, mark told what
-    it said."""
-    paths = _prompt_paths(board_session)
-    if paths is None:
+    """Take back the notice file, or, if a hook printed it, mark told what
+    it said, by the hook's path and when."""
+    from . import notices as registry
+    found = registry.files(board_session)
+    if found is None:
         return
-    _, notice, keys = paths
-    taken = notice.with_name(f'{notice.name}.{os.getpid()}.back')
-    try:
-        os.replace(notice, taken)
-        taken.unlink(missing_ok=True)
-        printed = False
-    except FileNotFoundError:
-        printed = True
-    except OSError:  # Windows: the hook has it open this moment; settle it next time.
-        return
-    if printed and keys.exists():
-        try:
-            said = json.loads(keys.read_text(encoding='utf-8'))
-        except (OSError, ValueError):
-            said = []
-        if isinstance(said, list):
-            tasks.take_unseen(board_session, [key for key in said if isinstance(key, str)], workspace=workspace)
-    keys.unlink(missing_ok=True)
-
-
-PROMPT_FILE_DAYS = 1
-_swept = {'at': 0.0}
-
-
-def _sweep(folder: Path) -> None:
-    """Remove, hourly, what conversations that ended left in the folder."""
-    now = time.time()
-    if now - _swept['at'] < 3600 or not folder.is_dir():
-        return
-    _swept['at'] = now
-    for path in folder.iterdir():
-        try:
-            if now - path.stat().st_mtime > PROMPT_FILE_DAYS * 86400:
-                path.unlink()
-        except OSError:
-            pass
-
-
-def _write(path: Path, text: str) -> None:
-    temporary = path.with_name(f'{path.name}.{os.getpid()}.tmp')
-    temporary.write_text(text, encoding='utf-8')
-    os.replace(temporary, path)
+    said, via, at = registry.take_back(found)
+    if said:
+        registry.settle(said, board_session, via or 'prompt', at, workspace=workspace)
 
 
 def refresh_prompt_notices(workspace: str | None = None, client: str | None = None) -> None:
-    """Prepare what this conversation's next prompt should carry, for the
-    prompt hook to print: the notice file first, then its keys, so a keys
-    file never claims a notice that was not there to print."""
-    paths = _prompt_paths(session())
-    if paths is None:
+    """Prepare what this conversation's hooks should print next: the notice
+    file first, then its keys, so a keys file never claims a notice that
+    was not there to print."""
+    from . import notices as registry
+    _refreshed['at'] = time.time()
+    found = registry.files(session())
+    if found is None:
         return
-    folder, notice, keys_file = paths
-    _sweep(folder)
+    registry.sweep(found.folder)
     if not board_exists(workspace or ''):
         return
     me = actor(client, workspace or '')
     workspace = workspace or None
     _settle_prompt_file(me['session'], workspace)
-    keys, lines = _pending(me, workspace)
-    if not keys:
-        return
-    folder.mkdir(parents=True, exist_ok=True)
-    context = 'From the Imprint Board:\n' + '\n'.join(lines)
-    _write(notice, json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit',
-                                                      'additionalContext': context}}))
-    _write(keys_file, json.dumps(keys))
+    keys, text = registry.gather(me, workspace)
+    if keys:
+        registry.write(found, keys, text)
+
+
+def poked() -> bool:
+    """Whether a comment or a message for this conversation arrived since the
+    notice file was last prepared (its ``.poke`` is newer)."""
+    from . import notices as registry
+    found = registry.files(session())
+    if found is None:
+        return False
+    try:
+        return found.poke.stat().st_mtime > _refreshed['at']
+    except OSError:
+        return False
 
 
 def inbox_text(items: list[dict]) -> str:

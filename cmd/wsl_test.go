@@ -119,11 +119,13 @@ func TestWSLProfilesPreserveSettingsAndRemainIdempotent(t *testing.T) {
 			if strings.Count(string(encoded), "imprint-wsl' hook stop") != 1 {
 				t.Fatalf("duplicate stop hook: %s", encoded)
 			}
-			// Claude Code's prompt hook is a script beside the launcher (ADR 0212).
+			// Claude Code's notice hooks, on each prompt and after each tool call,
+			// are one script beside the launcher (ADRs 0212, 0240).
 			prompt := path.Join(p.ClaudeHome, "imprint-prompt")
 			if target == "claude-code" {
-				if strings.Count(string(encoded), "imprint-prompt") != 1 || !strings.Contains(string(encoded), "UserPromptSubmit") {
-					t.Fatalf("prompt hook: %s", encoded)
+				if strings.Count(string(encoded), "imprint-prompt'\"") != 1 || strings.Count(string(encoded), "imprint-prompt' PostToolUse") != 1 ||
+					!strings.Contains(string(encoded), "UserPromptSubmit") {
+					t.Fatalf("notice hooks: %s", encoded)
 				}
 				script, err := os.ReadFile(local(prompt))
 				if err != nil || !strings.Contains(string(script), wslBridgeMarker) || !strings.Contains(string(script), filepath.Join(`D:\Relocated Imprint`, "imprint", "prompt_notices.sh")) {

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/hunter/imprint/internal/hooks"
@@ -70,7 +71,9 @@ func TestCursorSetupWritesItsHooksBesideTheUsersOwn(t *testing.T) {
 	events := map[string]string{"SessionStart": "sessionStart", "PreCompact": "preCompact", "PostToolUse": "postToolUse", "Stop": "stop"}
 	for _, spec := range claudeCodeHooks(hp, true) {
 		event, ok := events[spec.event]
-		if !ok {
+		if !ok || strings.Contains(spec.command, "prompt_notices.sh") {
+			// The notice hook needs no twin: Cursor's sessions have no notice file, so when
+			// Cursor runs Claude Code's copy it prints nothing (ADR 0240).
 			continue
 		}
 		found := false

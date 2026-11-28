@@ -3,9 +3,11 @@ title: ADR 0240 — The person's comments reach a working agent after its next t
 description: One registry of notices, written per conversation and printed by a sourced shell hook after every tool call as well as on every prompt, brings the person's comments to the agent holding the Task mid-turn; claims and Dispatched prompts carry the comments a new holder has not read, and the built-in skills rank them above the agent's plan.
 ---
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-28
-- Related: [ADR 0212](0212-agents-talk-through-comments-on-tasks.md) (delivery, which this would amend), [ADR 0220](0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md) (Dispatched sessions), [ADR 0213](0213-built-in-skills-ship-with-each-release-and-a-fork-replaces-them.md) (built-in skills)
+- Scope: The registry, the files and the hooks after each tool call (T-31w4v); claims, Dispatched prompts and the skills' rule come with T-7dnj3.
+- Amends: [ADR 0212](0212-agents-talk-through-comments-on-tasks.md) — its "Delivery" and "The prompt hook": a notice also after each tool call, from one registry, refreshed within seconds of a poke
+- Related: [ADR 0220](0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md) (Dispatched sessions), [ADR 0213](0213-built-in-skills-ship-with-each-release-and-a-fork-replaces-them.md) (built-in skills), [ADR 0236](0236-cursor-gets-imprints-hooks-wherever-it-runs-and-one-hook-answers-each-event.md) (Cursor runs Claude Code's hooks)
 
 ## Context
 
@@ -25,7 +27,7 @@ The owner asked (2026-11-28): "If I leave a comment on a task, the agent that is
 
 ## Decision
 
-**After every tool call.** Claude Code gets a PostToolUse hook with no matcher beside the prompt hook. Both run the same sourced shell script within ADR 0212's 100 ms budget, starting no process when nothing waits. Where the installed Codex accepts context from a PostToolUse hook on Bash, Codex gets one too.
+**After every tool call.** Claude Code gets a PostToolUse hook with no matcher beside the prompt hook. Both run the same sourced shell script within ADR 0212's 100 ms budget, starting no process when nothing waits. Codex gets none: see the rejected alternatives. Cursor also runs Claude Code's hooks ([ADR 0236](0236-cursor-gets-imprints-hooks-wherever-it-runs-and-one-hook-answers-each-event.md)), and the notice hook needs no Cursor twin: no Cursor session has a notice file, so there it prints nothing.
 
 **One registry of notices.** Providers contribute (keys, lines, heading) and set their own limits:
 - Board comments are the first provider (`read:<event id>`);
@@ -52,6 +54,7 @@ Settle handlers, registered per key prefix, are called as `settle(keys, session,
 - **A second, pre-rendered file per hook event.** Whichever hook ran first would print its file, and the other would print the same notice again. One file, with the event supplied by the hook, is printed once.
 - **Writing a user message into a Dispatched Claude Code session's stdin (`--input-format stream-json`).** The documentation does not say whether a message written mid-turn is read before the turn ends, and Codex has no equivalent.
 - **Keeping delivery to tool replies, session start and prompts.** That is today's behaviour, which the owner's request rejects.
+- **A Codex PostToolUse hook.** Codex's hooks do pass a PostToolUse hook's `additionalContext` to the model (`codex-rs/hooks/src/events/post_tool_use.rs`, 2026-11-28). But Codex gives its thread id only to the shell commands it runs (`CODEX_THREAD_ID`, `CODEX_SESSION_ID` in `codex-rs/core/src/exec_env.rs`), not to MCP servers. Imprint's Codex server therefore knows the session only as its process, and has no per-conversation notice for a hook to print.
 
 ## Consequences
 
@@ -69,4 +72,27 @@ Settle handlers, registered per key prefix, are called as `settle(keys, session,
 
 ## Validation
 
-Proposed; not yet implemented. To be validated by T-31w4v (registry, files, hooks, timing, a real `claude -p` run, Codex check) and T-7dnj3 (claims, Dispatched prompts, skills).
+T-31w4v, 2026-11-28:
+- **A real Claude Code session** (`claude -p`, Claude Code 2.1.332, Haiku), with the repository's MCP server on a scratch data folder and only the new PostToolUse hook added:
+  - it claimed a Task, then ran `sleep 6` four times and called no other Imprint tool;
+  - a watcher posted the person's comment once the claim was recorded;
+  - the session's transcript shows a `hook_additional_context` attachment from `PostToolUse:Bash` carrying the comment, and the model's request carrying "PostToolUse:Bash hook additional context";
+  - the agent quoted the comment in its answer.
+  So a PostToolUse hook's context reaches the model in `-p` mode too.
+- **Cost per tool call**, median and 90th percentile of 30 runs:
+
+  | Path | Nothing waits | A notice waits |
+  | --- | --- | --- |
+  | Native Linux, sourced as Claude Code runs it | 3.8 / 4.4 ms | 8.6 / 9.6 ms |
+  | WSL profile's bridge script, Windows data folder on `/mnt/c` | 12.1 / 13.9 ms | 37.9 / 43.3 ms |
+
+- **Tests** (`tests/test_prompt_notices.py`, 13 tests in sh and bash):
+  - after a tool call the hook answers as PostToolUse, once, by either hook;
+  - an unknown event prints nothing;
+  - the server records which hook told a notice and when;
+  - a person's comment on a held Task pokes its conversation;
+  - the cap and the pointer, and keys of unknown prefixes kept;
+  - files of earlier releases are swept.
+- **Go tests:** the hook command prints each event's reply once and leaves `.notice-by`, setup writes both hooks and withdraws them, and the WSL profile writes both through its script. `test_hooks`, `test_tasks*`, `test_mcp*` and the Go `cmd` and `internal` packages pass on Linux; the full Linux suite passes (1,835 tests). Natively on Windows, `test_prompt_notices` passes in Git Bash (the timing test is skipped there), as do `test_hooks`, `test_tasks*`, `test_mcp*` and the Go hook tests.
+
+Not run: the hook's cost under Git Bash on native Windows, and Codex, which gets no hook (see the rejected alternatives; T-ja5sb).

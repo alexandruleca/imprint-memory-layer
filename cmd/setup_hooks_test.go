@@ -51,9 +51,10 @@ func TestSetupHooksOwnsThePromptHookAcrossRelocationAndWithdrawal(t *testing.T) 
 	writeClaudeCodeHooks(settings, backendPaths{ProjectDir: "/old place", VenvPython: "/old place/python", DataDir: "/data"}, true)
 	writeClaudeCodeHooks(settings, backendPaths{ProjectDir: "/new place", VenvPython: "/new place/python", DataDir: "/data"}, true)
 	content := read()
-	if strings.Count(content, "prompt_notices.sh") != 1 || !strings.Contains(content, "/new place/imprint/prompt_notices.sh") ||
-		!strings.Contains(content, "my-own-hook") {
-		t.Fatalf("relocated prompt hook: %s", content)
+	// One notice hook on each prompt and one after each tool call (ADRs 0212, 0240).
+	if strings.Count(content, "prompt_notices.sh") != 2 || strings.Count(content, "/new place/imprint/prompt_notices.sh") != 2 ||
+		strings.Count(content, "IMPRINT_NOTICE_EVENT=PostToolUse") != 1 || !strings.Contains(content, "my-own-hook") {
+		t.Fatalf("relocated notice hooks: %s", content)
 	}
 	writeClaudeCodeHooks(settings, backendPaths{ProjectDir: "/new place", VenvPython: "/new place/python", DataDir: "/data"}, false)
 	content = read()

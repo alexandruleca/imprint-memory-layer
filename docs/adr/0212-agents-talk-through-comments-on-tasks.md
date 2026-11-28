@@ -3,9 +3,10 @@ title: ADR 0212 — Agents talk through comments on Tasks
 description: Messages between agents, clients and the user are comments on Tasks, addressed to a client, a device or the holder; they reach a running agent as a notice on any Imprint tool reply, at session start, and in Claude Code on every prompt through a new UserPromptSubmit hook that stays only while it adds less than 100 ms.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-27
 - Scope: The notice on tool replies, the inbox, the session-start context, the dashboard's notifications (a desktop notification only in the desktop app) and Claude Code's UserPromptSubmit hook, natively and in WSL profiles; on native Windows only where Git Bash is installed.
+- Amended by: [ADR 0240](0240-the-persons-comments-reach-a-working-agent-after-its-next-tool-call.md) — its "Delivery" and "The prompt hook": a notice also after each tool call, from one registry, refreshed within seconds of a poke
 - Related: [ADR 0208](0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md) (the Board), [ADR 0003](0003-local-mcp-and-portable-hooks.md) (portable hooks), [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) (holders)
 
 ## Context
