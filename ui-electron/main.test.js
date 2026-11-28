@@ -1112,3 +1112,61 @@ test('a reminder that rings notifies while the dashboard is away, and its click 
   assert.equal(dashboard.visible, true);
   assert.deepEqual(dashboard.sent.at(-1), ['reminder-open', id]);
 });
+
+test('the tray opens the Agents window once, on Live, where the size and place it had are kept (ADR 0232)', async () => {
+  const h = harness({ alreadyUp: true, savedPosition: { x: 40, y: 30, width: 900, height: 700 } }); await settle();
+  const count = h.windows.length;
+  h.calls.menu.find(item => item.label === 'Open Agents').click(); await settle();
+  const agents = h.windows.at(-1);
+  assert.equal(h.windows.length, count + 1);
+  assert.equal(agents.url, `${ORIGIN}/agents/?window=agents#live`);
+  assert.equal(agents.options.title, 'Imprint · Agents');
+  assert.deepEqual([agents.options.x, agents.options.y, agents.options.width, agents.options.height], [40, 30, 900, 700]);
+  assert.equal(agents.visible, true);
+  agents.minimize(); agents.focused = false;
+  h.calls.menu.find(item => item.label === 'Open Agents').click(); await settle();
+  assert.equal(h.windows.length, count + 1, 'the open window is brought forward, not opened again');
+  assert.equal(agents.isMinimized(), false);
+  assert.equal(agents.focused, true);
+});
+
+test('a Task notification opens the Task in the Agents window; others cannot ask, and bad ids open Live', async () => {
+  const h = harness({ alreadyUp: true }); await settle();
+  const dashboard = h.windows[1];
+  dashboard.url = `${ORIGIN}/`;
+  h.emit('agents-open', dashboard, 'T-aaaa1'); await settle();
+  const agents = h.windows.at(-1);
+  assert.equal(agents.url, `${ORIGIN}/agents/?window=agents&task=T-aaaa1#board`);
+  h.emit('agents-open', agents, 'T-bbbb2'); await settle();
+  assert.equal(agents.url, `${ORIGIN}/agents/?window=agents&task=T-bbbb2#board`, 'the open window moves to the Task');
+  agents.destroy();
+  dashboard.url = 'https://example.com/';
+  h.emit('agents-open', dashboard, 'T-aaaa1'); await settle();
+  assert.equal(h.windows.at(-1), agents, 'another origin cannot open it');
+  dashboard.url = `${ORIGIN}/`;
+  h.emit('agents-open', dashboard, '../../etc/passwd'); await settle();
+  assert.equal(h.windows.at(-1).url, `${ORIGIN}/agents/?window=agents#live`);
+});
+
+test('closing the Agents window keeps the app, the dashboard and the orb; it minimizes and maximizes itself', async () => {
+  const h = harness({ alreadyUp: true }); await settle();
+  const dashboard = h.windows[1];
+  dashboard.emit('minimize'); await settle();
+  const orb = h.windows[2];
+  assert.equal(orb.visible, true);
+  h.calls.menu.find(item => item.label === 'Open Agents').click(); await settle();
+  const agents = h.windows.at(-1);
+  let maximized = false;
+  agents.isMaximized = () => maximized; agents.maximize = () => { maximized = true; }; agents.unmaximize = () => { maximized = false; };
+  h.emit('win-maximize', agents);
+  assert.equal(maximized, true);
+  h.emit('win-minimize', agents);
+  assert.equal(agents.isMinimized(), true);
+  assert.equal(orb.visible, true, 'minimizing it leaves the orb');
+  h.emit('win-close', agents);
+  assert.equal(agents.destroyed, true);
+  assert.ok(h.calls.some(call => Array.isArray(call) && call[0] === 'write' && call[1].startsWith('agents-window.json')), 'its bounds are kept');
+  assert.ok(!h.calls.includes('quit'));
+  assert.equal(dashboard.destroyed, false);
+  assert.equal(orb.visible, true, 'the orb stays');
+});

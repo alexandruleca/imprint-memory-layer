@@ -43,6 +43,11 @@ let win = null;
 let dataDir = NAMED_RUNTIME.dataDir;
 let startupWin = null;
 let companionWin = null;
+// The Agents window (ADR 0232): the dashboard's Agents page on its own. The
+// main dashboard window keeps recordings, updates and the orb's rules.
+let agentsWin = null;
+const AGENTS_BOUNDS = 'agents-window.json';
+const TASK_ID = /^T-[0-9a-hjkmnp-tv-z]{5}$/;
 let launcherWin = null;
 let launcherDrag = null;
 let hidingDashboard = false;
@@ -829,6 +834,7 @@ function trayMenu(activity) {
     ...(activity ? [{ label: activity, enabled: false }, { type: 'separator' }] : []),
     ...wakeMenu(),
     { label: 'Open Dashboard', click: showWindow },
+    { label: 'Open Agents', enabled: phase === 'ready', click: () => openAgents() },
     // What the floating orb offers, whether or not it is shown (ADR 0174).
     recorder.phase === 'recording' ? { label: 'Stop recording', click: stopRecorder }
       : { label: 'New recording…', enabled: recorder.phase === 'idle' && phase === 'ready', click: newRecording },
@@ -840,6 +846,50 @@ function trayMenu(activity) {
     { type: 'separator' },
     { label: 'Quit Imprint', click: () => app.quit() },
   ]);
+}
+
+function agentsURL(task) {
+  const url = new URL('/agents/', UI_ORIGIN);
+  url.searchParams.set('window', 'agents');
+  if (task) url.searchParams.set('task', task);
+  url.hash = task ? 'board' : 'live';
+  return url.toString();
+}
+
+// Opens the Agents window, or brings it forward; on a Task's drawer when a
+// valid Task id is given. Its size and place are kept between openings.
+function openAgents(task = null) {
+  if (quitting || phase !== 'ready') return null;
+  const target = typeof task === 'string' && TASK_ID.test(task) ? task : null;
+  if (agentsWin && !agentsWin.isDestroyed()) {
+    if (target) agentsWin.loadURL(agentsURL(target)).catch(() => {});
+    if (agentsWin.isMinimized()) agentsWin.restore();
+    agentsWin.show();
+    agentsWin.focus();
+    return agentsWin;
+  }
+  const saved = savedCompanionBounds(AGENTS_BOUNDS);
+  const placed = saved && ['x', 'y', 'width', 'height'].every(key => Number.isFinite(saved[key])) && saved.width >= 420 && saved.height >= 480
+    ? { x: saved.x, y: saved.y, width: saved.width, height: saved.height } : {};
+  const window = new BrowserWindow({ ...windowOptions, title: 'Imprint · Agents', width: 1200, height: 820, minWidth: 420, minHeight: 480,
+    ...placed });
+  agentsWin = window;
+  window.on('close', () => saveCompanionBounds(window, AGENTS_BOUNDS));
+  window.on('closed', () => { if (agentsWin === window) agentsWin = null; });
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (externalURL(url) && !sameOrigin(url, UI_ORIGIN)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  window.webContents.on('will-navigate', (e, url) => {
+    if (!sameOrigin(url, UI_ORIGIN)) {
+      e.preventDefault();
+      if (externalURL(url)) shell.openExternal(url);
+    }
+  });
+  window.loadURL(agentsURL(target)).then(() => {
+    if (!window.isDestroyed()) { window.show(); window.focus(); }
+  }).catch(() => { if (!window.isDestroyed()) window.destroy(); });
+  return window;
 }
 
 // Pages the main process may open the dashboard at: a recording starts
@@ -908,10 +958,12 @@ function createTray() {
 
 // Only the current app windows can control their lifecycle.
 function appWindow(event) {
-  return [win, startupWin, companionWin].some(window => window?.webContents === event.sender);
+  return [win, startupWin, companionWin, agentsWin].some(window => window?.webContents === event.sender);
 }
 ipcMain.on('win-close', event => {
   if (companionWin?.webContents === event.sender) { saveCompanionBounds(); companionWin.destroy(); return; }
+  // Closing the Agents window closes only it: the app, the dashboard and the orb stay (ADR 0232).
+  if (agentsWin?.webContents === event.sender) { saveCompanionBounds(agentsWin, AGENTS_BOUNDS); agentsWin.destroy(); return; }
   if (appWindow(event)) closeWindow(BrowserWindow.fromWebContents(event.sender));
 });
 
@@ -1125,8 +1177,15 @@ ipcMain.on('win-minimize', event => {
   else BrowserWindow.fromWebContents(event.sender)?.minimize();
 });
 ipcMain.on('win-maximize', event => {
-  if (win?.webContents !== event.sender) return;
-  win.isMaximized() ? win.unmaximize() : win.maximize();
+  const window = [win, agentsWin].find(w => w && !w.isDestroyed() && w.webContents === event.sender);
+  if (!window) return;
+  window.isMaximized() ? window.unmaximize() : window.maximize();
+});
+// The dashboard, or the Agents window itself, opens the Agents window, on a Task when it names one (ADR 0232).
+ipcMain.on('agents-open', (event, task) => {
+  const fromAgents = agentsWin?.webContents === event.sender && sameOrigin(event.sender.getURL(), UI_ORIGIN);
+  if (!trustedDashboardSender(event) && !fromAgents) return;
+  openAgents(typeof task === 'string' ? task : null);
 });
 ipcMain.handle('startup-state', event => appWindow(event) ? startupState() : null);
 // What the dashboard shows while its server is down, which it cannot ask.

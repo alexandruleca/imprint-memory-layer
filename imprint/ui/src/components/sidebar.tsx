@@ -57,6 +57,8 @@ declare global {
       moveCompanionDrag?: (point: { x: number; y: number }) => void;
       endCompanionDrag?: () => void;
       openDashboard?: () => void;
+      /** Open the Agents window (ADR 0232), on a Task's drawer when one is given. */
+      openAgents?: (task?: string) => void;
       launcherMenu?: () => void;
       beginLauncherDrag?: (point: { x: number; y: number }) => void;
       moveLauncherDrag?: (point: { x: number; y: number }) => void;
