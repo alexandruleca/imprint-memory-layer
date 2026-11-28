@@ -49,6 +49,8 @@ def _connect() -> sqlite3.Connection:
             conn.execute(f'ALTER TABLE runs ADD COLUMN {column} {kind}')
     conn.execute('CREATE TABLE IF NOT EXISTS switches (workspace TEXT PRIMARY KEY, enabled INTEGER NOT NULL,'
                  ' changed_at REAL NOT NULL)')
+    conn.execute('CREATE TABLE IF NOT EXISTS refine_switches (workspace TEXT PRIMARY KEY, enabled INTEGER NOT NULL,'
+                 ' changed_at REAL NOT NULL)')
     return conn
 
 
@@ -78,6 +80,32 @@ def switched_on_workspaces() -> list[str]:
     with closing(_connect()) as conn:
         return [row['workspace'] for row in conn.execute('SELECT workspace FROM switches WHERE enabled = 1 '
                                                          'ORDER BY workspace')]
+
+
+def refining(workspace: str) -> bool:
+    """Whether the person switched Backlog refinement on for ``workspace`` on this device; off by default (ADR 0230)."""
+    with closing(_connect()) as conn:
+        row = conn.execute('SELECT enabled FROM refine_switches WHERE workspace = ?', (workspace,)).fetchone()
+    return bool(row and row['enabled'])
+
+
+def switch_refining(workspace: str, enabled: bool) -> bool:
+    with closing(_connect()) as conn, conn:
+        conn.execute('INSERT INTO refine_switches (workspace, enabled, changed_at) VALUES (?, ?, ?) '
+                     'ON CONFLICT (workspace) DO UPDATE SET enabled = excluded.enabled, changed_at = excluded.changed_at',
+                     (workspace, int(bool(enabled)), time.time()))
+    return bool(enabled)
+
+
+def refining_workspaces() -> list[str]:
+    with closing(_connect()) as conn:
+        return [row['workspace'] for row in conn.execute('SELECT workspace FROM refine_switches WHERE enabled = 1 '
+                                                         'ORDER BY workspace')]
+
+
+def mark_run_cleaned(run_id: str) -> None:
+    with closing(_connect()) as conn, conn:
+        conn.execute('UPDATE runs SET cleaned = ? WHERE id = ? AND cleaned IS NULL', (time.time(), run_id))
 
 
 def add(run: dict) -> dict:

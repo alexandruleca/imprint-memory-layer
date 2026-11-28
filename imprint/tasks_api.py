@@ -126,10 +126,14 @@ async def dispatch_switch(request: Request):
     from .dispatch import status
     try:
         body = await _body(request)
-        if not isinstance(body.get('on'), bool):
-            raise ValueError('on is true or false')
+        given = [key for key in ('on', 'refine') if key in body]
+        if not given or any(not isinstance(body[key], bool) for key in given):
+            raise ValueError('on and refine are true or false, and at least one is given')
         workspace = config.get_active_workspace()
-        status.switch(workspace, body['on'])
+        if 'on' in body:
+            status.switch(workspace, body['on'])
+        if 'refine' in body:
+            status.switch_refining(workspace, body['refine'])  # Backlog refinement (ADR 0230)
         return status.status(workspace, projects=False)
     except (ValueError, LookupError, OSError) as error:
         return _refused(error)

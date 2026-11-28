@@ -139,6 +139,9 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument('--review', action='store_true', help='Review a Task in Review instead of working on it')
     actions.add_parser('on', parents=[common], help="Switch this device's Dispatcher on for the workspace")
     actions.add_parser('off', parents=[common], help="Switch this device's Dispatcher off for the workspace")
+    refine = actions.add_parser('refine', parents=[common],
+                                help="Switch this device's Backlog refinement on or off for the workspace (ADR 0230)")
+    refine.add_argument('state', choices=('on', 'off'))
     actions.add_parser('status', parents=[common], help='What the Dispatcher does on this device')
     actions.add_parser('stop', parents=[common], help='Stop a running Dispatched session').add_argument('run')
     return parser
@@ -152,6 +155,7 @@ def _filters(args) -> dict:
 def _dispatch_status_text(status: dict) -> str:
     lines = [f"Dispatcher for {status['workspace']} on this device: {'on' if status['on'] else 'off'}"
              f"{'' if status['server'] or not status['on'] else ' (the dashboard server is not running: nothing is dispatched until it is)'}",
+             f"Backlog refinement on this device: {'on' if status.get('refine') else 'off'}",
              f"Agents take unasked here: {status['autonomy']}"]
     if status['on'] and status['held']:
         lines.append(f"Starting nothing now: {status['held']}")
@@ -187,8 +191,13 @@ def _dispatch(args, workspace: str | None, as_json: bool) -> None:
     from .dispatch import dispatched, guards, loop, status as dispatch_status
     from .workspace_policy import workspace_name
     action, name = args.dispatch_command, workspace_name(workspace)
-    if action in ('on', 'run'):
-        _refuse_inside_dispatched(action)
+    if action in ('on', 'run') or (action == 'refine' and args.state == 'on'):
+        _refuse_inside_dispatched('refine on' if action == 'refine' else action)
+    if action == 'refine':
+        dispatch_status.switch_refining(name, args.state == 'on')
+        _print({'workspace': name, 'refine': args.state == 'on'}, as_json,
+               f"Backlog refinement for {name} on this device: {args.state}.")
+        return
     if action in ('on', 'off'):
         dispatch_status.switch(name, action == 'on')
         note = ('' if action == 'off' or loop.server_running() else

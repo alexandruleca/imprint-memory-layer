@@ -19,6 +19,7 @@ const OUTCOMES: Record<string, { label: string; tone: string }> = {
   review: { label: "reached Review", tone: "text-emerald-700 dark:text-emerald-300" },
   passed: { label: "review passed: Done", tone: "text-emerald-700 dark:text-emerald-300" },
   returned: { label: "review sent it back", tone: "text-amber-700 dark:text-amber-300" },
+  refined: { label: "refined: still in Backlog", tone: "text-emerald-700 dark:text-emerald-300" },
   failed: { label: "failed", tone: "text-destructive" },
   stopped: { label: "stopped", tone: "text-muted-foreground" },
   lost: { label: "another device took it", tone: "text-muted-foreground" },
@@ -103,9 +104,22 @@ export function DispatcherStrip({ now, onOpen }: { now: Date; onOpen: (task: str
   async function toggle(on: boolean) {
     setSaving(true);
     try {
-      await setDispatch(on);
+      await setDispatch({ on });
       await status.refresh();
       toast.success(on ? "Dispatcher on for this device" : "Dispatcher off: running sessions finish");
+    } catch (e) {
+      toast.error("Not changed", { description: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleRefine(refine: boolean) {
+    setSaving(true);
+    try {
+      await setDispatch({ refine });
+      await status.refresh();
+      toast.success(refine ? "Backlog refinement on for this device" : "Backlog refinement off");
     } catch (e) {
       toast.error("Not changed", { description: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -138,6 +152,13 @@ export function DispatcherStrip({ now, onOpen }: { now: Date; onOpen: (task: str
               : "On for this device: reviews tasks in Review, then takes over Stale and Ready ones, one at a time, each in a worktree of its own."
             : "Off. Switch it on to have this device start agents on Ready tasks while nobody works on them."}
         </span>
+        <span className="inline-flex items-center gap-1.5 text-xs">
+          <Switch aria-labelledby="refine-title" checked={data.refine === true} disabled={saving}
+            onCheckedChange={(on) => void toggleRefine(on)} />
+          <span id="refine-title" title="When nothing waits for review or work, an agent adds acceptance criteria and detail to Backlog tasks that have none. They stay in Backlog for you to move.">
+            Refine Backlog
+          </span>
+        </span>
         <ClientsPicker data={data} onChanged={() => void status.refresh()} />
         {data.devices.length > 0 && (
           <span className="text-xs text-muted-foreground">Also on: {data.devices.map((d) => d.name).join(", ")}</span>
@@ -149,7 +170,7 @@ export function DispatcherStrip({ now, onOpen }: { now: Date; onOpen: (task: str
           <span className="relative flex size-2"><span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-500 opacity-60" /><span className="relative inline-flex size-2 rounded-full bg-emerald-500" /></span>
           <Button variant="link" size="sm" className="h-auto px-0 text-xs font-mono" onClick={() => onOpen(run.task)}>{run.task}</Button>
           <span className="min-w-0 truncate">{run.title}</span>
-          <Badge variant="secondary" className="font-normal">{run.role === "review" ? `${run.client} · review` : run.client}</Badge>
+          <Badge variant="secondary" className="font-normal">{run.role === "work" ? run.client : `${run.client} · ${run.role}`}</Badge>
           <span className="text-muted-foreground">since <Timestamp seconds={run.started_at} now={now} /></span>
           <Button variant="outline" size="xs" className="ml-auto" onClick={() => void stop(run)} aria-label={`Stop the session on ${run.task}`}>
             <Square aria-hidden /> Stop

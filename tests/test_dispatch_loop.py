@@ -262,6 +262,22 @@ class CommandLineTests(LoopCase):
         self.assertFalse(self.record.exists())
         self.assertEqual(store.recent(5), [])
 
+    def test_backlog_refinement_is_off_by_default_and_switched_on_its_own(self):
+        self.assertFalse(store.refining('default'))
+        self.assertIn('Backlog refinement on this device: off', self.cli('status')[1])
+        code, text = self.cli('refine', 'on')
+        self.assertEqual((code, store.refining('default'), store.switched_on('default')), (0, True, False))
+        self.assertIn('Backlog refinement for default on this device: on.', text)
+        self.assertIn('Backlog refinement on this device: on', self.cli('status')[1])
+        self.assertEqual(json.loads(self.cli('refine', 'off', '--json')[1]), {'workspace': 'default', 'refine': False})
+        self.assertFalse(store.refining('default'))
+
+    def test_a_dispatched_session_cannot_switch_refinement_on(self):
+        with patch.dict(os.environ, {'IMPRINT_DISPATCH_RUN': 'r1'}):
+            self.assertIn('refused inside a Dispatched session', self.refused('refine', 'on'))
+            self.assertEqual(self.cli('refine', 'off')[0], 0)
+        self.assertFalse(store.refining('default'))
+
     def test_run_honours_the_daily_limit(self):
         for n in range(10):
             store.add({'id': f'today{n}', 'workspace': 'default', 'task': self.task, 'title': 't', 'project': 'shop',

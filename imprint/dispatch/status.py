@@ -1,7 +1,8 @@
 """Switching the Dispatcher and saying what it does, for the CLI and the dashboard (ADR 0220).
 
 Only the person switches it: ``imprint tasks dispatch on|off`` and the
-Board's strip call ``switch``; agents get no tool for it.
+Board's strip call ``switch``, and ``dispatch refine on|off`` and the strip's
+"Refine Backlog" call ``switch_refining``; agents get no tool for either.
 """
 
 from __future__ import annotations
@@ -21,6 +22,14 @@ def switch(workspace: str, on: bool) -> bool:
     return on
 
 
+def switch_refining(workspace: str, on: bool) -> bool:
+    """Switch Backlog refinement on this device for ``workspace`` (ADR 0230),
+    and have a running Dispatcher look at once."""
+    store.switch_refining(workspace, on)
+    loop.poke()
+    return on
+
+
 def status(workspace: str, *, projects: bool = True, refresh: bool = False) -> dict:
     """This device's Dispatcher for ``workspace``: whether it is on, whether
     the dashboard server that runs it is up, the sessions running and the
@@ -29,7 +38,8 @@ def status(workspace: str, *, projects: bool = True, refresh: bool = False) -> d
     Tasks lives here."""
     here = current()['id']
     found = {
-        'workspace': workspace, 'on': store.switched_on(workspace), 'server': loop.server_running(),
+        'workspace': workspace, 'on': store.switched_on(workspace), 'refine': store.refining(workspace),
+        'server': loop.server_running(),
         'autonomy': tasks.autonomy(workspace), 'running': loop.running_runs(), 'recent': store.recent(8),
         'held': guards.held(), 'clients': clients.listing(refresh=refresh, places=folders.distributions(workspace)),
         'next': [{'id': s['id'], 'title': s['title'], 'project': s['project'], 'client': s['client'], 'role': s['role']}

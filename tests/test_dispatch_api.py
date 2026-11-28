@@ -47,6 +47,15 @@ class StripTests(DispatchApiCase):
         self.api.put('/api/tasks/dispatch', json={'on': False})
         self.assertFalse(store.switched_on('default'))
 
+    def test_backlog_refinement_is_switched_on_the_board_apart_from_the_dispatcher(self):
+        self.assertFalse(self.api.get('/api/tasks/dispatch').json()['refine'])
+        with patch.object(loop, 'poke'):
+            shown = self.api.put('/api/tasks/dispatch', json={'refine': True}).json()
+        self.assertEqual((shown['refine'], shown['on']), (True, False))
+        self.assertTrue(store.refining('default'))
+        self.assertEqual(self.api.put('/api/tasks/dispatch', json={'refine': 'yes'}).status_code, 400)
+        self.assertEqual(self.api.put('/api/tasks/dispatch', json={}).status_code, 400)
+
     def test_the_switch_takes_a_boolean_only(self):
         response = self.api.put('/api/tasks/dispatch', json={'on': 'yes'})
         self.assertEqual(response.status_code, 400)

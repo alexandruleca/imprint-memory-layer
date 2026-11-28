@@ -1310,14 +1310,16 @@ export function setAutonomy(value: Autonomy) {
 export type DispatchRun = {
   id: string; workspace: string; task: string; title: string; project: string; client: string; role: string;
   pid: number | null; worktree: string | null; branch: string | null; base: string | null; started_at: number;
-  ended_at: number | null; exit_code: number | null; outcome: "review" | "passed" | "returned" | "failed" | "stopped" | "lost" | "refused" | null; detail: string | null;
+  ended_at: number | null; exit_code: number | null; outcome: "review" | "passed" | "returned" | "refined" | "failed" | "stopped" | "lost" | "refused" | null; detail: string | null;
 };
 /** This device's Dispatcher for the active workspace: the Board's strip. */
 export type DispatchStatus = {
   workspace: string; on: boolean; server: boolean; autonomy: Autonomy; running: DispatchRun[]; recent: DispatchRun[];
+  /** Whether Backlog refinement is on for this device (ADR 0230): its own switch, off by default. */
+  refine: boolean;
   /** Why it starts nothing now although it is on, such as the daily limit. */
   held: string | null;
-  next: { id: string; title: string; project: string; client: string; role: "work" | "review" }[];
+  next: { id: string; title: string; project: string; client: string; role: "work" | "review" | "refine" }[];
   /** The clients it can start here (ADR 0222): available ones with a version, the rest with the reason. */
   clients: { client: string; label: string; available: boolean; version: string | null; reason: string | null;
     allowed: boolean; default: boolean;
@@ -1330,9 +1332,9 @@ export type DispatchStatus = {
 export function getDispatch(refresh = false) {
   return fetchAPI<DispatchStatus>(`/api/tasks/dispatch${refresh ? "?refresh=true" : ""}`);
 }
-/** Switch this device's Dispatcher for the active workspace; the person's choice only. */
-export function setDispatch(on: boolean) {
-  return fetchAPI<DispatchStatus>("/api/tasks/dispatch", { method: "PUT", body: JSON.stringify({ on }) });
+/** Switch this device's Dispatcher, or its Backlog refinement, for the active workspace; the person's choice only. */
+export function setDispatch(change: { on?: boolean; refine?: boolean }) {
+  return fetchAPI<DispatchStatus>("/api/tasks/dispatch", { method: "PUT", body: JSON.stringify(change) });
 }
 export function stopDispatched(id: string) {
   return fetchAPI<{ run: DispatchRun }>(`/api/tasks/dispatch/${encodeURIComponent(id)}/stop`, { method: "POST" });
