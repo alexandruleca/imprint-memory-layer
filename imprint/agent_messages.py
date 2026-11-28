@@ -178,6 +178,16 @@ def mark(message_id: str, state: str, note: str | None = None) -> None:
     conn.commit()
 
 
+def mark_seen(message_ids: list[str], at: float | None = None) -> None:
+    """The agent's transcript shows these delivered messages (ADR 0244)."""
+    if not message_ids:
+        return
+    conn = agent_activity._connect()
+    conn.executemany("UPDATE agent_messages SET seen_at = ? WHERE id = ? AND state = 'delivered' AND seen_at IS NULL",
+                     [(at or time.time(), message_id) for message_id in message_ids])
+    conn.commit()
+
+
 def _register() -> None:
     notices.register_provider('messages', _section)
     notices.register_settler(PREFIX, _settle)

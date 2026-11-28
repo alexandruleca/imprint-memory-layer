@@ -173,6 +173,21 @@ def _resolve(sessions: list[dict], recorded: dict[str, dict], hooks: list[dict],
     return found
 
 
+def transcript_for(session_id: str) -> tuple[str, str] | None:
+    """The transcript of a running session on this device and how to read it
+    (``claude`` or ``codex``), for its conversation panel (ADR 0244); None
+    while none is found."""
+    if session_id not in _found:
+        live()  # finds and keeps every running session's transcript
+    path = _found.get(session_id)
+    if not path:
+        return None
+    session = next((s for s in agent_activity.connected_sessions() if s['id'] == session_id), None)
+    if session is None:
+        return None
+    return path, 'codex' if _client(session.get('client')) == 'codex' else 'claude'
+
+
 # ── What a session is doing ───────────────────────────────────────────
 
 def _imprint_activity(tool: str | None) -> dict:
