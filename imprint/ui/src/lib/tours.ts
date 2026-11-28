@@ -201,8 +201,10 @@ export const TOURS: Tour[] = [
         body: "Where the model that answers you runs: on this computer, or at a company whose key this computer has." },
       { target: "settings-privacy", only: "simple", optional: true, title: "Privacy",
         body: "“What leaves this computer” says in plain words what is sent anywhere with the choices you have made." },
+      { target: "settings-agents", only: "simple", optional: true, title: "Agents",
+        body: "How many agents this device's Dispatcher runs at once and starts a day, how long each may run, and what agents take by themselves." },
       { target: "settings-sections", only: "advanced", optional: true, title: "Sections",
-        body: "One section shows at a time. A number beside a section counts the settings changed from their defaults." },
+        body: "One section shows at a time. A number beside a section counts the settings changed from their defaults. The Dispatcher's limits are under Dispatcher, and claims and what agents take unasked under Board." },
     ],
   },
   {

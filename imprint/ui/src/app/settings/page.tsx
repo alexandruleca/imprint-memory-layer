@@ -4,7 +4,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import {
   AppWindow, ArrowUpCircle, Bot, LayoutDashboard, Boxes, RefreshCw, Cpu, Database, FileInput, FolderTree, Gpu, KeyRound, Layers, MessageSquare, Mic, ScrollText, Search,
-  MoonStar, Scissors, ShieldCheck, SquareTerminal, Tags, WandSparkles, type LucideIcon,
+  ClipboardList, MoonStar, Scissors, ShieldCheck, SquareTerminal, Tags, WandSparkles, Workflow, type LucideIcon,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
@@ -38,6 +38,9 @@ const GROUPS: Record<string, { title: string; desc: string; icon: LucideIcon }> 
   summarizer: { title: "Session summaries", desc: "An optional step that, after each agent session, has a model write a recap and save the session's decisions, bug causes, patterns and facts as memories. Off by default, and local unless you choose a remote provider.", icon: ScrollText },
   organize: { title: "Organize", desc: "Sorting memories into projects: whether it runs by itself when the queue is idle, and whether moves with strong evidence apply without review. Its moves and proposals reach paired devices.", icon: WandSparkles },
   upkeep: { title: "Upkeep", desc: "Bringing what is already stored up to date while the queue is idle, a piece at a time at low priority: synced memories keep the date they were first stored, and large data files are kept whole without a refresh.", icon: MoonStar },
+  tasks: { title: "Board", desc: "The Board of Tasks agents share: how long a claim lasts before a Task turns Stale or Stalling, and what agents take without being asked once they finish what you asked.", icon: ClipboardList },
+  dispatch: { title: "Dispatcher", desc: "The limits of this device's Dispatcher, which starts agent sessions for Tasks with the roles you tick on the Board: how many run at once, how many start a day, how long each may run, and after how many failures in a row it switches itself off. Changes apply on its next pass. Which clients it may start is set on the Board too.", icon: Workflow },
+  instructions: { title: "Client rules", desc: "The rules block setup gives each connected AI client. Clients that load skills get a short block pointing to Imprint's skill; the clients listed here get the full block.", icon: ScrollText },
   recall: { title: "Recall", desc: "The recall tool lets agents run several memory lookups in one call; optionally, a model on this computer plans those lookups and answers with citations.", icon: Search },
   workspace: {
     title: "Workspace selection",
@@ -50,7 +53,9 @@ const GROUPS: Record<string, { title: string; desc: string; icon: LucideIcon }> 
   update: { title: "Updates", desc: "Which releases this installation is offered, stable or dev builds as well, and whether it installs them by itself when idle.", icon: ArrowUpCircle },
   collection: { title: "Storage", desc: "The Qdrant collection the default workspace uses; other workspaces get their own automatically.", icon: Layers },
 };
-const SUBGROUPS: Record<string, string> = { "tagger.local": "Local model (llama.cpp)" };
+const SUBGROUPS: Record<string, string> = {
+  "tagger.local": "Local model (llama.cpp)", "dispatch.claude_code": "Claude Code", "dispatch.codex": "Codex",
+};
 // The GPU section gathers these from the groups their keys name, in this
 // order, each under a heading for the model it is for: the GPU device
 // applies to all of them.

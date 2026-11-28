@@ -54,6 +54,9 @@ def status(workspace: str, *, projects: bool = True, refresh: bool = False) -> d
         'running': [r for r in loop.running_runs() if r.get('workspace') in (workspace, None)],
         'recent': [r for r in store.recent(40) if r.get('workspace') in (workspace, None)][:8],
         'held': guards.held(),
+        # Today's starts against the limits the person set in Settings (T-pngn6).
+        'limits': {'today': guards.started_today(), 'daily': guards.limit('dispatch.daily_limit'),
+                   'concurrency': guards.limit('dispatch.concurrency')},
         'clients': clients.listing(refresh=refresh, places=folders.distributions(
             workspace, max_age=0.0 if refresh else folders.RUNNING_TTL)),
         # The person's exclusions as set, including clients this device cannot start right now.

@@ -505,9 +505,9 @@ class Session:
     records the outcome once it has ended."""
 
     def __init__(self, run: dict, proc: subprocess.Popen | None = None, *, minutes: float | None = None):
-        from ..config_schema import resolve
+        from . import guards
         self.run, self.proc, self.pid = run, proc, run['pid']
-        self.limit = 60 * float(minutes if minutes is not None else resolve('dispatch.session_minutes')[0])
+        self.limit = 60 * float(minutes if minutes is not None else guards.limit('dispatch.session_minutes'))
         self.renewed, self.reason, self.stopped, self.lost = time.monotonic(), None, False, None
         self.checked = time.monotonic()
 

@@ -286,7 +286,7 @@ class Dispatcher:
         and Ready Tasks where the Work role is on; only when none of them
         started, a Backlog refinement where the Refine role is on (ADRs 0230,
         0237)."""
-        if len(running_runs()) >= max(0, int(_setting('dispatch.concurrency'))) or guards.held():
+        if len(running_runs()) >= max(0, guards.limit('dispatch.concurrency')) or guards.held():
             return None
         self.skipped = {}
         for workspace in store.switched_on_workspaces():

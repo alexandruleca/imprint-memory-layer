@@ -67,6 +67,22 @@ class CatalogStateTests(unittest.TestCase):
         self.assertIs(self._item("recordings-voices")["on"], True)
         self.assertIs(self._item("tidy-labels")["on"], False)
 
+    def test_the_dispatchers_limits_are_plain_choices(self):
+        # Alex asked for the daily limit and the agents at once in Settings (T-pngn6).
+        self.assertEqual([self._item(i)["selected"] for i in
+                          ("agents-at-once", "agents-a-day", "agents-minutes", "agents-failures", "agents-client")],
+                         [0, 1, 1, 1, 0])  # the defaults
+        self.assertEqual(config_simple.apply("agents-at-once", option=2), ["dispatch.concurrency"])
+        self.assertEqual(config_schema.resolve("dispatch.concurrency"), (3, "config"))
+        config_simple.apply("agents-a-day", option=3)
+        self.assertEqual(config_schema.resolve("dispatch.daily_limit"), (50, "config"))
+        config_simple.apply("agents-failures", option=3)
+        self.assertEqual(config_schema.resolve("dispatch.failure_limit"), (0, "config"))
+        config_simple.apply("agents-client", option=2)
+        self.assertEqual(config_schema.resolve("dispatch.default_client"), ("codex", "config"))
+        group = next(g for g in config_simple.catalog() if g["id"] == "agents")
+        self.assertEqual([a["id"] for a in group["advanced"]], ["settings-dispatch", "settings-tasks"])
+
     def test_a_preset_writes_every_key_and_reads_back_selected(self):
         keys = config_simple.apply("assistant-depth", option=2)
         self.assertEqual(sorted(keys), ["chat.research_timeout_sec", "chat.research_token_budget"])
@@ -143,7 +159,7 @@ class SimpleSettingsAPITests(unittest.IsolatedAsyncioTestCase):
                                          base_url="http://127.0.0.1:8420") as client:
                 groups = (await client.get("/api/settings/simple")).json()["groups"]
                 self.assertEqual([group["id"] for group in groups],
-                                 ["assistant", "echo", "recordings", "tidy", "privacy", "devices", "app"])
+                                 ["assistant", "echo", "recordings", "tidy", "privacy", "agents", "devices", "app"])
                 answer = await client.put("/api/settings/simple/recordings-quality", json={"option": 1})
                 self.assertEqual(answer.status_code, 200)
                 self.assertEqual(answer.json()["keys"], ["audio.model"])

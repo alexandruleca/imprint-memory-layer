@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRef, useState } from "react";
 import { Bot, ChevronDown, Square, TerminalSquare } from "lucide-react";
 import { toast } from "sonner";
@@ -47,7 +48,7 @@ function summary(roles: DispatchRole[], autonomy: DispatchStatus["autonomy"]): s
   const doing = ROLES.filter((r) => roles.includes(r.role)).map((r) => r.doing);
   const said = doing.length > 1 ? `${doing.slice(0, -1).join(", ")} and ${doing[doing.length - 1]}` : doing[0];
   const note = roles.includes("work") && autonomy === "off" ? " Agents take nothing unasked in this workspace, so Work starts nothing." : "";
-  return `On for this device: ${said}, one at a time, each in a worktree of its own.${note}`;
+  return `On for this device: ${said}, each in a worktree of its own.${note}`;
 }
 
 /**
@@ -171,6 +172,12 @@ export function DispatcherStrip({ now, onOpen }: { now: Date; onOpen: (task: str
         </div>
         <span className="text-xs text-muted-foreground">{summary(roles, data.autonomy)}</span>
         <ClientsPicker data={data} onChanged={() => void status.refresh()} />
+        {data.limits && (
+          <span className="text-xs text-muted-foreground">
+            Today {data.limits.today} of {data.limits.daily}, {data.limits.concurrency === 1 ? "one" : data.limits.concurrency} at a time.{" "}
+            <Link href="/settings/#settings-dispatch" className="underline underline-offset-2">Limits</Link>
+          </span>
+        )}
         {data.devices.length > 0 && (
           <span className="text-xs text-muted-foreground">
             Also on: {data.devices.map((d) => d.roles?.length ? `${d.name} (${d.roles.join(", ")})` : d.name).join("; ")}

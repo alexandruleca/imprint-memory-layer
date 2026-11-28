@@ -243,8 +243,7 @@ def _dispatch(args, workspace: str | None, as_json: bool) -> None:
     held = guards.held()
     if held:
         raise PermissionError(f'Not started: {held}')
-    from .config_schema import resolve
-    limit = max(0, int(resolve('dispatch.concurrency')[0]))
+    limit = max(0, guards.limit('dispatch.concurrency'))
     if len(loop.running_runs()) >= limit:
         raise PermissionError(f'Not started: {limit} Dispatched session{"s" if limit != 1 else ""} already run on this '
                               'device, the limit (dispatch.concurrency)')

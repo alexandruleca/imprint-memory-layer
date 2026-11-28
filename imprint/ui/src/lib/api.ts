@@ -1371,6 +1371,8 @@ export type DispatchStatus = {
   refine: boolean;
   /** Why it starts nothing now although it is on, such as the daily limit. */
   held: string | null;
+  /** Sessions started today against `dispatch.daily_limit`, and `dispatch.concurrency`; an older API omits it. */
+  limits?: { today: number; daily: number; concurrency: number };
   /** The clients the person unticked (dispatch.excluded_clients), also those this device cannot start right now. */
   excluded?: string[];
   next: { id: string; title: string; project: string; client: string; role: "work" | "review" | "refine" }[];

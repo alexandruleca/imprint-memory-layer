@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import datetime
 import re
+import sys
 import time
 
 from .. import tasks
@@ -26,9 +27,20 @@ from . import store
 TASK_FAILURES = 2
 
 
-def _setting(key: str) -> int:
-    from ..config_schema import resolve
-    return int(resolve(key)[0])
+def limit(key: str) -> int:
+    """One of the Dispatcher's limits, read afresh so a change applies on the
+    next pass; its default when the value set is out of its bounds (an
+    earlier release accepted any number), with a warning."""
+    from ..config_schema import SETTINGS_BY_KEY, resolve
+    try:
+        return int(resolve(key)[0])
+    except (ValueError, TypeError) as error:
+        default = int(SETTINGS_BY_KEY[key].default)
+        print(f'[imprint] dispatcher uses {key} = {default}, its default: {error}', file=sys.stderr, flush=True)
+        return default
+
+
+_setting = limit
 
 
 def started_today(now: float | None = None) -> int:

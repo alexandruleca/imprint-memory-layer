@@ -78,7 +78,10 @@ def tagging_concurrency(raw: Any) -> int:
 def _bounded_integer(raw: Any, low: int, high: int) -> int:
     if isinstance(raw, (bool, float)):
         raise ValueError(f"expected a whole number from {low} to {high}")
-    count = int(raw)
+    try:
+        count = int(raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"expected a whole number from {low} to {high}") from None
     if not low <= count <= high:
         raise ValueError(f"expected a whole number from {low} to {high}")
     return count
@@ -86,6 +89,31 @@ def _bounded_integer(raw: Any, low: int, high: int) -> int:
 
 def research_seconds(raw):
     return _bounded_integer(raw, 10, 3600)
+
+
+# The Dispatcher's limits (ADR 0220), bounded so a typo cannot start hundreds of sessions.
+DISPATCH_LIMITS = {
+    'dispatch.concurrency': (0, 8),
+    'dispatch.daily_limit': (0, 500),
+    'dispatch.session_minutes': (5, 1440),
+    'dispatch.failure_limit': (0, 100),
+}
+
+
+def dispatch_concurrency(raw: Any) -> int:
+    return _bounded_integer(raw, *DISPATCH_LIMITS['dispatch.concurrency'])
+
+
+def dispatch_daily_limit(raw: Any) -> int:
+    return _bounded_integer(raw, *DISPATCH_LIMITS['dispatch.daily_limit'])
+
+
+def dispatch_session_minutes(raw: Any) -> int:
+    return _bounded_integer(raw, *DISPATCH_LIMITS['dispatch.session_minutes'])
+
+
+def dispatch_failure_limit(raw: Any) -> int:
+    return _bounded_integer(raw, *DISPATCH_LIMITS['dispatch.failure_limit'])
 
 
 def research_tokens(raw):
@@ -409,14 +437,14 @@ SETTINGS: list[Setting] = [
             choices=(Choice("ready", "Ready and Stale"), Choice("stale", "Stale only"), Choice("off", "Off"))),
 
     # ── The Dispatcher (ADRs 0220, 0222) ──────────────────────
-    Setting("dispatch.concurrency",         "IMPRINT_DISPATCH_CONCURRENCY",         1,  int,
-            "Dispatched sessions that may run at once on this device, across workspaces"),
-    Setting("dispatch.session_minutes",     "IMPRINT_DISPATCH_SESSION_MINUTES",     60, int,
-            "Minutes a Dispatched session may run before the Dispatcher stops it"),
-    Setting("dispatch.daily_limit",         "IMPRINT_DISPATCH_DAILY_LIMIT",         10, int,
-            "Dispatched sessions the Dispatcher starts a day on this device"),
-    Setting("dispatch.failure_limit",       "IMPRINT_DISPATCH_FAILURE_LIMIT",       3,  int,
-            "Failed Dispatched sessions in a row after which the Dispatcher switches itself off; 0 never"),
+    Setting("dispatch.concurrency",         "IMPRINT_DISPATCH_CONCURRENCY",         1,  dispatch_concurrency,
+            "Dispatched sessions that may run at once on this device, across workspaces (0 to 8)"),
+    Setting("dispatch.session_minutes",     "IMPRINT_DISPATCH_SESSION_MINUTES",     60, dispatch_session_minutes,
+            "Minutes a Dispatched session may run before the Dispatcher stops it (5 to 1440)"),
+    Setting("dispatch.daily_limit",         "IMPRINT_DISPATCH_DAILY_LIMIT",         10, dispatch_daily_limit,
+            "Dispatched sessions the Dispatcher starts a day on this device (0 to 500)"),
+    Setting("dispatch.failure_limit",       "IMPRINT_DISPATCH_FAILURE_LIMIT",       3,  dispatch_failure_limit,
+            "Failed Dispatched sessions in a row after which the Dispatcher switches itself off; 0 never (up to 100)"),
     Setting("dispatch.claude_code.command", "IMPRINT_DISPATCH_CLAUDE_CODE_COMMAND", "", str,
             "Claude Code's binary for Dispatched sessions when it is not on PATH"),
     Setting("dispatch.codex.command",       "IMPRINT_DISPATCH_CODEX_COMMAND",       "", str,
@@ -658,7 +686,9 @@ def set_value(key: str, raw: str) -> Any:
     try:
         val = _cast(raw, s.type)
     except (ValueError, TypeError) as e:
-        raise ValueError(f"invalid value for {key} (expected {s.type.__name__}): {e}")
+        # A parser of its own says what it expects; a plain type is named.
+        expected = f" (expected {s.type.__name__})" if s.type in (int, float, str) else ""
+        raise ValueError(f"invalid value for {key}{expected}: {e}")
     if s.choices and not s.custom and val not in {c.value for c in s.options()}:
         raise ValueError(f"invalid value for {key}: expected one of {', '.join(str(c.value) for c in s.options())}")
     # For JSON, bools stay native; ints/floats stay numeric
