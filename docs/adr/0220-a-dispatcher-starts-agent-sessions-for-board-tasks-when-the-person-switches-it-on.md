@@ -3,9 +3,11 @@ title: ADR 0220 — A Dispatcher starts agent sessions for Board Tasks when the 
 description: Each device's dashboard server runs a Dispatcher, plain code that starts one-shot agent sessions for open Tasks and Tasks waiting for Review by the Board's own rules, switched on per device and workspace by the person only, off by default, within limits on sessions, time and failures.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-27
 - Amends: [ADR 0211](0211-agents-take-ready-and-stale-tasks-unasked-within-their-project.md) — its "Imprint does not start agents": a Dispatcher the person switches on starts agent sessions for Tasks
+- Amended by:
+  - [ADR 0227](0227-dispatched-work-never-feeds-the-dispatcher-until-the-person-moves-it.md) — its "Its own Tasks": which Tasks dispatched work has fed, and that the guard covers reviews as well as work
 - Related: [ADR 0219](0219-agents-take-only-standalone-tasks-unasked.md) (only standalone Tasks), [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) (claims and their tokens), [ADR 0213](0213-built-in-skills-ship-with-each-release-and-a-fork-replaces-them.md) (built-in skills and forks), [ADR 0221](0221-dispatched-sessions-review-tasks-in-review-with-another-client.md) (reviews), [ADR 0222](0222-only-clients-with-a-sandbox-or-a-check-of-each-action-are-dispatched.md) (which clients), [ADR 0223](0223-dispatched-sessions-work-in-a-worktree-outside-the-project-and-never-push-or-merge.md) (where the work happens), [ADR 0224](0224-a-dispatched-session-starts-only-after-its-claim-has-reached-the-paired-devices.md) (claims across devices)
 
 ## Context
