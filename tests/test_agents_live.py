@@ -353,6 +353,20 @@ class LiveTests(LiveCase):
         self.assertEqual([(o['name'], o['device'], o['task']) for o in report['others']], [('quill', 'device-b', made['id'])])
         self.assertEqual(report['counts']['others'], 1)
 
+    def test_waiting_lists_only_the_agents_waiting_for_you(self):
+        now = time.time()
+        self.session('claude-code', '/home/alex/code/shop', board='conversation:w8', name='quill')
+        self.session('claude-code', '/home/alex/code/shop', board='conversation:b5y', name='anvil')
+        projects = self.home / '.claude' / 'projects' / '-home-alex-code-shop'
+        self.transcript(projects / 'w8.jsonl', [prompt('Go', now - 100), answer(now - 60)])
+        self.transcript(projects / 'b5y.jsonl', [prompt('Go', now - 100), tool_use('c1', 'Bash', {'command': 'make'}, now - 5)])
+        with patch.object(agents_live, '_runs', return_value=[]):
+            found = agents_live.waiting(now)
+        self.assertEqual(found['count'], 1)
+        [agent] = found['agents']
+        self.assertEqual(agent['name'], 'quill')
+        self.assertAlmostEqual(agent['since'], now - 60, places=2)  # transcripts keep milliseconds
+
     def test_live_calls_no_model(self):
         with patch('imprint.tagger.build_payload_tags', side_effect=AssertionError('model')), \
                 patch('imprint.embeddings.embed_document', side_effect=AssertionError('model')), \

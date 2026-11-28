@@ -71,10 +71,13 @@ export default function Launcher() {
   const name = recording ? `Imprint. Recording, ${minutes ? spokenDuration(minutes * 60).replace(/ 0 seconds$/, "") : "under a minute"}`
     : warning ? "Imprint. Recording stopped, open for details"
     : activity ? `Imprint. ${activity.text}${activity.percent === null ? "" : `, ${activity.percent} percent`}` : "Imprint";
-  const label = ear === "listening" ? `${name}. Listening for Hey Echo` : name;
+  // Agents waiting for you (ADR 0232): a count at the orb's upper-left, opposite the warning badge.
+  const waiting = state?.waiting ?? 0;
+  const waitingText = waiting ? `${waiting} ${waiting === 1 ? "agent" : "agents"} waiting for you` : "";
+  const label = [ear === "listening" ? `${name}. Listening for Hey Echo` : name, waitingText].filter(Boolean).join(". ");
   const tooltip = recording ? `Recording ${clock(elapsed)} · click to stop or see levels`
     : warning ? `Recording stopped: ${error}`
-    : `Imprint${activity ? ` · ${activity.text}` : ""}${ear === "listening" ? " · listening for “Hey Echo”" : ear ? " · “Hey Echo” paused" : ""} · click for actions · double-click for the dashboard · drag to move`;
+    : `Imprint${activity ? ` · ${activity.text}` : ""}${ear === "listening" ? " · listening for “Hey Echo”" : ear ? " · “Hey Echo” paused" : ""}${waitingText ? ` · ${waitingText}` : ""} · click for actions · double-click for the dashboard · drag to move`;
 
   function endPress() {
     start.current = null;
@@ -153,6 +156,7 @@ export default function Launcher() {
         {recording ? <span className={`orb-timer ${elapsed >= 3600 ? "orb-timer-long" : ""}`}>{clock(elapsed)}</span> : <LogoMark className="size-7" />}
       </button>
       {warning && <span className="orb-badge" aria-hidden="true">!</span>}
+      {waiting > 0 && <span className="orb-waiting" aria-hidden="true">{waiting > 9 ? "9+" : waiting}</span>}
       {ear && <span className="orb-ear" data-state={ear} data-checking={wake?.checking || undefined} aria-hidden="true" />}
       <span id="orb-help" hidden>Press Enter for actions. Alt and the arrow keys move the button.</span>
       <div role="status" aria-live="polite" className="sr-only">{announcement}</div>

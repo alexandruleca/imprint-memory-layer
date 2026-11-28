@@ -336,6 +336,17 @@ def live(now: float | None = None) -> dict:
             'today': [{'client': client, **totals} for client, totals in sorted(day_tokens.items())]}
 
 
+def waiting(now: float | None = None) -> dict:
+    """The agents waiting for you, by Live's rules: ``{count, agents}``,
+    each with its name, client, project, Task and since when (ADR 0232)."""
+    report = live(now)
+    found = [{'id': a['id'], 'name': a['name'], 'client': a['client'], 'project': a['project'],
+              'task': {'id': a['task']['id'], 'title': a['task']['title']} if a['task'] else None,
+              'since': a['activity']['since']}
+             for a in report['agents'] if a['state'] == 'waiting']
+    return {'count': len(found), 'agents': found}
+
+
 # ── History ───────────────────────────────────────────────────────────
 
 HISTORY_TOTALS = 5        # finished sessions whose transcripts one History request may read for totals

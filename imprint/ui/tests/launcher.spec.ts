@@ -179,3 +179,26 @@ test('the orb shows a recording: its timer, a red rim, and a name that says so',
   await expect(page.locator('.orb-rim-recording')).toBeAttached();
   await expect(page.locator('.orb-rim-notch')).toBeAttached();
 });
+
+test('agents waiting for you show as a count on the orb and on the ring\'s Agents action (ADR 0232)', async ({ page }) => {
+  await page.addInitScript(() => {
+    const recorder = { phase: 'idle' as const, id: '', title: '', project: '', startedAt: 0, others: false, error: '' };
+    window.electronAPI = { isElectron: true, platform: 'darwin', close() {}, quit() {}, minimize() {}, maximize() {},
+      openCompanion() {}, closeCompanion() {}, pinCompanion() {},
+      getRecorder: async () => recorder, onRecorder: () => () => {},
+      getLauncherState: async () => ({ ring: false, panel: null, echo: false, echoSide: 0, recorder, activity: null, waiting: 2 }),
+      onLauncherState: () => () => {} };
+  });
+  await page.route('**/api/**', route => route.fulfill({ json: {} }));
+  await page.setViewportSize({ width: 72, height: 72 });
+  await page.goto('/launcher/');
+  await expect(page.getByRole('button', { name: /^Imprint\. 2 agents waiting for you$/ })).toBeVisible();
+  await expect(page.locator('.orb-waiting')).toHaveText('2');
+});
+
+test('the ring\'s Agents action says how many agents wait', async ({ page }) => {
+  await open(page, ring({ waiting: 3 }));
+  const agents = page.getByRole('menu', { name: 'Imprint actions' }).getByRole('menuitem', { name: 'Open Agents, 3 waiting for you' });
+  await expect(agents).toBeVisible();
+  await expect(agents.locator('.halo-badge')).toHaveText('3');
+});

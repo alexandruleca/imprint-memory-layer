@@ -173,6 +173,70 @@ function ping() {
 // the server each time, so a change in Settings applies at the next hide;
 // when the server does not answer, the last answer (at first, off) stands.
 let orbEnabled = false;
+
+// A GET of the dashboard's API: the parsed body, or undefined when the server
+// does not answer in time or answers otherwise.
+function apiJSON(pathname, timeout = 800) {
+  return new Promise(resolve => {
+    const req = http.get(`${UI_URL.replace(/\/$/, '')}${pathname}`, { timeout }, res => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => { body += chunk; });
+      res.on('end', () => {
+        try { resolve(res.statusCode === 200 ? JSON.parse(body) : undefined); } catch { resolve(undefined); }
+      });
+    });
+    req.on('error', () => resolve(undefined));
+    req.on('timeout', () => { req.destroy(); resolve(undefined); });
+  });
+}
+
+// The agents waiting for you (ADR 0232), counted by the dashboard's Live
+// rules every 30 seconds: the orb, its Agents action and the tray show how
+// many. With `desktop.notify_waiting` on (off by default), an agent that starts
+// waiting is told once; those already waiting when the app starts are not.
+const WAITING_POLL = 30000;
+let waitingAgents = [];
+let waitingSeen = null;
+const waitingNotes = new Set();
+function waitingAgent(value) {
+  if (!value || typeof value !== 'object' || typeof value.id !== 'string' || !/^[a-f0-9]{1,64}$/.test(value.id)) return null;
+  const text = (item, limit) => (typeof item === 'string' ? item.slice(0, limit) : '');
+  const task = value.task && typeof value.task === 'object' && typeof value.task.id === 'string' && TASK_ID.test(value.task.id)
+    ? { id: value.task.id, title: text(value.task.title, 200) } : null;
+  return { id: value.id, name: text(value.name, 60), client: text(value.client, 40), project: text(value.project, 120), task,
+    since: Number.isFinite(value.since) ? value.since : 0 };
+}
+async function refreshWaiting() {
+  if (quitting || phase !== 'ready') return;
+  const data = await apiJSON('/api/agents/waiting');
+  if (!data || !Array.isArray(data.agents)) return;
+  const agents = data.agents.slice(0, 50).map(waitingAgent).filter(Boolean);
+  const keys = new Set(agents.map(agent => `${agent.id}@${agent.since}`));
+  if (waitingSeen !== null) {
+    const fresh = agents.filter(agent => !waitingSeen.has(`${agent.id}@${agent.since}`));
+    if (fresh.length && (await apiJSON('/api/config/desktop.notify_waiting'))?.value === true) fresh.forEach(notifyWaiting);
+  }
+  waitingSeen = keys;
+  const changed = JSON.stringify(agents.map(agent => agent.id)) !== JSON.stringify(waitingAgents.map(agent => agent.id));
+  waitingAgents = agents;
+  if (changed) { notifyLauncher(); notifyHalo(); refreshTray(true); }
+}
+function notifyWaiting(agent) {
+  if (!Notification?.isSupported?.()) return;
+  const who = agent.name || agent.client || 'An agent';
+  const note = new Notification({ title: `${who} is waiting for you`,
+    body: agent.task ? `${agent.task.id} · ${agent.task.title}` : agent.project || 'Its turn ended.', silent: false });
+  waitingNotes.add(note); // Kept, or the OS loses its click handler.
+  note.on('click', () => { waitingNotes.delete(note); openAgents(agent.task?.id ?? null); });
+  note.on('close', () => waitingNotes.delete(note));
+  note.show();
+}
+function waitingLabel() {
+  const count = waitingAgents.length;
+  return count ? `${count} ${count === 1 ? 'agent' : 'agents'} waiting for you` : '';
+}
+
 function orbChoice() {
   return new Promise(resolve => {
     const done = value => { if (typeof value === 'boolean') orbEnabled = value; resolve(orbEnabled); };
@@ -281,6 +345,8 @@ async function openDashboard(id) {
   startupWin?.destroy();
   reconcileWake();
   void orbChoice().then(() => refreshTray(true));
+  void refreshWaiting();
+  setInterval(refreshWaiting, WAITING_POLL);
 }
 
 async function start() {
@@ -494,13 +560,18 @@ function trustedHalo(event) {
 }
 function launcherState() {
   return { ring: halo?.kind === 'ring', panel: halo && halo.kind !== 'ring' ? halo.kind : null,
-    echo: echoVisible(), echoSide: floatingGroup() ? echoSide : 0, recorder, activity: launcherActivity, wake: wakeView() };
+    echo: echoVisible(), echoSide: floatingGroup() ? echoSide : 0, recorder, activity: launcherActivity, wake: wakeView(),
+    waiting: waitingAgents.length };
 }
 function notifyLauncher() {
   if (launcherWin && !launcherWin.isDestroyed()) launcherWin.webContents.send('launcher-state', launcherState());
 }
+// The ring's layout again while it shows, with what changed (the waiting count).
+function notifyHalo() {
+  if (halo && haloWin && !haloWin.isDestroyed()) haloWin.webContents.send('halo-layout', haloPayload());
+}
 function haloPayload() {
-  return halo?.layout ? { ...halo.layout, seq: halo.seq, focus: halo.focus, echo: echoVisible(), recorder } : null;
+  return halo?.layout ? { ...halo.layout, seq: halo.seq, focus: halo.focus, echo: echoVisible(), recorder, waiting: waitingAgents.length } : null;
 }
 function createHalo() {
   const window = new BrowserWindow({ ...windowOptions, width: 290, height: 173,
@@ -835,7 +906,7 @@ function trayMenu(activity) {
     ...(activity ? [{ label: activity, enabled: false }, { type: 'separator' }] : []),
     ...wakeMenu(),
     { label: 'Open Dashboard', click: showWindow },
-    { label: 'Open Agents', enabled: phase === 'ready', click: () => openAgents() },
+    { label: waitingAgents.length ? `Open Agents (${waitingAgents.length} waiting)` : 'Open Agents', enabled: phase === 'ready', click: () => openAgents() },
     // What the floating orb offers, whether or not it is shown (ADR 0174).
     recorder.phase === 'recording' ? { label: 'Stop recording', click: stopRecorder }
       : { label: 'New recording…', enabled: recorder.phase === 'idle' && phase === 'ready', click: newRecording },
@@ -939,10 +1010,11 @@ function refreshTray(force = false) {
   const activity = record ? describeActivity(record) : '';
   // The tray also says whether Imprint is listening for "Hey Echo" (ADR 0137).
   const listening = wakeLabel(wakeView());
-  const key = JSON.stringify([activity, listening, recorder.phase, wake.intent.enabled, orbEnabled, phase]);
+  const waiting = waitingLabel();
+  const key = JSON.stringify([activity, listening, recorder.phase, wake.intent.enabled, orbEnabled, phase, waiting]);
   if (key === trayKey && force !== true) return;
   trayKey = key;
-  tray.setToolTip(['Imprint', activity, listening].filter(Boolean).join(' · '));
+  tray.setToolTip(['Imprint', activity, listening, waiting].filter(Boolean).join(' · '));
   tray.setContextMenu(trayMenu(activity));
   if (process.platform === 'darwin') {
     tray.setTitle(record?.total > 0 ? ` ${Math.floor((100 * Math.min(record.processed, record.total)) / record.total)}%` : '');

@@ -457,6 +457,9 @@ SETTINGS: list[Setting] = [
     # Read by the desktop app each time the dashboard is hidden.
     Setting("desktop.floating_orb", "IMPRINT_DESKTOP_FLOATING_ORB", False, bool,
             "Show the floating Imprint button while the dashboard is hidden; it shows during a recording either way"),
+    # Read by the desktop app as it counts the agents waiting for you (ADR 0232).
+    Setting("desktop.notify_waiting", "IMPRINT_DESKTOP_NOTIFY_WAITING", False, bool,
+            "Notify on this desktop each time an agent starts waiting for you; the orb and the tray show the count either way"),
 
     # ── Dashboard (ADR 0182, 0183) ────────────────────────────
     # Presentation only: both dashboards read and write the same settings and

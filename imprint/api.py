@@ -1493,6 +1493,14 @@ def api_agents_live():
     return agents_live.live()
 
 
+@app.get("/api/agents/waiting")
+def api_agents_waiting():
+    """The agents on this device waiting for you, for the desktop app's orb
+    and tray (ADR 0232): Live's rules, no model."""
+    from . import agents_live
+    return agents_live.waiting()
+
+
 @app.get("/api/agents/search-first")
 def api_agents_search_first():
     """For each client that got the short rules block (ADR 0214): its

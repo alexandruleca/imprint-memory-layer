@@ -24,6 +24,8 @@ export type LauncherState = {
   activity: { text: string; percent: number | null } | null;
   /** "Hey Echo" (ADR 0137); the ear dot shows while `listening`. */
   wake?: WakeView;
+  /** How many agents wait for you (ADR 0232). */
+  waiting?: number;
 };
 
 type Box = { x: number; y: number; width: number; height: number };
@@ -37,6 +39,8 @@ export type HaloLayout = {
   orb: { x: number; y: number };
   radius?: number;
   satellites?: HaloSatellite[];
+  /** How many agents wait for you, shown on the Agents action (ADR 0232). */
+  waiting?: number;
   /** The panel's corner nearest the orb, as a CSS transform-origin. */
   origin?: string;
   seq: number;

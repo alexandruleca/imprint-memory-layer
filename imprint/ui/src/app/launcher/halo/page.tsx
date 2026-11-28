@@ -63,7 +63,7 @@ function Ring({ layout, recorder, levels }: { layout: HaloLayout; recorder: Laun
     recording ? { id: "stop", label: "Stop recording and transcribe", icon: <Square size={14} className="fill-current" /> }
       : { id: "record", label: recorder.phase === "starting" ? "Starting…" : saving ? "Saving…" : "New recording", icon: <span className="halo-record-dot" />, disabled: saving },
     // The Agents window (ADR 0232); Record keeps the third place, where its capsule shows while recording.
-    { id: "agents", label: "Open Agents", icon: <Bot size={18} /> },
+    { id: "agents", label: layout.waiting ? `Open Agents, ${layout.waiting} waiting for you` : "Open Agents", icon: <Bot size={18} /> },
   ];
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
   const capsule = useRef<HTMLButtonElement | null>(null);
@@ -129,6 +129,7 @@ function Ring({ layout, recorder, levels }: { layout: HaloLayout; recorder: Laun
             onFocus={() => setNamed(index)} onBlur={() => setNamed((n) => (n === index ? null : n))}
             onClick={() => act(item)}>
             {item.icon}
+            {item.id === "agents" && !!layout.waiting && <span className="halo-badge" aria-hidden="true">{layout.waiting > 9 ? "9+" : layout.waiting}</span>}
           </button>
         );
       })}

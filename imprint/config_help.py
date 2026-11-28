@@ -452,8 +452,12 @@ HELP: dict[str, dict[str, str]] = {
         "example": "true on your laptop and your desktop: record a call on the laptop, listen to it or transcribe it again on the desktop.",
     },
     "desktop.floating_orb": {
-        "help": "In the desktop app, whether a small floating Imprint button stays on screen while the dashboard is hidden, with Dashboard, Echo and Record around it. Off (the default), minimizing keeps the dashboard in the taskbar, closing hides it to the tray, and nothing floats over other windows. A running recording shows the button either way, because it is where a hidden recording shows and stops; it goes when the recording ends. A change applies the next time the dashboard is hidden.",
+        "help": "In the desktop app, whether a small floating Imprint button stays on screen while the dashboard is hidden, with Dashboard, Echo, Record and Agents around it. Off (the default), minimizing keeps the dashboard in the taskbar, closing hides it to the tray, and nothing floats over other windows. A running recording shows the button either way, because it is where a hidden recording shows and stops; it goes when the recording ends. A change applies the next time the dashboard is hidden.",
         "example": "true: to start a recording or talk to Echo with one click while the dashboard is out of the way.",
+    },
+    "desktop.notify_waiting": {
+        "help": "In the desktop app, whether a notification says each time an agent on this computer starts waiting for you: its turn ended, or it asked you something. The floating button, its Agents action and the tray show how many wait either way. Off by default, since several agents at once make it noisy. The count comes from the Agents page's Live rules, read from the agents' own transcripts every 30 seconds, and asks no model.",
+        "example": "true: to hear when an agent needs you while you work in another window.",
     },
     "ui.mode": {
         "help": "Which dashboard this device shows. Simple keeps the everyday pages (Home, Chat, Search, Echo, Recordings, Reminders, Library, About you, Skills, Devices, Settings), a short list of settings and plain words; Advanced shows every page and every setting. It only changes what is shown: both read and write the same memories and settings, every address works in both, and nothing is turned off. The first start after this setting arrived chose it once: advanced for an installation that had already been used, simple for a new one. The switch is also in the top bar.",

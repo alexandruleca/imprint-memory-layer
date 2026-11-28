@@ -13,7 +13,7 @@ const RUNTIME_ARGS = ['--project-dir=/source', '--data-dir=/data', '--python=/wr
 function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, dashboardPending = false, packaged = true, savedPosition = null,
   runtimeArgs = RUNTIME_ARGS, cli = () => [new Error('spawn ENOENT'), ''], platform = 'darwin',
   mediaStatus = 'granted', consent = async () => true, activity = null, servicePending = false, messageBox = async () => ({ response: 1 }),
-  wakeFile = null, onBattery = false, themeFile = null, floatingOrb = true } = {}) {
+  wakeFile = null, onBattery = false, themeFile = null, floatingOrb = true, waiting = () => ({ count: 0, agents: [] }), notifyWaiting = false } = {}) {
   // The orb tests run with the floating orb turned on; Imprint's default is off (ADR 0174), tested on its own.
   const windows = [];
   const services = [];
@@ -118,6 +118,21 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     getDisplayMatching: bounds => ({ workArea: { x: bounds.x >= 1920 ? 1920 : 0, y: 0, width: 1920, height: 1080 } }) });
   const http = {
     get(url, _options, callback) {
+      // The agents waiting for you and the notification setting (ADR 0232), answered as JSON.
+      const json = String(url).endsWith('/api/agents/waiting') ? waiting()
+        : String(url).endsWith('/api/config/desktop.notify_waiting') ? { key: 'desktop.notify_waiting', value: notifyWaiting } : null;
+      if (json) {
+        calls.push(['get', String(url).replace(/^.*\/api\//, '/api/')]);
+        const req = new EventEmitter();
+        req.destroy = () => {};
+        queueMicrotask(() => {
+          const res = Object.assign(new EventEmitter(), { statusCode: 200, setEncoding() {}, resume() {} });
+          callback(res);
+          res.emit('data', JSON.stringify(json));
+          res.emit('end');
+        });
+        return req;
+      }
       if (String(url).endsWith('/api/config/desktop.floating_orb')) {
         calls.push('orb-setting');
         const req = new EventEmitter();
@@ -1200,4 +1215,45 @@ test('the orb\'s Agents action opens the Agents window and closes the ring (ADR 
   assert.equal(agents.url, `${ORIGIN}/agents/?window=agents#live`);
   assert.equal(ring.visible, false, 'the ring closes');
   assert.equal(orb.visible, true, 'the orb stays');
+});
+
+test('the orb, its Agents action and the tray count the agents waiting for you; told once, only when chosen (ADR 0232)', async () => {
+  let agents = [];
+  const h = harness({ alreadyUp: true, notifyWaiting: true, waiting: () => ({ count: agents.length, agents }) }); await settle();
+  const dashboard = h.windows[1];
+  const notes = () => h.calls.filter(call => call[0] === 'notification');
+  const poll = async () => { h.tick(); await settle(); };
+  assert.equal(h.calls.tooltip, 'Imprint');
+  // Already waiting when the app starts: counted, not told.
+  agents = [{ id: 'a1', name: 'quill', client: 'claude-code', project: 'shop', task: { id: 'T-aaaa1', title: 'Fix the total' }, since: 100 }];
+  await poll();
+  assert.equal(h.calls.tooltip, 'Imprint · 1 agent waiting for you');
+  assert.equal(h.calls.menu.find(item => item.label.startsWith('Open Agents')).label, 'Open Agents (1 waiting)');
+  // The first poll ran at start with none waiting, so this one is new: told once.
+  assert.deepEqual(notes(), [['notification', 'quill is waiting for you', 'T-aaaa1 · Fix the total']]);
+  await poll();
+  assert.equal(notes().length, 1, 'the same wait is told once');
+  // A malformed agent is left out; a new one is told.
+  agents = [...agents, { id: '../x', name: 'bad' }, { id: 'b2', name: '', client: 'codex', project: 'site', task: null, since: 200 }];
+  await poll();
+  assert.equal(h.calls.tooltip, 'Imprint · 2 agents waiting for you');
+  assert.deepEqual(notes().at(-1), ['notification', 'codex is waiting for you', 'site']);
+  h.calls.notification.emit('click'); await settle();
+  assert.equal(h.windows.at(-1).url, `${ORIGIN}/agents/?window=agents#live`);
+  // The orb gets the count.
+  dashboard.emit('minimize'); await settle();
+  const orb = h.windows.find(window => window.url === `${ORIGIN}/launcher/`);
+  assert.equal((await h.invoke('launcher-state', orb)).waiting, 2);
+  agents = [];
+  await poll();
+  assert.equal(h.calls.tooltip, 'Imprint');
+});
+
+test('with the notification setting off, the default, waiting agents are counted and never told', async () => {
+  let agents = [];
+  const h = harness({ alreadyUp: true, waiting: () => ({ count: agents.length, agents }) }); await settle();
+  agents = [{ id: 'a1', name: 'quill', client: 'claude-code', project: 'shop', task: null, since: 100 }];
+  h.tick(); await settle();
+  assert.equal(h.calls.tooltip, 'Imprint · 1 agent waiting for you');
+  assert.deepEqual(h.calls.filter(call => call[0] === 'notification'), []);
 });
