@@ -247,6 +247,38 @@ class CommandLineTests(LoopCase):
         with redirect_stdout(io.StringIO()), patch('sys.stderr', io.StringIO()):
             self.assertEqual(cli_tasks.main(['dispatch', 'stop', 'nope']), 1)
 
+    def refused(self, *args):
+        err = io.StringIO()
+        with redirect_stdout(io.StringIO()), patch('sys.stderr', err):
+            self.assertEqual(cli_tasks.main(['dispatch', *args]), 1)
+        return err.getvalue()
+
+    def test_a_dispatched_session_cannot_switch_it_on_or_start_a_session(self):
+        with patch.dict(os.environ, {'IMPRINT_DISPATCH_RUN': 'r1'}):
+            self.assertIn('refused inside a Dispatched session', self.refused('on'))
+            self.assertIn('refused inside a Dispatched session', self.refused('run', self.task))
+            self.assertEqual(self.cli('off')[0], 0)  # switching off is always allowed
+        self.assertFalse(store.switched_on('default'))
+        self.assertFalse(self.record.exists())
+        self.assertEqual(store.recent(5), [])
+
+    def test_run_honours_the_daily_limit(self):
+        for n in range(10):
+            store.add({'id': f'today{n}', 'workspace': 'default', 'task': self.task, 'title': 't', 'project': 'shop',
+                       'client': 'claude-code', 'role': 'work', 'started_at': time.time(), 'ended_at': time.time(),
+                       'outcome': 'review'})
+        self.assertIn('daily limit', self.refused('run', self.task))
+        self.assertFalse(self.record.exists())
+
+    def test_run_honours_the_concurrency_limit(self):
+        alive = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
+        self.addCleanup(lambda: (alive.kill(), alive.wait()))
+        store.add({'id': 'busy', 'workspace': 'default', 'task': 'T-other', 'title': 't', 'project': 'shop',
+                   'client': 'claude-code', 'role': 'work', 'started_at': time.time(), 'pid': alive.pid,
+                   'pid_started': processes.started(alive.pid)})
+        self.assertIn('dispatch.concurrency', self.refused('run', self.task))
+        self.assertFalse(self.record.exists())
+
 
 
 def _dead_run(run_id, task, *, workspace='default'):

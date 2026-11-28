@@ -175,10 +175,20 @@ def _dispatch_status_text(status: dict) -> str:
     return '\n'.join(lines)
 
 
+def _refuse_inside_dispatched(action: str) -> None:
+    """A Dispatched session never switches the Dispatcher on or starts more
+    sessions: only the person does (ADR 0229)."""
+    if os.environ.get('IMPRINT_DISPATCH_RUN'):
+        raise PermissionError(f'`imprint tasks dispatch {action}` is refused inside a Dispatched session: only the '
+                              'person switches the Dispatcher on or starts Dispatched sessions')
+
+
 def _dispatch(args, workspace: str | None, as_json: bool) -> None:
-    from .dispatch import dispatched, loop, status as dispatch_status
+    from .dispatch import dispatched, guards, loop, status as dispatch_status
     from .workspace_policy import workspace_name
     action, name = args.dispatch_command, workspace_name(workspace)
+    if action in ('on', 'run'):
+        _refuse_inside_dispatched(action)
     if action in ('on', 'off'):
         dispatch_status.switch(name, action == 'on')
         note = ('' if action == 'off' or loop.server_running() else
@@ -201,6 +211,15 @@ def _dispatch(args, workspace: str | None, as_json: bool) -> None:
                   f"Its log: {dispatched.store.log_path(run['id'])}\nWaiting for the session to end "
                   '(Ctrl+C stops it)...', flush=True)
 
+    # The person's one-off start, switched on or not, within the same limits as the loop (ADR 0229).
+    held = guards.held()
+    if held:
+        raise PermissionError(f'Not started: {held}')
+    from .config_schema import resolve
+    limit = max(0, int(resolve('dispatch.concurrency')[0]))
+    if len(loop.running_runs()) >= limit:
+        raise PermissionError(f'Not started: {limit} Dispatched session{"s" if limit != 1 else ""} already run on this '
+                              'device, the limit (dispatch.concurrency)')
     run = dispatched.run(args.task, workspace=workspace, client=args.client, minutes=args.minutes, on_start=started,
                          role='review' if args.review else 'work')
     verdicts = {'review': 'reached Review', 'passed': 'passed its review: Done',
