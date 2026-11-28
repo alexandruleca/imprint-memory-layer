@@ -140,7 +140,7 @@ def move(task: str, status: str, *, position: float | None = None, actor: dict |
             # A Dispatched reviewer holds a Task in Review while it checks it (ADR 0221).
             if (state['holder'] or {}).get('session') == actor['session'] and state['status'] != 'review':
                 raise PermissionError('Move it to Review first: another session or the user marks it Done')
-            if state['worked_by'] == actor['session']:
+            if actor['session'] in (state['worked_by'], state.get('submitted_by')):
                 raise PermissionError('The session that did the work does not mark it Done: '
                                       'another session or the user does')
     return _change(task, 'moved', data, actor, workspace, check)

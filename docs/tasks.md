@@ -39,7 +39,7 @@ While the agent's session runs, its Imprint server renews the claim's **lease** 
 
 The settings `tasks.lease_minutes`, `tasks.stalling_minutes` and `tasks.stale_minutes` change these times ([configuration](configuration.md)).
 
-When a holder finishes, it moves the Task to **Review** with a checkpoint saying how it verified the work. You, or a different agent session that reviewed it, move it to **Done**; the session that did the work cannot. Releasing a claim without finishing puts the Task back in Ready (Backlog without acceptance criteria); `imprint tasks release T-…` ends any agent's claim.
+When a holder finishes, it moves the Task to **Review** with a checkpoint saying how it verified the work. You, or a different agent session that reviewed it, move it to **Done**; the session that did the work cannot, and neither can the session that moved it to Review, even when another session held the claim (a Dispatched worker that never took the Dispatcher's claim over). Releasing a claim without finishing puts the Task back in Ready (Backlog without acceptance criteria); `imprint tasks release T-…` ends any agent's claim.
 
 ## Taking over and taking work unasked
 

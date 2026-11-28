@@ -59,6 +59,11 @@ def _moved(state: dict, event: dict) -> dict:
             _end_claim(state)
         elif status == 'review' and event['actor'] == 'agent':
             state['worked_by'] = event['session']
+    if status == 'review' and event['actor'] == 'agent':
+        # The session that hands the work in counts as having done it too, even
+        # when another session held the claim (a Dispatched worker that never
+        # took the Dispatcher's claim over), so it cannot also mark it Done.
+        state['submitted_by'] = event['session']
     if status in ('done', 'cancelled') and state['status'] not in ('done', 'cancelled'):
         state['ended_at'] = event['recorded_at']
     elif status not in ('done', 'cancelled'):

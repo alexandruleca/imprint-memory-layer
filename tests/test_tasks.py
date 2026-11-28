@@ -420,6 +420,17 @@ class ClaimTests(TasksTestCase):
         tasks.move(other, 'review', actor=AGENT, workspace='default')
         self.assertEqual(tasks.move(other, 'done', workspace='default')['status'], 'done')
 
+    def test_a_worker_that_hands_in_anothers_claim_does_not_mark_it_done(self):
+        # A Dispatched worker that moves its Task to Review without taking the Dispatcher's claim over.
+        task = self.ready()
+        dispatcher = tasks.agent('dispatch:run1', client='claude-code')
+        tasks.claim(task, actor=dispatcher, workspace='default')
+        review = tasks.move(task, 'review', actor=AGENT, workspace='default')
+        self.assertEqual((review['worked_by'], review['submitted_by']), ('dispatch:run1', 'session-1'))
+        with self.assertRaisesRegex(PermissionError, 'another session'):
+            tasks.move(task, 'done', actor=AGENT, workspace='default')
+        self.assertEqual(tasks.move(task, 'done', actor=CODEX, workspace='default')['status'], 'done')
+
     def test_tasks_for_the_user_or_already_ended_are_not_claimed(self):
         mine = self.ready(assignees=['user'])
         with self.assertRaisesRegex(PermissionError, 'assigned to the user'):
