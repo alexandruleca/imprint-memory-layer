@@ -82,6 +82,8 @@ def started(pid: int | None) -> str | None:
 
 
 def same(pid: int | None, identity: str | None) -> bool:
-    """Whether ``pid`` is still the process whose identity (``started``) was
-    ``identity``; False without an identity to compare."""
-    return bool(identity) and started(pid) == identity
+    """Whether ``pid`` is still the running process whose identity
+    (``started``) was ``identity``; False without an identity to compare.
+    It must also be running: Windows answers for a process that ended as
+    long as a handle to it stays open."""
+    return bool(identity) and is_alive(pid) and started(pid) == identity
