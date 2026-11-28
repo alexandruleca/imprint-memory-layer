@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from imprint import tasks, tasks_tool
+from imprint.tasks.actors import SYSTEM
 from imprint.dispatch import dispatched, guards, loop, status, store
 
 from test_dispatch_loop import LoopCase
@@ -152,6 +153,43 @@ class OwnTasksTests(LoopCase):
         self.assertIn(self.task, [s['id'] for s in loop.candidates('default')])
         self.assertIsNotNone(agent)
 
+
+    def test_a_dispatched_sessions_task_claimed_and_released_into_ready_is_never_dispatched(self):
+        agent = self.dispatched_agent()
+        made = tasks.create('Follow-up', project='shop', acceptance=['ok'], actor=agent)['id']  # Backlog
+        tasks.claim(made, actor=agent)
+        tasks.release(made, actor=agent)  # with criteria, a release puts it in Ready
+        self.assertEqual(tasks.get(made)['status'], 'ready')
+        status.switch('default', True)
+
+        self.assertNotIn(made, [s['id'] for s in loop.candidates('default')])
+        tasks.move(made, 'backlog', actor=tasks.USER)
+        tasks.move(made, 'ready', actor=tasks.USER)  # the person decides
+        self.assertIn(made, [s['id'] for s in loop.candidates('default')])
+
+    def test_a_backlog_task_a_dispatched_session_put_in_review_is_never_reviewed(self):
+        agent = self.dispatched_agent()
+        mine = tasks.create('Idea', project='shop', acceptance=['ok'], actor=tasks.USER)['id']  # Backlog
+        tasks.move(mine, 'review', actor=agent)
+        status.switch('default', True)
+
+        self.assertNotIn(mine, [s['id'] for s in loop.reviews('default')])
+        tasks.move(mine, 'ready', actor=tasks.USER)
+        tasks.move(mine, 'review', actor=tasks.USER)
+        self.assertIn(mine, [s['id'] for s in loop.reviews('default')])
+
+    def test_a_claim_released_back_to_backlog_feeds_nothing(self):
+        agent = self.dispatched_agent()
+        mine = tasks.create('Groom me', project='shop', actor=tasks.USER)['id']
+        tasks.claim(mine, actor=agent)
+        tasks.edit(mine, acceptance=['it works'], actor=agent)
+        tasks.release(mine, status='backlog', actor=SYSTEM)  # as the Dispatcher ends a refinement
+        dispatched_sessions = tasks.dispatched_sessions('default')
+        self.assertFalse(guards.fed_by_dispatched(mine, 'default', dispatched_sessions))
+        interactive = tasks.agent('conversation:interactive', client='claude-code')
+        tasks.move(mine, 'ready', actor=interactive)
+        status.switch('default', True)
+        self.assertIn(mine, [s['id'] for s in loop.candidates('default')])
 
 if __name__ == '__main__':
     unittest.main()

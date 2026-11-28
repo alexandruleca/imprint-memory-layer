@@ -53,7 +53,7 @@ def candidates(workspace: str, *, choices: list[str] | None = None) -> list[dict
     """The Tasks the Dispatcher would take in ``workspace``, in the Board's
     order, each with the ``client`` that would work it: Ready and
     standalone, open to one of the clients allowed on this device, as the
-    workspace's autonomy allows, and not readied by a Dispatched session."""
+    workspace's autonomy allows, and not fed by dispatched work (ADR 0227)."""
     choices = clients.allowed() if choices is None else choices
     device = tasks.device_name()
     found, seen = [], set()
@@ -70,7 +70,7 @@ def candidates(workspace: str, *, choices: list[str] | None = None) -> list[dict
     chosen = []
     for state in found:
         client = clients.for_task(state, choices, device)
-        if client and not guards.readied_by_dispatched(state['id'], workspace, dispatched):
+        if client and not guards.fed_by_dispatched(state['id'], workspace, dispatched):
             chosen.append({**state, 'client': client, 'role': 'work'})
     return chosen
 
@@ -78,15 +78,19 @@ def candidates(workspace: str, *, choices: list[str] | None = None) -> list[dict
 def reviews(workspace: str, *, choices: list[str] | None = None) -> list[dict]:
     """Tasks in Review the Dispatcher would review (ADR 0221), in the
     Board's order, each with its reviewer's ``client``: standalone, not the
-    person's, not held, not for another device, as autonomy allows."""
+    person's, not held, not for another device, not fed by dispatched work
+    (ADR 0227), as autonomy allows."""
     if tasks.autonomy(workspace) == 'off':
         return []
     choices = clients.allowed() if choices is None else choices
     device = tasks.device_name()
     found = []
+    dispatched = tasks.dispatched_sessions(workspace)
     for state in tasks.listing(status='review', workspace=workspace):
         if 'user' in state['assignees'] or state.get('feature') or state.get('tasks') or state.get('holder'):
             continue
+        if guards.fed_by_dispatched(state['id'], workspace, dispatched):
+            continue  # dispatched work that put itself in Review (ADR 0227)
         devices = [a for a in state['assignees'] if '@' in a]
         if devices and not any(a.split('@', 1)[1].lower() == device for a in devices):
             continue

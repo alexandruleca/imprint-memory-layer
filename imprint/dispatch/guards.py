@@ -4,8 +4,9 @@
 - after ``dispatch.failure_limit`` failures in a row the Dispatcher switches
   itself off and tells the person;
 - a Task whose Dispatched sessions fail twice goes to the person;
-- a Task a Dispatched session created, or moved to Ready from Backlog, is
-  never dispatched, so dispatched work cannot feed itself.
+- a Task a Dispatched session created, or took out of Backlog, is never
+  worked on or reviewed until the person moves it, so dispatched work
+  cannot feed itself (ADR 0227).
 
 A session the person stopped, or the server's shutdown, is *stopped*: it
 is no failure.
@@ -88,30 +89,36 @@ def switch_off_after_failures(run: dict) -> bool:
     return True
 
 
-def _readying(events: list[dict]) -> dict | None:
-    """The latest event that made the Task Ready from Backlog, or created it
-    Ready; moves back to Ready from work or review do not count."""
-    status, found = None, None
-    for event in events:
-        kind, data = event['kind'], event['data']
+def fed_by_dispatched(task: str, workspace: str, dispatched: set[str]) -> bool:
+    """Whether dispatched work put ``task`` where the Dispatcher would take
+    it (ADR 0227): a Dispatched session created it, or took it out of
+    Backlog, by a move or by a claim that ended in another status, and the
+    person has not moved it since. A Task a review sends back to Ready, or
+    one a Dispatched session claimed and released back to Backlog, was not
+    fed. ``dispatched`` is the workspace's Dispatched sessions
+    (``tasks.dispatched_sessions``)."""
+    fed, resting, claimed_from, holder = False, 'backlog', None, None
+    for event in tasks.history(task, workspace=workspace):
+        kind, data, actor = event['kind'], event['data'], event['actor']
+        by_dispatched = actor == 'agent' and event['session'] in dispatched
         if kind == 'created':
-            status = data.get('status', 'backlog')
-            found = event if status == 'ready' else found
-        elif kind == 'moved':
-            if data.get('status') == 'ready' and status == 'backlog':
-                found = event
-            status = data.get('status', status)
-        elif kind == 'claimed' and status in ('backlog', 'ready'):
-            status = 'in_progress'
-        elif kind == 'released':
-            status = data.get('status') or ('ready' if status == 'in_progress' else status)
-    return found
-
-
-def readied_by_dispatched(task: str, workspace: str, dispatched: set[str]) -> bool:
-    """Whether a Dispatched session created ``task`` Ready or moved it to Ready from Backlog."""
-    event = _readying(tasks.history(task, workspace=workspace))
-    return bool(event) and event['actor'] == 'agent' and event['session'] in dispatched
+            resting, fed = data.get('status') or 'backlog', by_dispatched
+        elif kind == 'claimed':
+            claimed_from = resting if claimed_from is None else claimed_from  # a takeover keeps where the work began
+            holder = event['session']
+            resting = 'in_progress' if resting in ('backlog', 'ready') else resting
+        elif kind in ('moved', 'released'):
+            status = data.get('status') or resting
+            ending = kind == 'released' or status in ('review', 'done', 'cancelled')
+            if actor == 'user':
+                fed = False  # the person decided where it goes
+            elif status != 'backlog' and 'backlog' in (resting, claimed_from) and \
+                    (by_dispatched or (actor == 'system' and holder in dispatched)):
+                fed = True
+            resting = status
+            if ending:
+                claimed_from = holder = None
+    return fed
 
 
 MISSING_WORK = "is not in this device's copy of the repository"
