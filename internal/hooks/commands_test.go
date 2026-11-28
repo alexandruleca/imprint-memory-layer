@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -142,7 +143,11 @@ func TestCursorHookCommandsExecuteInCursorsShell(t *testing.T) {
 	}
 	// What the hook was given, for a failure's message.
 	received := func(payload string) string {
-		child := cursorShellCommand(t, quote(interpreter)+` -c "import sys;print(repr(sys.stdin.buffer.read()[:48]))"`, payload)
+		probe := quote(interpreter)
+		if runtime.GOOS == "windows" {
+			probe = "& '" + strings.ReplaceAll(interpreter, "'", "''") + "'"
+		}
+		child := cursorShellCommand(t, probe+` -c "import sys;data=sys.stdin.buffer.read();print(len(data),repr(data[:64]))"`, payload)
 		output, err := child.CombinedOutput()
 		return fmt.Sprintf("%s %v; the shell said %q", bytes.TrimSpace(output), err, stderr.String())
 	}
