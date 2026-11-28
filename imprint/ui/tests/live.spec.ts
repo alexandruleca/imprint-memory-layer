@@ -49,6 +49,16 @@ async function mockLive(page: Page, data = report(agents(), [{ name: 'anvil', cl
   await page.route(/\/api\/agents\?/, route => route.fulfill({ json: { running: [session], sessions: [], next: null, total: 0,
     clients: [{ client: 'claude-code', sessions: 1, connected: 1, calls: 3, errors: 0, last_seen: now }] } }));
   await page.route('**/api/agents/w1/calls**', route => route.fulfill({ json: { session, calls: [] } }));
+  // The person's messages to a session (ADR 0245).
+  await page.route(/\/api\/agents\/[^/]+\/messages$/, route => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const body = request.postData() ? JSON.parse(request.postData()!) : null;
+    asked.push({ method: request.method(), path: url.pathname, body });
+    if (request.method() !== 'POST') return route.fulfill({ json: { messages: [] } });
+    return route.fulfill({ json: { message: { id: 'm1', text: body.text, sent_at: now, state: 'waiting', via: null, delivered_at: null,
+      note: null, task: url.pathname.includes('/w1/') ? 'T-aaaa1' : null } } });
+  });
   await page.route('**/api/tasks/**', route => {
     const request = route.request();
     const url = new URL(request.url());
@@ -102,12 +112,17 @@ test('Live opens a Task, a History entry, messages an agent and stops only a Dis
   const working = page.locator('li[data-agent="w1"]');
   await expect(working.getByRole('button', { name: 'Stop' })).toHaveCount(0);
   await page.getByRole('button', { name: '1 idle for over 30 minutes' }).click();
-  await expect(page.locator('li[data-agent="i1"]').getByRole('button', { name: 'Message' })).toBeDisabled();
   await working.getByRole('button', { name: 'Message' }).click();
   await working.getByLabel('Message to grimforge').fill('Use the new tax table');
   await working.getByRole('button', { name: 'Send' }).click();
-  await expect(page.getByText('Sent to grimforge on T-aaaa1')).toBeVisible();
-  expect(asked.find(a => a.path === '/api/tasks/T-aaaa1/comment')?.body).toEqual({ text: 'Use the new tax table', to: ['grimforge'] });
+  await expect(page.getByText('Sent to grimforge')).toBeVisible();
+  expect(asked.find(a => a.path === '/api/agents/w1/messages' && a.method === 'POST')?.body).toEqual({ text: 'Use the new tax table' });
+  // An agent without a Task is messaged too (ADR 0245).
+  const idle = page.locator('li[data-agent="i1"]');
+  await idle.getByRole('button', { name: 'Message' }).click();
+  await idle.getByLabel('Message to the agent').fill('Are you still there?');
+  await idle.getByRole('button', { name: 'Send' }).click();
+  expect(asked.find(a => a.path === '/api/agents/i1/messages' && a.method === 'POST')?.body).toEqual({ text: 'Are you still there?' });
   const reviewing = page.locator('li[data-agent="q1"]');
   await reviewing.getByRole('button', { name: 'Stop' }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Stop' }).click();
@@ -149,4 +164,20 @@ test('Live says when nothing runs and fits a phone in the dark', async ({ page }
   await page.route('**/api/agents/live', route => route.fulfill({ json: report([]) }));
   await page.reload();
   await expect(page.getByText('No agents are running on this device.')).toBeVisible();
+});
+
+test("a card shows the person's last messages and how far each got (ADR 0245)", async ({ page }) => {
+  await base(page, { mode: 'advanced', tutorials: false });
+  const list: { state: unknown; [key: string]: unknown }[] = agents();
+  list[0] = { ...list[0], messages: [
+    { id: 'm1', text: 'Use the new tax table', sent_at: now - 120, state: 'delivered', via: 'tool', delivered_at: now - 100, note: null, task: 'T-aaaa1' },
+    { id: 'm2', text: 'Then run the tests', sent_at: now - 30, state: 'waiting', via: null, delivered_at: null, note: null, task: null },
+  ] };
+  await mockLive(page, report(list));
+  await page.goto('/agents/#live');
+  const sent = page.locator('li[data-agent="w1"]').getByRole('list', { name: 'Your messages' });
+  await expect(sent.getByRole('listitem')).toHaveCount(2);
+  await expect(sent.getByRole('listitem').first()).toContainText('Told after its next tool call');
+  await expect(sent.getByRole('listitem').first()).toContainText('also on T-aaaa1');
+  await expect(sent.getByRole('listitem').last()).toContainText('Waiting for its next Imprint call');
 });

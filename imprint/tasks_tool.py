@@ -157,8 +157,11 @@ def _pending(me: dict, workspace: str | None) -> tuple[list[str], list[str]]:
 
 
 def _board_section(me: dict, workspace: str | None):
-    """The Board's part of a notice (ADRs 0212, 0240)."""
+    """The Board's part of a notice (ADRs 0212, 0240); nothing on a
+    workspace without a Board."""
     from . import notices as registry
+    if not board_exists(workspace or ''):
+        return None
     keys, lines = _pending(me, workspace)
     return registry.Section('From the Imprint Board:', keys, lines,
                             more='More waits on the Imprint Board: tasks(action="inbox").') if keys else None
@@ -232,8 +235,7 @@ def refresh_prompt_notices(workspace: str | None = None, client: str | None = No
     if found is None:
         return
     registry.sweep(found.folder)
-    if not board_exists(workspace or ''):
-        return
+    # Not only the Board speaks: the person's messages reach sessions on any workspace (ADR 0245).
     me = actor(client, workspace or '')
     workspace = workspace or None
     _settle_prompt_file(me['session'], workspace)

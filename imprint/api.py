@@ -1493,6 +1493,36 @@ def api_agents_live():
     return agents_live.live()
 
 
+@app.post("/api/agents/{session_id}/messages")
+async def api_agent_message(session_id: str, request: Request):
+    """The person's message to a running agent session on this device
+    (ADR 0245): kept with the session and told on its next Imprint call."""
+    from . import agent_messages
+    try:
+        body = await request.json()
+    except ValueError:
+        body = {}
+    board_session = agent_messages.board_session_of(session_id)
+    if board_session is None:
+        return JSONResponse({"error": "That agent's session has ended on this device, so it can no longer be told anything"},
+                            status_code=409)
+    try:
+        message = agent_messages.send(board_session, str((body or {}).get("text") or ""))
+    except LookupError as error:
+        return JSONResponse({"error": str(error)}, status_code=409)
+    except ValueError as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    return {"message": message}
+
+
+@app.get("/api/agents/{session_id}/messages")
+def api_agent_messages(session_id: str):
+    """The person's messages to a session, oldest first, with their states."""
+    from . import agent_messages
+    board_session = agent_messages.board_session_of(session_id, running=False)
+    return {"messages": agent_messages.messages(board_session) if board_session else []}
+
+
 @app.get("/api/agents/waiting")
 def api_agents_waiting():
     """The agents on this device waiting for you, for the desktop app's orb

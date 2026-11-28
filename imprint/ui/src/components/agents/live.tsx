@@ -18,7 +18,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useNow } from "@/components/timestamp";
-import { changeTask, getLive, stopDispatched, type LiveAgent, type LiveReport, type LiveTokens } from "@/lib/api";
+import { getLive, sendAgentMessage, stopDispatched, type AgentMessage, type LiveAgent, type LiveReport, type LiveTokens } from "@/lib/api";
 import { useUiMode } from "@/lib/ui-mode";
 import { useCached } from "@/lib/use-cached";
 import { cn } from "@/lib/utils";
@@ -287,8 +287,7 @@ function AgentCard({ agent, now, simple, onChanged }: { agent: LiveAgent; now: D
       <div className="mt-auto flex flex-wrap items-center gap-1 border-t border-border pt-2">
         {agent.task && <Button variant="ghost" size="xs" onClick={() => openTask(agent.task!.id)}><KanbanSquare aria-hidden /> Open Task</Button>}
         <Button variant="ghost" size="xs" onClick={() => openHistory(agent.id)}><Clock aria-hidden /> History</Button>
-        <Button variant="ghost" size="xs" disabled={!agent.task} title={agent.task ? undefined : "Messages go on a Task, and it holds none"}
-          onClick={() => setMessaging((m) => !m)} aria-expanded={messaging}>
+        <Button variant="ghost" size="xs" onClick={() => setMessaging((m) => !m)} aria-expanded={messaging}>
           <MessageSquare aria-hidden /> Message
         </Button>
         {agent.dispatched && (
@@ -297,7 +296,8 @@ function AgentCard({ agent, now, simple, onChanged }: { agent: LiveAgent; now: D
           </Button>
         )}
       </div>
-      {messaging && agent.task && (
+      {agent.messages && agent.messages.length > 0 && <SentMessages messages={agent.messages} now={now} />}
+      {messaging && (
         <MessageForm agent={agent} onSent={() => { setMessaging(false); onChanged(); }} onCancel={() => setMessaging(false)} />
       )}
       {agent.dispatched && (
@@ -353,25 +353,58 @@ function TokenFigures({ figures }: { figures: LiveTokens }) {
   );
 }
 
+/** Where a message got to, in words (ADR 0245). */
+export function messageState(message: AgentMessage): string {
+  if (message.state === "delivered") {
+    return message.via === "inbox" ? "Delivered as a peer message"
+      : message.via === "tool" ? "Told after its next tool call"
+      : message.via === "prompt" ? "Told with its next prompt" : "Told on its next Imprint reply";
+  }
+  if (message.state === "held") return "Held by Claude Code: approve it in the session. Also waiting for its next Imprint call";
+  if (message.state === "refused") return "Refused by Claude Code's inbox. Waiting for its next Imprint call";
+  if (message.state === "failed") return "Its inbox could not be reached. Waiting for its next Imprint call";
+  return "Waiting for its next Imprint call";
+}
+
+/** The person's last messages to this agent, each with how far it got. */
+function SentMessages({ messages, now }: { messages: AgentMessage[]; now: Date }) {
+  return (
+    <ul className="grid gap-1 border-t border-border pt-2 text-xs" aria-label="Your messages">
+      {messages.map((m) => (
+        <li key={m.id} className="grid gap-0.5">
+          <span className="line-clamp-2 break-words" title={m.text}>{m.text}</span>
+          <span className={cn("text-[11px] text-muted-foreground", m.state !== "delivered" && m.state !== "waiting" && "text-amber-700 dark:text-amber-300")}>
+            {messageState(m)} · {ago(m.delivered_at ?? m.sent_at, now)}{m.task && ` · also on ${m.task}`}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function MessageForm({ agent, onSent, onCancel }: { agent: LiveAgent; onSent: () => void; onCancel: () => void }) {
   const id = useId();
   const [text, setText] = useState("");
-  const to = agent.name ? [agent.name] : ["holder"];
+  const [busy, setBusy] = useState(false);
+  const name = agent.name ?? "the agent";
   return (
     <form className="flex gap-2" onSubmit={async (e) => {
       e.preventDefault();
+      setBusy(true);
       try {
-        await changeTask(agent.task!.id, "comment", { text, to });
-        toast.success(`Sent to ${agent.name ?? "its holder"} on ${agent.task!.id}`);
+        const { message } = await sendAgentMessage(agent.id, text);
+        toast.success(`Sent to ${name}`, { description: message.task ? `Also on ${message.task}. ${messageState(message)}.` : `${messageState(message)}.` });
         onSent();
       } catch (err) {
         toast.error("Not sent", { description: err instanceof Error ? err.message : String(err) });
+      } finally {
+        setBusy(false);
       }
     }}>
-      <label htmlFor={id} className="sr-only">Message to {agent.name ?? "the agent"}</label>
-      <Input id={id} value={text} onChange={(e) => setText(e.target.value)} placeholder={`To ${agent.name ?? "the agent"}, on ${agent.task!.id}`}
+      <label htmlFor={id} className="sr-only">Message to {name}</label>
+      <Input id={id} value={text} onChange={(e) => setText(e.target.value)} placeholder={`To ${name}`} maxLength={4000}
         className="h-8 text-xs" autoFocus onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); onCancel(); } }} />
-      <Button type="submit" size="sm" disabled={!text.trim()}><Send aria-hidden /> Send</Button>
+      <Button type="submit" size="sm" disabled={busy || !text.trim()}><Send aria-hidden /> Send</Button>
     </form>
   );
 }

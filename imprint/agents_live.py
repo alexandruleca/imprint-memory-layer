@@ -293,6 +293,8 @@ def live(now: float | None = None) -> dict:
     boards = _boards({s['workspace'] for s in sessions if s.get('workspace')} | {_active_workspace()})
     held = {t['holder'].get('session'): t for tasks_ in boards.values() for t in tasks_}
     runs = _runs()
+    from . import agent_messages
+    sent = agent_messages.recent([s['board_session'] for s in sessions])
     device = actors._device()
     today = time.strftime('%Y-%m-%d', time.localtime(now))
     agents, day_tokens = [], {}
@@ -322,6 +324,9 @@ def live(now: float | None = None) -> dict:
             'actions': state.actions(now) if state else [],
             'tokens': state.tokens() if state else None, 'transcript': path is not None,
             'last_call_at': session.get('last_call_at'),
+            # The person's last messages to it, with how far each got (ADR 0245).
+            'messages': [{key: m[key] for key in ('id', 'text', 'sent_at', 'state', 'via', 'delivered_at', 'note', 'task')}
+                         for m in sent.get(session['board_session'], [])],
         })
     order = {'waiting': 0, 'working': 1, 'idle': 2}
     agents.sort(key=lambda a: (a['project'] or '~', order[a['state']], -(a['activity'].get('since') or 0)))

@@ -1236,7 +1236,23 @@ export type LiveAgent = {
     stalling: boolean; next: string | null; checkpoint_at: number | null } | null;
   dispatched: { run: string; role: string | null } | null;
   actions: LiveAction[]; tokens: LiveTokens | null; transcript: boolean; last_call_at: number | null;
+  /** The person's last messages to it, oldest first (ADR 0245). */
+  messages?: AgentMessage[];
 };
+/** One of the person's messages to an agent session, and how far it got (ADR 0245). */
+export type AgentMessage = {
+  id: string; text: string; sent_at: number; state: "waiting" | "delivered" | "held" | "refused" | "failed";
+  /** How it was told: on an Imprint tool reply, after a tool call, on a prompt, or through Claude Code's inbox. */
+  via: "reply" | "tool" | "prompt" | "inbox" | null; delivered_at: number | null; note: string | null; task: string | null;
+  seen_at?: number | null;
+};
+/** Send the person's message to a running agent session on this device. */
+export function sendAgentMessage(sessionId: string, text: string) {
+  return fetchAPI<{ message: AgentMessage }>(`/api/agents/${encodeURIComponent(sessionId)}/messages`, { method: "POST", body: JSON.stringify({ text }) });
+}
+export function getAgentMessages(sessionId: string) {
+  return fetchAPI<{ messages: AgentMessage[] }>(`/api/agents/${encodeURIComponent(sessionId)}/messages`);
+}
 export type LiveOther = { name: string | null; client: string | null; device: string | null; task: string; title: string;
   project: string; status: TaskStatus; next: string | null; progress_at: number | null; stalling: boolean };
 export type LiveReport = {

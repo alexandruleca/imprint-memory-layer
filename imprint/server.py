@@ -164,6 +164,8 @@ class _BoardNotice(Middleware):
 
 mcp.add_middleware(_BoardNotice())
 
+from . import agent_messages  # noqa: E402,F401 - registers the person's messages with the notices (ADR 0245)
+
 
 def _client_info(params):
     """The client's Implementation from initialize params or a session's

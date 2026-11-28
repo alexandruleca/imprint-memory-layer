@@ -85,6 +85,23 @@ def _connect() -> sqlite3.Connection:
             path         TEXT NOT NULL,
             recorded_at  REAL NOT NULL
         );
+
+        -- The person's messages to an agent session, kept with it on this device (ADR 0245).
+        CREATE TABLE IF NOT EXISTS agent_messages (
+            id            TEXT PRIMARY KEY,
+            board_session TEXT NOT NULL,
+            text          TEXT NOT NULL,
+            sent_at       REAL NOT NULL,
+            state         TEXT NOT NULL DEFAULT 'waiting',
+            via           TEXT,
+            delivered_at  REAL,
+            seen_at       REAL,
+            note          TEXT,
+            task          TEXT,
+            workspace     TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_messages_session
+            ON agent_messages(board_session, sent_at);
         """
     )
     columns = {row[1] for row in conn.execute("PRAGMA table_info(agent_sessions)")}
@@ -129,6 +146,7 @@ def start_session(directory: str | None, workspace: str | None) -> str:
     now = time.time()
     _write("DELETE FROM agent_sessions WHERE last_seen < ?", (now - RETENTION_DAYS * 86400,))
     _write("DELETE FROM agent_transcripts WHERE recorded_at < ?", (now - RETENTION_DAYS * 86400,))
+    _write("DELETE FROM agent_messages WHERE sent_at < ?", (now - RETENTION_DAYS * 86400,))
     _write(
         "INSERT INTO agent_sessions (id, pid, directory, workspace, started_at, last_seen) VALUES (?, ?, ?, ?, ?, ?)",
         (_session_id, os.getpid(), directory, workspace, now, now),
