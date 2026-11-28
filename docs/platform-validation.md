@@ -434,6 +434,22 @@ See [ADR 0052](adr/0052-learn-cursor-conversations-from-their-folder-names.md). 
 
 Not run: registering Cursor in the installation (`imprint wsl setup --target cursor` writes its journal), the installer wizard with a Cursor selection, and a complete `imprint learn` that stores Cursor conversations.
 
+## Cursor CLI inside WSL (2026-11-28)
+
+See [ADR 0235](adr/0235-cursor-cli-inside-wsl-gets-imprints-mcp-entry-and-rule.md). These checks ran on the owner's Windows installation (v0.64.0-dev.1) with WSL Ubuntu-26.04 and Cursor CLI 2026.11.22 in `~/.local/bin`. A Windows build of the change was placed beside the installed `imprint.exe` for the run, so it used the installed runtime and data. Afterwards it was removed, along with the test workspaces and their Cursor chats, and the files the run changed were restored.
+
+| Check | Result | Notes |
+| --- | --- | --- |
+| Profile probe through `wsl.exe` | Passed | The login shell found `/home/alexa/.local/bin/cursor-agent`; the whole probe took 0.16 s. A home without Cursor CLI gave an empty line. |
+| `wsl setup --distribution Ubuntu-26.04 --target cursor` | Passed | Wrote `~/.cursor/imprint-wsl` (mode 700), `~/.cursor/mcp.json` with the `imprint` entry, and `~/.cursor/rules/imprint.mdc` (the short block); journaled `cursor_cli`. The launcher's `probe` ran the Windows interpreter. |
+| `agent mcp list`, `agent mcp list-tools imprint` | Passed | `imprint: ready`, 23 tools. |
+| `agent -p --approve-mcps --trust` calling `search` | Passed | Returned a stored memory's id once `Mcp(imprint:search)` was allowed in the workspace's `.cursor/cli.json`. Without that, print mode rejected the call ("User rejected MCP: imprint-search"). |
+| Interactive `agent` calling `search` (pseudo-terminal) | Passed | With the request typed 25 s after start. With the request passed on the command line, the session looked for Imprint's tools about 5 s after start and called it "in an error state". |
+| Rules from `~/.cursor/rules` | Passed for workspaces under the home | A probe rule and Imprint's rule were applied from a git repository under the home folder; from `/tmp` the probe rule was not. |
+| `disconnect cursor` | Passed | `mcpServers` left empty; launcher, rule and journal record removed; the Claude Code and Codex registrations stayed. |
+
+Not run: the Cursor app over Remote-WSL (no Cursor app on this device), the installer wizard or repair with a Cursor selection, and a cross-compiled Windows test binary of the Go tests.
+
 ## Cline setup and learn (2026-10-25)
 
 See [ADR 0056](adr/0056-learn-cline-sessions-from-their-manifests.md). No Cline is installed on this machine and no Cline sessions exist, so sessions are fixtures built from the Cline SDK's schemas (cline/cline@40c5d99). Every check used a temporary installation directory in `%TEMP%`, a disposable WSL home in `/tmp` and the installed Windows interpreter read-only; nothing was written to the installation, its data or a real client profile.
