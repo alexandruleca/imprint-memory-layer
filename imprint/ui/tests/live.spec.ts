@@ -205,3 +205,59 @@ test('an agent that needs your answer comes first and says what it asks (ADR 024
   await expect(asked).toContainText('Should I also update the docs?');
   await expect(asked).toContainText('Answer it in its terminal, or send it a message.');
 });
+
+// The conversation panel (ADR 0244): the whole trail from the transcript, tool
+// calls folded, the person's messages with how far each got, and a box to send.
+async function mockConversation(page: Page) {
+  let polls = 0;
+  const entries = [
+    { kind: 'prompt', id: '0:p', at: now - 300, text: 'Fix the tax rounding' },
+    { kind: 'reply', id: '100:0', at: now - 290, text: 'Running the **tests** first.' },
+    { kind: 'tool', id: '100:c1', at: now - 289, call: 'c1', tool: 'Bash', label: 'Testing', detail: 'pytest -q', input: '{"command": "pytest -q"}' },
+    { kind: 'result', id: '200:c1', at: now - 280, call: 'c1', text: '3 passed', error: false },
+    { kind: 'context', id: '300:c', at: now - 200, text: "From the user, sent from Imprint's dashboard:\n- Use the new tax table", origin: 'peer' },
+  ];
+  const messages = [{ id: 'm1', text: 'Use the new tax table', sent_at: now - 210, state: 'delivered', via: 'inbox', delivered_at: now - 205,
+    note: null, task: 'T-aaaa1', seen_at: now - 200 }];
+  await page.route(/\/api\/agents\/w1\/conversation/, route => {
+    const after = new URL(route.request().url()).searchParams.get('after');
+    if (after === null) {
+      return route.fulfill({ json: { client: 'claude', entries, start: 0, next: 400, size: 400, more_before: false, messages, transcript: true } });
+    }
+    polls += 1;
+    const fresh = polls === 1 ? [{ kind: 'reply', id: '400:0', at: now - 5, text: 'Switched to the new table.' }] : [];
+    return route.fulfill({ json: { client: 'claude', entries: fresh, start: Number(after), next: 500, size: 500, more_before: false,
+      messages, transcript: true } });
+  });
+}
+
+for (const [mode, width] of [['advanced', 1280], ['simple', 390]] as const) {
+  test(`${mode} at ${width}px: the conversation panel shows the whole trail and sends a message (ADR 0244)`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await base(page, { mode, tutorials: false });
+    const asked = await mockLive(page);
+    await mockConversation(page);
+    await page.goto('/agents/#live');
+    await page.locator('li[data-agent="w1"]').getByRole('button', { name: 'Conversation' }).click();
+    const panel = page.getByRole('dialog', { name: 'grimforge' });
+    const trail = panel.getByRole('log', { name: 'Conversation with grimforge' });
+    await expect(trail.getByRole('article', { name: 'Prompt' })).toContainText('Fix the tax rounding');
+    await expect(trail.getByRole('article', { name: 'Reply' }).first()).toContainText('Running the tests first.');
+    // A tool call is one line until opened, with its result inside.
+    const tool = trail.getByRole('button', { name: /Testing\s*pytest -q/ });
+    await expect(tool).toHaveAttribute('aria-expanded', 'false');
+    await expect(trail.getByText('3 passed')).toHaveCount(0);
+    await tool.click();
+    await expect(trail.getByText('3 passed')).toBeVisible();
+    await expect(trail.getByRole('button', { name: /A message delivered to its inbox/ })).toBeVisible();
+    await expect(trail.getByRole('article', { name: 'Your message' }).getByTestId('message-state'))
+      .toHaveText('Delivered as a peer message · seen · also on T-aaaa1');
+    // What was written since shows while the panel is open.
+    await expect(trail.getByText('Switched to the new table.')).toBeVisible();
+    await panel.getByLabel('Message to grimforge').fill('Then run the linter');
+    await panel.getByRole('button', { name: 'Send' }).click();
+    await expect.poll(() => asked.find(a => a.path === '/api/agents/w1/messages' && a.method === 'POST')?.body).toEqual({ text: 'Then run the linter' });
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+  });
+}

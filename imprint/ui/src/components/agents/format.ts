@@ -1,4 +1,4 @@
-import type { AgentSession } from "@/lib/api";
+import type { AgentMessage, AgentSession } from "@/lib/api";
 import { formatDuration } from "@/lib/queue";
 import { clockTime, dayLabel } from "@/components/timestamp";
 
@@ -37,4 +37,17 @@ export function whenInGroup(seconds: number, group: string, now: Date): string {
     return `${new Date(seconds * 1000).toLocaleDateString(undefined, { weekday: "short" })} ${clockTime(seconds)}`;
   }
   return dayLabel(seconds, now);
+}
+
+/** Where a message got to, in words (ADR 0245). */
+export function messageState(message: AgentMessage): string {
+  if (message.state === "delivered") {
+    return message.via === "inbox" ? "Delivered as a peer message"
+      : message.via === "tool" ? "Told after its next tool call"
+      : message.via === "prompt" ? "Told with its next prompt" : "Told on its next Imprint reply";
+  }
+  if (message.state === "held") return "Held by Claude Code: approve it in the session. Also waiting for its next Imprint call";
+  if (message.state === "refused") return "Refused by Claude Code's inbox. Waiting for its next Imprint call";
+  if (message.state === "failed") return "Its inbox could not be reached. Waiting for its next Imprint call";
+  return "Waiting for its next Imprint call";
 }
