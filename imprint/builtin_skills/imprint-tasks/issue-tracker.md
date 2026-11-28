@@ -12,7 +12,7 @@ Issues are Tasks on this workspace's Imprint Board, read with the `tasks` MCP to
 - Create: `task_edit(action="create", title, description, acceptance=[…], tags=[…])`; add `status="Ready"` for agent-ready work.
 - Read: `tasks(action="get", task=…)`, with its comments; history with `action="history"`.
 - List: `tasks(action="list", status=…, tag=…, feature=…, assignee=…)`.
-- Parent and sub-issues: the parent is a Feature; create each sub-issue with `feature=<parent id>`, or `task_edit(action="link", task=…, feature=<parent id>)`.
+- Parent and sub-issues: the parent is a Feature; create each sub-issue with `feature=<parent id>`, or `task_edit(action="link", task=…, feature=<parent id>)`. Create the parent in Backlog and move it to Ready once its sub-issues exist: until then it looks like a standalone Task agents may take.
 - Blocked by: `blockers=[…]` at create, or `task_edit(action="link", task=…, add=[<blocker ids>])`; open blockers show on the Task.
 - Comment: `task_edit(action="comment", task=…, text=…)`.
 - Labels: tags, with `task_edit(action="tag", task=…, add=[…], remove=[…])`.

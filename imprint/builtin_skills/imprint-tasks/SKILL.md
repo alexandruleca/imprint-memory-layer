@@ -15,9 +15,10 @@ Before your first claim or comment in a session, choose the name you go by on th
 
 1. **Claim** it: `task_edit(action="claim", task="T-…")`. Keep the claim token from the reply in this conversation. If your session restarts, take the claim back with `task_edit(action="claim", task="T-…", token="…")`. A Task held by a live session is refused: choose another.
 2. **Re-check** the claim before long work: `tasks(action="get", task="T-…")` shows you as its holder. Of two claims made on two devices within the same minute, the earlier one holds; a notice on your next Imprint reply tells you if you lost yours. Stop working on that Task at once.
-3. **Branch**: work on `task/<id>-<slug>`, for example `task/7f3kq-retry-uploads`. Commit and push as far as the repository and the user already allow.
-4. **Checkpoint** at each meaningful step and at least every 30 minutes: `task_edit(action="checkpoint", task="T-…", text="what is done", next_step="what comes next", branch="…", commit="…", files=[…])`. A claim with no progress for 60 minutes is Stalling; at 120 minutes it is Stale, and the next agent takes it over from your last checkpoint.
-5. **Finish**: when every acceptance criterion holds, record a checkpoint saying how you verified each one, then `task_edit(action="move", task="T-…", status="Review")`. The user, or a different session that reviews the work, moves it to Done. To stop before finishing, checkpoint where you stopped and `task_edit(action="release", task="T-…")`; it goes back to Ready.
+3. **Branch**: work on `task/<id>-<slug>`, for example `task/7f3kq-retry-uploads`. Commit and push as far as the repository and the user already allow. Other sessions may work in the same checkout: stage and commit only the files you changed (`git commit --only <paths>`), and leave the rest as you found it.
+   When the Task builds on another Task's work, check that work is in your branch first: Done means its review passed, and its branch may still wait to be merged. When it is missing, comment to `user` naming what must land, and work on something else meanwhile.
+4. **Checkpoint** at each meaningful step and at least every 30 minutes: `task_edit(action="checkpoint", task="T-…", text="what is done", next_step="what comes next", branch="…", commit="…", files=[…])`. A claim with no progress for 60 minutes is Stalling; at 120 minutes it is Stale, and the next agent takes it over from your last checkpoint. The next agent's Handoff reads the branch and commit from your last checkpoint, so when a commit's hash changes (a rebase, an amend, a rewritten history), record a new checkpoint with the new one.
+5. **Finish**: when every acceptance criterion holds, record a checkpoint saying how you verified each one, then `task_edit(action="move", task="T-…", status="Review")`. The user, or a different session that reviews the work, moves it to Done. Tasks it blocks start once it is Done, so tell the user which ones wait on its review. To stop before finishing, checkpoint where you stopped and `task_edit(action="release", task="T-…")`; it goes back to Ready.
 
 The Task is finished when it is in Review and its last checkpoint accounts for every acceptance criterion.
 
@@ -36,11 +37,17 @@ Once you have finished what you were asked, or during a run the user started to 
 
 ## Creating Tasks
 
-Create a Task for work you find and cannot finish in this session: a leftover, a follow-up, a defect outside your scope. `task_edit(action="create", title="…", description="…", tags=[…])` puts it in Backlog. Put work in Ready when the user asks, with acceptance criteria: `acceptance=[…]`, `status="Ready"`. Group the Tasks of one piece of work under a Feature (`feature="T-…"`) and record their order with `blockers=["T-…"]`.
+Before starting work the user describes, look for a Task that already covers it, in any status: `tasks(action="list", text="…")`. Another session may already be designing or building it.
+
+Create a Task for work you find and cannot finish in this session: a leftover, a follow-up, a defect outside your scope. `task_edit(action="create", title="…", description="…", tags=[…])` puts it in Backlog. Put work in Ready when the user asks, with acceptance criteria: `acceptance=[…]`, `status="Ready"`, each criterion one checkable statement of at most 500 characters. Group the Tasks of one piece of work under a Feature (`feature="T-…"`) and record their order with `blockers=["T-…"]`. Create the Feature in Backlog and its Tasks under it, then move the Feature to Ready: a Ready Feature without linked Tasks looks like a standalone Task that agents and the Dispatcher may take.
 
 ## Talking to others
 
-Comment on the Task the message is about: `task_edit(action="comment", task="T-…", text="…", to=[…])`. An address is `user`, `holder`, an agent's name, a client (`codex`, `claude-code`), `@device` or `client@device`; `@name` in the text addresses too, and a comment with no address goes to the Task's holder. Comments addressed to you arrive once as a notice on your next Imprint reply, and `tasks(action="inbox")` lists the unread ones. A Task assigned to `user` belongs to the user: comment on it, and leave it unclaimed.
+Comment on the Task the message is about: `task_edit(action="comment", task="T-…", text="…", to=[…])`. An address is `user`, `holder`, an agent's name, a client (`codex`, `claude-code`), `@device` or `client@device`; `@name` in the text addresses too, and a comment with no address goes to the Task's holder. Comments addressed to you arrive once as a notice: in Claude Code after your next tool call, and in every client on your next Imprint reply. `tasks(action="inbox")` lists the unread ones. A Task assigned to `user` belongs to the user: comment on it, and leave it unclaimed.
+
+- **A comment from the user outranks your plan.** Act on it and reply on the Task before going on. When it says stop or hold, record a checkpoint and release the Task.
+- **To reach the user** for a decision, a review or a check only they can run, comment to `user`: the comment stays on their dashboard's Needs-you list until they answer.
+- **When your work changes what another Task builds on**, comment on that Task with what it inherits: the branch and commit, and the names and behaviour it can rely on.
 
 ## Reading the Board
 

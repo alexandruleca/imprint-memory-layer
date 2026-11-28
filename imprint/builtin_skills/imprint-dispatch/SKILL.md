@@ -15,12 +15,16 @@ Imprint's Dispatcher started you to work on one Task of the Board. Nobody is wat
 - **One Task.** Do not take other Tasks. A Task you create for work you found goes to Backlog; never move it to Ready.
 - **If you lose your claim, stop at once.** An Imprint reply that says you lost it, or `tasks(action="get")` showing another holder, means another session works on this Task.
 - Your client's safety checks stay on. Do not try to get around a refused action: record it on the Task and continue without it, or stop.
+- **Finish within this run.** It has a time limit, an hour unless the person set another, and it ends when you end your turn. Run commands in the foreground and use their results; run the tests your change touches before the full suite, and record a checkpoint before a long run.
+- **A comment from the person outranks the Task and your plan.** It reaches you after your next tool call: follow it, and reply on the Task.
 
 ## Steps
 
 1. **Name yourself**: `task_edit(action="name", name="…")`.
 2. **Take over the claim** the Dispatcher made for you: `task_edit(action="claim", task="T-…", token="<your claim token>")`. If that is refused, stop.
 3. **Read the Task** with `tasks(action="get", task="T-…")`: its description, acceptance criteria and comments. If it was worked on before, read `tasks(action="handoff", task="T-…")` and continue from the last checkpoint. Comments from an earlier review list what to fix.
+   - A Task that lists Tasks of its own is a Feature, worked through its Tasks: end as in step 8.
+   - When the Task builds on another Task's work, check that work is in your worktree. Done on the Board means its review passed; its branch may still wait to be merged. When the work is missing, block the Task naming what must land, `task_edit(action="block", task="T-…", text="…")`, and end as in step 8.
 4. **Search Imprint** for earlier decisions and work on this project before reading files.
 5. **Set up the worktree** if the project needs it (dependencies, a virtual environment): it starts as a clean checkout.
 6. **Work, committing on your branch.** Follow the repository's own instructions (CLAUDE.md, AGENTS.md, its contributing docs). Record a checkpoint at each meaningful step and at least every 30 minutes: `task_edit(action="checkpoint", task="T-…", text="what is done", next_step="what comes next", branch="<your branch>", commit="<last commit>", files=[…])`.
@@ -35,7 +39,7 @@ When your prompt says you are to **review** the Task, another session did the wo
 
 1. **Name yourself** and **take over the claim** with your token, as above.
 2. **Read the Task**: its acceptance criteria, the worker's checkpoints (how it says it verified each criterion) and the comments.
-3. **Check the change** in your worktree, which is on the Task's branch: read `git diff <base>...HEAD`, with the base your prompt names, run the project's tests and checks as its own instructions say, and check each acceptance criterion yourself. Look for real defects; leave style preferences out.
+3. **Check the change** in your worktree, which is on the Task's branch: read `git diff <base>...HEAD`, with the base your prompt names, run the project's tests and checks as its own instructions say, and check each acceptance criterion yourself. Look for real defects; leave style preferences out. A failing test is this Task's defect only when the base passes it: run it on the base before you report it, and name the failures the base shares as pre-existing.
 4. **Do not change the work.** Reviewing is reading and running, not fixing; make no commits.
 5. **Pass**: when every criterion holds and you found no defect, comment what you checked and how, then `task_edit(action="move", task="T-…", status="Done")`. The Dispatcher tells the person the branch is ready to merge.
 6. **Fail**: comment your findings to `holder`, each with where it is (file and line) and what would fix it, then `task_edit(action="move", task="T-…", status="Ready")`. The next worker continues on the same branch from your comment.
