@@ -166,6 +166,11 @@ class TasksSyncTests(unittest.TestCase):
                         Path(str(path) + suffix).unlink(missing_ok=True)
                 with patch.object(secrets, 'choice', side_effect=lambda alphabet: 'k'):
                     older = tasks.create('Made first', project='shop', workspace=first)
+                    # Each store keeps its own clock in milliseconds: two creates in one millisecond would tie,
+                    # and the tie-break (the event id) is random. Two devices are never that close.
+                    started = int(time.time() * 1000)
+                    while int(time.time() * 1000) == started:
+                        time.sleep(0.0005)
                     newer = tasks.create('Made second', project='shop', workspace=second)
                 self.assertEqual(older['id'], newer['id'])
                 self.send(first, second)
