@@ -1,15 +1,33 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
-import { Bot, CircleHelp, Clock, Eye, Hand, MessageSquare, UserRound, X, type LucideIcon } from "lucide-react";
+import { Bot, ChevronDown, CircleHelp, Clock, Eye, Hand, MessageSquare, UserRound, X, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Timestamp } from "@/components/timestamp";
 import { useNow } from "@/components/home/activity";
 import { dismissNeedsYou, getNeedsYou, type NeedsYouList, type NeedsYouRow } from "@/lib/api";
 import { useCached } from "@/lib/use-cached";
+import { cn } from "@/lib/utils";
+
+const FOLD_KEY = "imprint.board.needs-you-folded";
+// The Board list's fold, kept in this browser, and in memory when storage is unavailable.
+const foldListeners = new Set<() => void>();
+let foldedInMemory = false;
+function readFolded(): boolean {
+  try { return window.localStorage.getItem(FOLD_KEY) === "1"; } catch { return foldedInMemory; }
+}
+function subscribeFolded(notify: () => void) {
+  foldListeners.add(notify);
+  return () => { foldListeners.delete(notify); };
+}
+function writeFolded(next: boolean) {
+  foldedInMemory = next;
+  try { window.localStorage.setItem(FOLD_KEY, next ? "1" : "0"); } catch { /* kept in memory */ }
+  foldListeners.forEach((notify) => notify());
+}
 
 const KINDS: Record<NeedsYouRow["kind"], { icon: LucideIcon; label: string }> = {
   comment: { icon: MessageSquare, label: "Comment for you" },
@@ -38,11 +56,20 @@ export function useOpenTask() {
  * and agents waiting for an answer. A row leaves when its reason ends, or
  * when the person dismisses it.
  */
-export function NeedsYou({ className }: { className?: string }) {
+export function NeedsYou({ className, onOpen, foldable = false }: {
+  className?: string;
+  /** Open a Task in place, as the Board does in its drawer; else on the Board page or the Agents window. */
+  onOpen?: (task: string) => void;
+  /** The Board's list folds away, remembered in this browser (ADR 0241). */
+  foldable?: boolean;
+}) {
   const list = useCached<NeedsYouList>("tasks-needs-you", () => getNeedsYou(), { refreshInterval: 15_000, persist: false });
-  const openTask = useOpenTask();
+  const navigate = useOpenTask();
+  const openTask = (id: string | null) => (id && onOpen ? onOpen(id) : navigate(id));
   const now = new Date(useNow(30_000));
   const [gone, setGone] = useState<Set<string>>(new Set());
+  const folded = useSyncExternalStore(subscribeFolded, () => foldable && readFolded(), () => false);
+  const fold = writeFolded;
   // An older API answers without the list: nothing to show.
   if (!list.data || !Array.isArray(list.data.rows)) return null;
   const rows = list.data.rows.filter((row) => !gone.has(row.id));
@@ -62,10 +89,20 @@ export function NeedsYou({ className }: { className?: string }) {
   return (
     <Card className={className} data-tour="home-needs-you" aria-labelledby="needs-you-title">
       <CardHeader>
-        <CardTitle className="text-sm"><h2 id="needs-you-title">Needs you{rows.length > 0 ? ` (${rows.length})` : ""}</h2></CardTitle>
-        <CardDescription className="text-xs">What your agents and the board are waiting on you for. Each stays until it is dealt with or you dismiss it.</CardDescription>
+        <CardTitle className="text-sm">
+          {foldable ? (
+            <h2 id="needs-you-title">
+              <Button variant="ghost" size="sm" className="-ml-2 h-auto gap-1 px-2 py-0.5 text-sm font-semibold" aria-expanded={!folded}
+                onClick={() => fold(!folded)}>
+                <ChevronDown aria-hidden className={cn("size-4 transition-transform", folded && "-rotate-90")} />
+                Needs you{rows.length > 0 ? ` (${rows.length})` : ""}
+              </Button>
+            </h2>
+          ) : <h2 id="needs-you-title">Needs you{rows.length > 0 ? ` (${rows.length})` : ""}</h2>}
+        </CardTitle>
+        {!folded && <CardDescription className="text-xs">What your agents and the board are waiting on you for. Each stays until it is dealt with or you dismiss it.</CardDescription>}
       </CardHeader>
-      <CardContent>
+      {!folded && <CardContent>
         {rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">Nothing waits for you.</p>
         ) : (
@@ -98,7 +135,7 @@ export function NeedsYou({ className }: { className?: string }) {
             })}
           </ul>
         )}
-      </CardContent>
+      </CardContent>}
     </Card>
   );
 }

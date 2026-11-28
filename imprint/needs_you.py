@@ -137,6 +137,14 @@ def rows(workspace: str | None = None) -> dict:
     return {'workspace': active, 'rows': found}
 
 
+def beyond(rows_: list[dict], waiting_ids) -> list[dict]:
+    """The rows an agents-waiting count does not already hold: an agent
+    waiting for the person's answer is one of the waiting agents too, and
+    counts once (ADR 0241)."""
+    waiting_ids = set(waiting_ids)
+    return [r for r in rows_ if not (r['kind'] == 'answer' and r['id'].split(':')[1] in waiting_ids)]
+
+
 def _dismissed(rows_: list[dict], workspace: str) -> list[str]:
     keys = [f'{DISMISSED}{r["id"]}' for r in rows_]
     unseen = set(tasks.unseen('user', keys, workspace=workspace)) if keys else set()

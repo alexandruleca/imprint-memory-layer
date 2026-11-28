@@ -266,7 +266,7 @@ export const TOURS: Tour[] = [
       { target: "live-summary", optional: true, title: "Who needs you",
         body: "Agents waiting for you come first, then those at work. Nothing here asks a model: it reads each agent's own transcript." },
       { target: "board-attention", optional: true, title: "What needs you",
-        body: "Tasks waiting for your review, assigned to you, or stuck. Click one to see only those." },
+        body: "Above, what waits for you, each with why. These chips count tasks with comments for you, waiting for your review, assigned to you, or stuck: click one to see only those." },
       { target: "board-columns", optional: true, title: "Drag Tasks between statuses",
         body: "Agents claim Ready Tasks and record checkpoints as they work. Open a card to change it, comment to its agent, or see where its work stands." },
       { target: "features-toolbar", optional: true, title: "Features close themselves",

@@ -122,3 +122,22 @@ class ReasonTests(NeedsYouCase):
     def test_a_row_id_must_be_short_text(self):
         self.assertEqual(self.api.post('/api/tasks/needs-you/dismiss', json={'id': ''}).status_code, 400)
         self.assertEqual(self.api.post('/api/tasks/needs-you/dismiss', json={'id': 'x' * 300}).status_code, 400)
+
+
+class CountTests(NeedsYouCase):
+    def test_the_orb_counts_waiting_agents_and_the_rows_beyond_them_once(self):
+        agent = tasks.agent('conversation:worker', name='anvil', client='codex')
+        tasks.comment(self.task, 'Which tax table applies?', to=['user'], actor=agent)
+        asking = {'id': 'sess-1', 'name': 'grimforge', 'client': 'claude-code', 'state': 'needs_answer',
+                  'question': 'Ship it to main too?', 'since': 1795800000.0, 'workspace': 'default', 'project': 'shop',
+                  'task': None, 'activity': {'since': 1795800000.0}}
+        idle = {**asking, 'id': 'sess-2', 'name': 'quill', 'state': 'waiting', 'question': None}
+        with patch('imprint.agents_live.live', return_value={'agents': [asking, idle]}):
+            found = self.api.get('/api/agents/waiting').json()
+        self.assertEqual(found['count'], 2)  # the asking agent and the one whose turn ended
+        self.assertEqual(found['needs_you'], 1)  # the comment; the asking agent is not counted twice
+
+    def test_beyond_leaves_out_only_answers_of_waiting_agents(self):
+        rows = [{'kind': 'answer', 'id': 'answer:sess-1:5'}, {'kind': 'answer', 'id': 'answer:sess-9:5'},
+                {'kind': 'comment', 'id': 'abc'}]
+        self.assertEqual([r['id'] for r in needs_you.beyond(rows, ['sess-1'])], ['answer:sess-9:5', 'abc'])

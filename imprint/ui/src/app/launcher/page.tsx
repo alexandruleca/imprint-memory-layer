@@ -73,7 +73,10 @@ export default function Launcher() {
     : activity ? `Imprint. ${activity.text}${activity.percent === null ? "" : `, ${activity.percent} percent`}` : "Imprint";
   // Agents waiting for you (ADR 0232): a count at the orb's upper-left, opposite the warning badge.
   const waiting = state?.waiting ?? 0;
-  const waitingText = waiting ? `${waiting} ${waiting === 1 ? "agent" : "agents"} waiting for you` : "";
+  // Beyond the agents, rows of the dashboard's Needs-you list count too (ADR 0241).
+  const agentsOnly = (state?.agents ?? waiting) >= waiting;
+  const waitingText = !waiting ? "" : agentsOnly ? `${waiting} ${waiting === 1 ? "agent" : "agents"} waiting for you`
+    : `${waiting} ${waiting === 1 ? "thing needs" : "things need"} you`;
   const label = [ear === "listening" ? `${name}. Listening for Hey Echo` : name, waitingText].filter(Boolean).join(". ");
   const tooltip = recording ? `Recording ${clock(elapsed)} · click to stop or see levels`
     : warning ? `Recording stopped: ${error}`

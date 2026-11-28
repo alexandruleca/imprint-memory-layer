@@ -1249,6 +1249,30 @@ test('the orb, its Agents action and the tray count the agents waiting for you; 
   assert.equal(h.calls.tooltip, 'Imprint');
 });
 
+test('the Needs-you rows beyond the waiting agents count too, and the count opens the list on the Board (ADR 0241)', async () => {
+  let agents = [];
+  let rows = 0;
+  const h = harness({ alreadyUp: true, waiting: () => ({ count: agents.length, agents, needs_you: rows }) }); await settle();
+  const dashboard = h.windows[1];
+  const poll = async () => { h.tick(); await settle(); };
+  agents = [{ id: 'a1', name: 'quill', client: 'claude-code', project: 'shop', task: null, since: 100 }];
+  rows = 2;  // the server counts an agent asking for an answer once: in agents, not in rows
+  await poll();
+  assert.equal(h.calls.tooltip, 'Imprint · 3 things need you');
+  const entry = h.calls.menu.find(item => item.label.startsWith('Open Agents'));
+  assert.equal(entry.label, 'Open Agents (3 need you)');
+  entry.click(); await settle();
+  assert.equal(h.windows.at(-1).url, `${ORIGIN}/agents/?window=agents#board`);
+  dashboard.emit('minimize'); await settle();
+  const orb = h.windows.find(window => window.url === `${ORIGIN}/launcher/`);
+  const state = await h.invoke('launcher-state', orb);
+  assert.deepEqual([state.waiting, state.agents], [3, 1]);
+  // Malformed counts are read as none.
+  rows = -4;
+  await poll();
+  assert.equal(h.calls.tooltip, 'Imprint · 1 agent waiting for you');
+});
+
 test('with the notification setting off, the default, waiting agents are counted and never told', async () => {
   let agents = [];
   const h = harness({ alreadyUp: true, waiting: () => ({ count: agents.length, agents }) }); await settle();

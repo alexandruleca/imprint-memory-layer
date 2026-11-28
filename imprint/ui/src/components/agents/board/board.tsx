@@ -13,9 +13,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { useNow } from "@/components/timestamp";
 import {
-  TASK_STATUSES, changeTask, getBoard, setAutonomy, type Autonomy, type BoardData, type BoardFilters, type BoardTask,
-  type TaskStatus,
+  TASK_STATUSES, changeTask, getBoard, getNeedsYou, setAutonomy, type Autonomy, type BoardData, type BoardFilters, type BoardTask,
+  type NeedsYouList, type TaskStatus,
 } from "@/lib/api";
+import { NeedsYou } from "@/components/home/needs-you";
 import { useUiMode } from "@/lib/ui-mode";
 import { useCached } from "@/lib/use-cached";
 import { cn } from "@/lib/utils";
@@ -38,6 +39,8 @@ const FILTER_NAMES: Record<string, string> = { project: "Project", feature: "Fea
 
 /** What needs the user, or is stuck: each one a way to look at only those Tasks. */
 const ATTENTION = {
+  // Tasks with comments written to you and still unread, from the Needs-you list (ADR 0241).
+  comments: { label: "comments for you", tone: "", test: (t: BoardTask, comments?: Set<string>) => !!comments?.has(t.id) },
   review: { label: "to review", tone: "", test: (t: BoardTask) => t.status === "review" },
   mine: { label: "assigned to you", tone: "", test: (t: BoardTask) => t.assignees.includes("user") && t.status !== "done" && t.status !== "cancelled" },
   stale: { label: "stale", tone: "text-destructive", test: (t: BoardTask) => t.stale },
@@ -115,6 +118,8 @@ export function BoardView() {
   const board = useCached<BoardData>(`tasks-board:${JSON.stringify(view.filters)}`, () => getBoard(view.filters), { refreshInterval: 5000 });
   const [creating, setCreating] = useState(false);
   const [attention, setAttention] = useState<Attention | null>(null);
+  // The same list Home shows, cached once for both (ADR 0241).
+  const needsYou = useCached<NeedsYouList>("tasks-needs-you", () => getNeedsYou(), { refreshInterval: 15_000, persist: false });
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<TaskStatus | null>(null);
 
@@ -184,9 +189,12 @@ export function BoardView() {
   const filtered = activeFilters.length > 0 || !!view.filters.text;
   const nothingYet = data.total === 0 && !filtered && !view.filters.archived;
   const everything = TASK_STATUSES.flatMap((s) => data.columns[s]);
+  const commented = new Set((needsYou.data?.rows ?? [])
+    .filter((row) => row.kind === "comment" && row.task && row.workspace === needsYou.data?.workspace).map((row) => row.task as string));
   const needs = (Object.keys(ATTENTION) as Attention[])
-    .map((key) => ({ key, count: everything.filter(ATTENTION[key].test).length })).filter((n) => n.count > 0);
-  const shownIn = (status: TaskStatus) => attention ? data.columns[status].filter(ATTENTION[attention].test) : data.columns[status];
+    .map((key) => ({ key, count: everything.filter((t) => ATTENTION[key].test(t, commented)).length })).filter((n) => n.count > 0);
+  const shownIn = (status: TaskStatus) => attention
+    ? data.columns[status].filter((t) => ATTENTION[attention].test(t, commented)) : data.columns[status];
   const featureName = (id: string) => options.features.find((f) => f.id === id)?.title ?? id;
 
   return (
@@ -252,6 +260,7 @@ export function BoardView() {
               <Button variant="link" size="sm" className="h-auto px-1 text-xs" onClick={clear}>Clear all</Button>
             </div>
           )}
+          <div className="px-4 sm:px-8"><NeedsYou foldable onOpen={open} /></div>
           <div className="flex flex-wrap items-center gap-1.5 px-4 sm:px-8" role="group" aria-label="What needs you" data-tour="board-attention">
             {needs.length === 0 ? (
               <span className="text-xs text-muted-foreground">Nothing waits for you, and nothing is stuck.</span>

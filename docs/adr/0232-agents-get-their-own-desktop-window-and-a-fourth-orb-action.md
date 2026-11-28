@@ -3,9 +3,10 @@ title: ADR 0232 — Agents get their own desktop window and a fourth action arou
 description: The desktop app opens the Agents page (Live, Board and History) in a window of its own, without the sidebar, from the tray, a fourth action in the orb's ring and Task notifications, while the main dashboard window keeps recordings, updates and navigation.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-28
 - Amends: [ADR 0135](0135-the-floating-launcher-is-a-handle-with-its-actions-around-it.md) — its ring of three actions (Dashboard, Echo, Record) gains a fourth, Agents, on a wider arc
+- Amended by: [ADR 0241](0241-a-needs-you-list-shows-what-waits-for-the-person.md) — its count of agents waiting for you: the Needs-you rows beyond those agents count too, and the count leads to the list
 - Related: [ADR 0233](0233-live-reads-running-agents-from-local-records-and-transcripts-without-a-model.md) (Live, the window's first tab), [ADR 0208](0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md) (the Board), [ADR 0117](0117-the-dashboard-shows-each-agent-session-and-its-calls.md) (session history), [ADR 0174](0174-the-floating-orb-is-off-unless-the-user-turns-it-on.md) (when the orb shows)
 
 ## Context

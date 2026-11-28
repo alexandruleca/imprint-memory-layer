@@ -197,6 +197,8 @@ function apiJSON(pathname, timeout = 800) {
 // waiting is told once; those already waiting when the app starts are not.
 const WAITING_POLL = 30000;
 let waitingAgents = [];
+// Rows of the dashboard's Needs-you list beyond those agents (ADR 0241): counted with them.
+let needsYou = 0;
 let waitingSeen = null;
 const waitingNotes = new Set();
 function waitingAgent(value) {
@@ -212,14 +214,17 @@ async function refreshWaiting() {
   const data = await apiJSON('/api/agents/waiting');
   if (!data || !Array.isArray(data.agents)) return;
   const agents = data.agents.slice(0, 50).map(waitingAgent).filter(Boolean);
+  const rows = Number.isInteger(data.needs_you) && data.needs_you > 0 ? Math.min(data.needs_you, 999) : 0;
   const keys = new Set(agents.map(agent => `${agent.id}@${agent.since}`));
   if (waitingSeen !== null) {
     const fresh = agents.filter(agent => !waitingSeen.has(`${agent.id}@${agent.since}`));
     if (fresh.length && (await apiJSON('/api/config/desktop.notify_waiting'))?.value === true) fresh.forEach(notifyWaiting);
   }
   waitingSeen = keys;
-  const changed = JSON.stringify(agents.map(agent => agent.id)) !== JSON.stringify(waitingAgents.map(agent => agent.id));
+  const changed = JSON.stringify(agents.map(agent => agent.id)) !== JSON.stringify(waitingAgents.map(agent => agent.id))
+    || rows !== needsYou;
   waitingAgents = agents;
+  needsYou = rows;
   if (changed) { notifyLauncher(); notifyHalo(); refreshTray(true); }
 }
 function notifyWaiting(agent) {
@@ -232,8 +237,14 @@ function notifyWaiting(agent) {
   note.on('close', () => waitingNotes.delete(note));
   note.show();
 }
+// What needs the person: the agents waiting for them and, beyond those, the
+// rows of the dashboard's Needs-you list (ADR 0241).
+function needYouCount() {
+  return waitingAgents.length + needsYou;
+}
 function waitingLabel() {
   const count = waitingAgents.length;
+  if (needsYou) return `${needYouCount()} ${needYouCount() === 1 ? 'thing needs' : 'things need'} you`;
   return count ? `${count} ${count === 1 ? 'agent' : 'agents'} waiting for you` : '';
 }
 
@@ -561,7 +572,7 @@ function trustedHalo(event) {
 function launcherState() {
   return { ring: halo?.kind === 'ring', panel: halo && halo.kind !== 'ring' ? halo.kind : null,
     echo: echoVisible(), echoSide: floatingGroup() ? echoSide : 0, recorder, activity: launcherActivity, wake: wakeView(),
-    waiting: waitingAgents.length };
+    waiting: needYouCount(), agents: waitingAgents.length };
 }
 function notifyLauncher() {
   if (launcherWin && !launcherWin.isDestroyed()) launcherWin.webContents.send('launcher-state', launcherState());
@@ -571,7 +582,7 @@ function notifyHalo() {
   if (halo && haloWin && !haloWin.isDestroyed()) haloWin.webContents.send('halo-layout', haloPayload());
 }
 function haloPayload() {
-  return halo?.layout ? { ...halo.layout, seq: halo.seq, focus: halo.focus, echo: echoVisible(), recorder, waiting: waitingAgents.length } : null;
+  return halo?.layout ? { ...halo.layout, seq: halo.seq, focus: halo.focus, echo: echoVisible(), recorder, waiting: needYouCount(), agents: waitingAgents.length } : null;
 }
 function createHalo() {
   const window = new BrowserWindow({ ...windowOptions, width: 290, height: 173,
@@ -906,7 +917,8 @@ function trayMenu(activity) {
     ...(activity ? [{ label: activity, enabled: false }, { type: 'separator' }] : []),
     ...wakeMenu(),
     { label: 'Open Dashboard', click: showWindow },
-    { label: waitingAgents.length ? `Open Agents (${waitingAgents.length} waiting)` : 'Open Agents', enabled: phase === 'ready', click: () => openAgents() },
+    { label: needsYou ? `Open Agents (${needYouCount()} need you)` : waitingAgents.length ? `Open Agents (${waitingAgents.length} waiting)` : 'Open Agents',
+      enabled: phase === 'ready', click: () => openAgents() },
     // What the floating orb offers, whether or not it is shown (ADR 0174).
     recorder.phase === 'recording' ? { label: 'Stop recording', click: stopRecorder }
       : { label: 'New recording…', enabled: recorder.phase === 'idle' && phase === 'ready', click: newRecording },
@@ -920,11 +932,13 @@ function trayMenu(activity) {
   ]);
 }
 
-function agentsURL(task) {
+// On a Task, or on the Board, where the Needs-you list is, when rows of it
+// wait (ADR 0241); else on Live.
+function agentsURL(task, board = false) {
   const url = new URL('/agents/', UI_ORIGIN);
   url.searchParams.set('window', 'agents');
   if (task) url.searchParams.set('task', task);
-  url.hash = task ? 'board' : 'live';
+  url.hash = task || board ? 'board' : 'live';
   return url.toString();
 }
 
@@ -933,8 +947,9 @@ function agentsURL(task) {
 function openAgents(task = null) {
   if (quitting || phase !== 'ready') return null;
   const target = typeof task === 'string' && TASK_ID.test(task) ? task : null;
+  const board = !target && needsYou > 0;  // the count leads to the list (ADR 0241)
   if (agentsWin && !agentsWin.isDestroyed()) {
-    if (target) agentsWin.loadURL(agentsURL(target)).catch(() => {});
+    if (target || board) agentsWin.loadURL(agentsURL(target, board)).catch(() => {});
     if (agentsWin.isMinimized()) agentsWin.restore();
     agentsWin.show();
     agentsWin.focus();
@@ -967,7 +982,7 @@ function openAgents(task = null) {
       if (externalURL(url)) shell.openExternal(url);
     }
   });
-  window.loadURL(agentsURL(target)).then(() => {
+  window.loadURL(agentsURL(target, board)).then(() => {
     if (!window.isDestroyed()) { window.show(); window.focus(); }
   }).catch(() => { if (!window.isDestroyed()) window.destroy(); });
   return window;

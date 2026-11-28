@@ -5,7 +5,7 @@ description: Home and the Board show one list of what waits for the person, each
 
 - Status: Accepted
 - Date: 2026-11-28
-- Scope: The list, its API and Home, and toasts that no longer read a comment (T-nm1x4); the list atop the Board and in the tray's and orb's count come with T-qqk35.
+- Amends: [ADR 0232](0232-agents-get-their-own-desktop-window-and-a-fourth-orb-action.md) — its count of agents waiting for you: the orb, its Agents action and the tray count the Needs-you rows beyond those agents, and lead to the list
 - Related: [ADR 0212](0212-agents-talk-through-comments-on-tasks.md) (toasts for comments and Reviews), [ADR 0182](0182-the-dashboard-has-a-simple-and-an-advanced-form.md) (Home's review inbox in the simple dashboard), [ADR 0232](0232-agents-get-their-own-desktop-window-and-a-fourth-orb-action.md) (the count of agents waiting for you), [ADR 0227](0227-dispatched-work-never-feeds-the-dispatcher-until-the-person-moves-it.md) (Tasks waiting for the person's move), [ADR 0237](0237-a-devices-dispatcher-does-only-the-roles-the-person-switches-on.md) (roles)
 
 ## Context
@@ -71,5 +71,11 @@ T-nm1x4, 2026-11-28:
   - row ids are refused when empty or long.
   The full Linux suite passes.
 - **Browser** (Playwright, throwaway dashboard server on scratch data, every role off): Home shows the list in the advanced and the simple dashboard. Dismissing a row removed it, opening a commented Task from the list read the comment, and at a phone's width the page does not scroll sideways. `tsc`, `eslint` and `next build` pass.
+
+T-qqk35, 2026-11-28:
+- **Board:** the list sits above the Board's columns, folds, and the fold is kept in this browser. The "What needs you" chips gain "comments for you", which shows only the Tasks with comments written to the person. `tsc`, `eslint`, `next build`, and Playwright's Board, Live and tutorial specs pass.
+- **Count:** `GET /api/agents/waiting` adds `needs_you`, the rows beyond the waiting agents. An agent asking for an answer is one of those agents, and its row is not counted again (`tests/test_needs_you.py`).
+- **Desktop app** (`ui-electron/main.test.js`): the tray's tooltip says "3 things need you", its entry reads "Open Agents (3 need you)" and opens the Agents window on the Board, the orb gets both numbers, and a malformed count reads as none. With no rows, the earlier wording and Live stay.
+- **Not run:** the desktop app itself, which needs a display this environment lacks. The orb and tray are checked through the harness only.
 
 Not yet run: the desktop app's native notification with the new toast behaviour, and an agent reporting `needs_answer`, which the Agents page does not report yet; the test feeds one in.

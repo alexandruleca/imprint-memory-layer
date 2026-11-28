@@ -1552,9 +1552,16 @@ def api_agent_conversation(session_id: str, after: int | None = None, before: in
 @app.get("/api/agents/waiting")
 def api_agents_waiting():
     """The agents on this device waiting for you, for the desktop app's orb
-    and tray (ADR 0232): Live's rules, no model."""
-    from . import agents_live
-    return agents_live.waiting()
+    and tray (ADR 0232): Live's rules, no model; with ``needs_you``, the
+    Needs-you rows beyond those agents, so the orb counts both (ADR 0241)."""
+    from . import agents_live, needs_you
+    found = agents_live.waiting()
+    try:
+        rows = needs_you.rows()['rows']
+    except (ValueError, LookupError, OSError) as error:  # the agents still count without the list
+        print(f'[imprint] needs-you count failed: {error}', file=sys.stderr, flush=True)
+        rows = []
+    return {**found, 'needs_you': len(needs_you.beyond(rows, (a['id'] for a in found['agents'])))}
 
 
 @app.get("/api/agents/search-first")
