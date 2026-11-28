@@ -1360,10 +1360,14 @@ export type DispatchRun = {
   pid: number | null; worktree: string | null; branch: string | null; base: string | null; started_at: number;
   ended_at: number | null; exit_code: number | null; outcome: "review" | "passed" | "returned" | "refined" | "failed" | "stopped" | "lost" | "refused" | null; detail: string | null;
 };
+/** What a device's Dispatcher may do in a workspace, each switched on by the person (ADR 0237). */
+export type DispatchRole = "work" | "review" | "refine";
 /** This device's Dispatcher for the active workspace: the Board's strip. */
 export type DispatchStatus = {
   workspace: string; on: boolean; server: boolean; autonomy: Autonomy; running: DispatchRun[]; recent: DispatchRun[];
-  /** Whether Backlog refinement is on for this device (ADR 0230): its own switch, off by default. */
+  /** The roles on for this device (ADR 0237); `on` is true when any is. An older API answers without them. */
+  roles?: DispatchRole[];
+  /** Whether the Refine role, Backlog refinement, is on for this device (ADR 0230). */
   refine: boolean;
   /** Why it starts nothing now although it is on, such as the daily limit. */
   held: string | null;
@@ -1375,15 +1379,16 @@ export type DispatchStatus = {
     allowed: boolean; default: boolean;
     /** The WSL distribution it was found in, or null for this system. */
     where: string | null }[];
-  /** Other paired devices whose Dispatcher is on for this workspace. */
-  devices: { device: string; name: string; on: boolean; at: number }[];
+  /** Other paired devices whose Dispatcher is on for this workspace, with the roles each announced. */
+  devices: { device: string; name: string; on: boolean; roles?: string[]; at: number }[];
 };
 /** ``refresh`` checks the clients again, as the strip does when it first opens. */
 export function getDispatch(refresh = false) {
   return fetchAPI<DispatchStatus>(`/api/tasks/dispatch${refresh ? "?refresh=true" : ""}`);
 }
-/** Switch this device's Dispatcher, or its Backlog refinement, for the active workspace; the person's choice only. */
-export function setDispatch(change: { on?: boolean; refine?: boolean }) {
+/** Switch this device's Dispatcher roles for the active workspace (exactly `roles` on), or the older
+ * on/refine switches; the person's choice only. */
+export function setDispatch(change: { roles?: DispatchRole[]; on?: boolean; refine?: boolean }) {
   return fetchAPI<DispatchStatus>("/api/tasks/dispatch", { method: "PUT", body: JSON.stringify(change) });
 }
 export function stopDispatched(id: string) {

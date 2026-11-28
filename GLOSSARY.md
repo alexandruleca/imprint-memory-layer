@@ -105,15 +105,19 @@ _Avoid_: hijack, steal, reassignment
 ### Dispatching
 
 **Dispatcher**:
-The part of Imprint on one device that, when the person switches it on for a workspace, picks Tasks that are open or waiting for Review and starts Dispatched sessions for them; it is not an agent itself.
+The part of Imprint on one device that, for each role the person switches on for a workspace (Work, Review, Refine), picks Tasks that are open, waiting for Review or in Backlog without criteria and starts Dispatched sessions for them; it is not an agent itself.
 _Avoid_: loop agent, orchestrator, scheduler, runner
+
+**Role** (of a Dispatcher):
+One kind of work a device's Dispatcher takes on for a workspace, each switched on by the person on its own: Work (Stale and Ready Tasks), Review (Tasks in Review) and Refine (Backlog Tasks without criteria).
+_Avoid_: mode, job type, capability
 
 **Dispatched session**:
 An Agent session the Dispatcher started, without the person, to work on one Task, to review it, or to refine it.
 _Avoid_: background agent, headless agent, worker, job
 
 **Refinement**:
-A Dispatched session that grooms one Backlog Task without acceptance criteria (criteria, description, priority, tags), reading a throwaway copy of the project, and leaves the Task in Backlog for the person; switched on as "Refine Backlog".
+A Dispatched session that grooms one Backlog Task without acceptance criteria (criteria, description, priority, tags), reading a throwaway copy of the project, and leaves the Task in Backlog for the person; switched on as the Refine role, "Refine Backlog" on the Board.
 _Avoid_: enhancement agent, grooming bot, triage
 
 ### Skills

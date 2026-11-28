@@ -3,9 +3,10 @@ title: ADR 0230 — The Dispatcher refines Backlog Tasks when the person switche
 description: With its own switch, off by default, the Dispatcher starts refinement sessions that groom Backlog Tasks without acceptance criteria, reading a throwaway copy of the project, and leave each Task in Backlog for the person to move.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-28
 - Amends: [ADR 0220](0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md) — its "What it takes, in order": Backlog refinement after reviews and work, under a switch of its own
+- Amended by: [ADR 0237](0237-a-devices-dispatcher-does-only-the-roles-the-person-switches-on.md) — its switch of its own: refinement becomes the Refine role
 - Related: [ADR 0227](0227-dispatched-work-never-feeds-the-dispatcher-until-the-person-moves-it.md) (dispatched work feeding the Dispatcher), [ADR 0223](0223-dispatched-sessions-work-in-a-worktree-outside-the-project-and-never-push-or-merge.md) (worktrees), [ADR 0213](0213-built-in-skills-ship-with-each-release-and-a-fork-replaces-them.md) (the built-in skill and forks), [ADR 0222](0222-only-clients-with-a-sandbox-or-a-check-of-each-action-are-dispatched.md) (clients)
 
 ## Context

@@ -70,7 +70,7 @@ class StripTests(DispatchApiCase):
         out = io.StringIO()
         with redirect_stdout(out):
             cli_tasks.main(['dispatch', 'status'])
-        self.assertIn('Dispatcher for default on this device: on', out.getvalue())
+        self.assertIn('Dispatcher for default on this device: work, review', out.getvalue())  # ADR 0237
 
         self.api.put('/api/tasks/dispatch', json={'on': False})
         self.assertFalse(store.switched_on('default'))
@@ -79,7 +79,8 @@ class StripTests(DispatchApiCase):
         self.assertFalse(self.api.get('/api/tasks/dispatch').json()['refine'])
         with patch.object(loop, 'poke'):
             shown = self.api.put('/api/tasks/dispatch', json={'refine': True}).json()
-        self.assertEqual((shown['refine'], shown['on']), (True, False))
+        # The Refine role alone: the device is on, for refinement only (ADR 0237).
+        self.assertEqual((shown['refine'], shown['on'], shown['roles']), (True, True, ['refine']))
         self.assertTrue(store.refining('default'))
         self.assertEqual(self.api.put('/api/tasks/dispatch', json={'refine': 'yes'}).status_code, 400)
         self.assertEqual(self.api.put('/api/tasks/dispatch', json={}).status_code, 400)

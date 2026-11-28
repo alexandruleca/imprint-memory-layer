@@ -3,9 +3,13 @@ title: ADR 0237 — A device's Dispatcher does only the roles the person switche
 description: The Dispatcher's single switch per device and workspace becomes four role switches, Work, Review, Refine and Deploy, each off by default, so a device can, for example, only review and deploy.
 ---
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-28
-- Related: [ADR 0220](0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md) (the switch this would amend), [ADR 0230](0230-the-dispatcher-refines-backlog-tasks-when-the-person-switches-refinement-on.md) (the refinement switch this would amend), [ADR 0229](0229-dispatched-sessions-cannot-switch-the-dispatcher-on-or-start-more-sessions.md) (only the person switches), [ADR 0239](0239-the-dispatcher-deploys-tasks-a-dispatched-review-passed.md) (the Deploy role), [ADR 0241](0241-a-needs-you-list-shows-what-waits-for-the-person.md) (Review Tasks no device will review)
+- Scope: Work, Review and Refine; the Deploy role takes effect with [ADR 0239](0239-the-dispatcher-deploys-tasks-a-dispatched-review-passed.md), still proposed
+- Amends:
+  - [ADR 0220](0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md) — its "The switch": four role switches per device and workspace in place of one, `on` and `off` kept as shortcuts
+  - [ADR 0230](0230-the-dispatcher-refines-backlog-tasks-when-the-person-switches-refinement-on.md) — its switch of its own: refinement becomes the Refine role
+- Related: [ADR 0229](0229-dispatched-sessions-cannot-switch-the-dispatcher-on-or-start-more-sessions.md) (only the person switches), [ADR 0239](0239-the-dispatcher-deploys-tasks-a-dispatched-review-passed.md) (the Deploy role), [ADR 0241](0241-a-needs-you-list-shows-what-waits-for-the-person.md) (Review Tasks no device will review)
 
 ## Context
 
@@ -57,4 +61,8 @@ A device's Dispatcher is on for a workspace when any role is on. Within a pass, 
 
 ## Validation
 
-Proposed; not yet implemented. To be validated by T-dcc2s (Work, Review and Refine) and T-k9gjm (Deploy).
+Work, Review and Refine (T-dcc2s), on Linux and natively on Windows (208 `test_dispatch_*` tests on each, one skipped by design on Windows):
+- `tests/test_dispatch_roles.py` (18 tests): roles off by default and set exactly, unknown roles refused, the old switches as shortcuts, the migration of an earlier release's switches on first read, the old tables kept in step, a pass with Review only, Work only and Refine only, a waiting run called off when its own role goes, the roles paired devices see (and an earlier release's announcement read as Work and Review), the failure limit switching every role off, the `roles` command and its refusal inside a Dispatched session, and the API;
+- the other `test_dispatch_*` modules, two of them updated to the Refine role.
+
+In a browser (Playwright, a throwaway dashboard server on scratch data), in the simple and the advanced dashboard: ticking Review switched exactly that role on and the strip said so; Review and Refine Backlog together likewise; at a phone's width the strip wraps without a horizontal scroll. The Deploy role comes with T-k9gjm.

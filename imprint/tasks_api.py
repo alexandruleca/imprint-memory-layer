@@ -128,14 +128,23 @@ def dispatch_status(refresh: bool = False):
 @router.put("/dispatch")
 async def dispatch_switch(request: Request):
     """Switch this device's Dispatcher for the active workspace; the person's
-    choice, made on the Board (agents have no tool for it)."""
+    choice, made on the Board (agents have no tool for it). ``roles`` sets
+    exactly the roles on (ADR 0237); ``on`` and ``refine`` are the older
+    switches, kept as shortcuts."""
     from .dispatch import status
     try:
         body = await _body(request)
         given = [key for key in ('on', 'refine') if key in body]
-        if not given or any(not isinstance(body[key], bool) for key in given):
-            raise ValueError('on and refine are true or false, and at least one is given')
+        if any(not isinstance(body[key], bool) for key in given):
+            raise ValueError('on and refine are true or false')
+        roles = body.get('roles')
+        if roles is not None and (not isinstance(roles, list) or not all(isinstance(r, str) for r in roles)):
+            raise ValueError('roles is a list of role names')
+        if not given and roles is None:
+            raise ValueError('give roles, on or refine')
         workspace = config.get_active_workspace()
+        if roles is not None:
+            status.set_roles(workspace, roles)
         if 'on' in body:
             status.switch(workspace, body['on'])
         if 'refine' in body:

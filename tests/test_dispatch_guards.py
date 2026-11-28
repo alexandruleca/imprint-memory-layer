@@ -69,6 +69,11 @@ class FailuresInARowTests(LoopCase):
         _ended('T-c', 'failed', started=now + 3)
         self.assertEqual(guards.failures_in_a_row(), 1)
         with patch.object(store.time, 'time', return_value=now + 10):
+            status.switch('default', True)  # already on: a role keeps when it was switched on (ADR 0237)
+        self.assertEqual(guards.failures_in_a_row(), 1)
+        with patch.object(store.time, 'time', return_value=now + 11):
+            status.switch('default', False)
+        with patch.object(store.time, 'time', return_value=now + 12):
             status.switch('default', True)
         self.assertEqual(guards.failures_in_a_row(), 0)
 

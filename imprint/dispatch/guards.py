@@ -100,18 +100,18 @@ def after_failure(run: dict) -> None:
 
 
 def switch_off_after_failures(run: dict) -> bool:
-    """Switch every workspace's Dispatcher on this device off after
-    ``dispatch.failure_limit`` failures in a row, and tell the person once,
-    on the last failed Task. True when it switched off."""
+    """Switch every role of every workspace's Dispatcher on this device off
+    after ``dispatch.failure_limit`` failures in a row (ADR 0237), and tell
+    the person once, on the last failed Task. True when it switched off."""
     limit = _setting('dispatch.failure_limit')
     if limit <= 0 or failures_in_a_row() < limit:
         return False
     from . import status
     for workspace in store.switched_on_workspaces():
-        status.switch(workspace, False)
-    tasks.comment(run['task'], f'The Dispatcher on this device switched itself off after {limit} Dispatched sessions '
-                  'failed in a row; the comments on their Tasks say why. Switch it on again from the Board when '
-                  'that is fixed.', to=['user'], actor=SYSTEM, workspace=run['workspace'])
+        status.set_roles(workspace, set())
+    tasks.comment(run['task'], f'The Dispatcher on this device switched itself off, every role, after {limit} '
+                  'Dispatched sessions failed in a row; the comments on their Tasks say why. Switch its roles on '
+                  'again from the Board when that is fixed.', to=['user'], actor=SYSTEM, workspace=run['workspace'])
     return True
 
 

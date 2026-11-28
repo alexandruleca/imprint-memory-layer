@@ -264,11 +264,12 @@ class CommandLineTests(LoopCase):
 
     def test_backlog_refinement_is_off_by_default_and_switched_on_its_own(self):
         self.assertFalse(store.refining('default'))
-        self.assertIn('Backlog refinement on this device: off', self.cli('status')[1])
+        self.assertIn('Dispatcher for default on this device: off', self.cli('status')[1])
         code, text = self.cli('refine', 'on')
-        self.assertEqual((code, store.refining('default'), store.switched_on('default')), (0, True, False))
+        # The Refine role alone (ADR 0237): neither Work nor Review comes with it.
+        self.assertEqual((code, store.roles('default')), (0, {'refine'}))
         self.assertIn('Backlog refinement for default on this device: on.', text)
-        self.assertIn('Backlog refinement on this device: on', self.cli('status')[1])
+        self.assertIn('Dispatcher for default on this device: refine', self.cli('status')[1])
         self.assertEqual(json.loads(self.cli('refine', 'off', '--json')[1]), {'workspace': 'default', 'refine': False})
         self.assertFalse(store.refining('default'))
 

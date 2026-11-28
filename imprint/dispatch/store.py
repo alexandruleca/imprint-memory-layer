@@ -1,8 +1,8 @@
 """The Dispatcher's switches and record of its runs, in ``data/dispatch.sqlite3``.
 
 Device-local and never synced (ADR 0220): each device switches its own
-Dispatcher on per workspace and keeps what it started. Each run's output
-goes to ``data/dispatch/<run id>.log``.
+Dispatcher's roles on per workspace (ADR 0237) and keeps what it started.
+Each run's output goes to ``data/dispatch/<run id>.log``.
 """
 
 from __future__ import annotations
@@ -13,6 +13,11 @@ from contextlib import closing
 from pathlib import Path
 
 from .. import config
+
+# What a device's Dispatcher may do in a workspace, each switched on by the person (ADR 0237).
+ROLES = ('work', 'review', 'refine')
+# The old single switch meant both of these (ADR 0220).
+SWITCH_ROLES = ('work', 'review')
 
 COLUMNS = ('id', 'workspace', 'task', 'title', 'project', 'client', 'role', 'session', 'conversation', 'claim',
            'pid', 'worktree', 'branch', 'base', 'started_at', 'ended_at', 'exit_code', 'outcome', 'detail',
@@ -51,56 +56,98 @@ def _connect() -> sqlite3.Connection:
                  ' changed_at REAL NOT NULL)')
     conn.execute('CREATE TABLE IF NOT EXISTS refine_switches (workspace TEXT PRIMARY KEY, enabled INTEGER NOT NULL,'
                  ' changed_at REAL NOT NULL)')
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'roles'").fetchone():
+        with conn:
+            conn.execute('CREATE TABLE roles (workspace TEXT NOT NULL, role TEXT NOT NULL, enabled INTEGER NOT NULL,'
+                         ' changed_at REAL NOT NULL, PRIMARY KEY (workspace, role))')
+            # The switches of earlier releases, once: on is Work and Review, refinement is Refine (ADR 0237).
+            for role in SWITCH_ROLES:
+                conn.execute('INSERT INTO roles SELECT workspace, ?, enabled, changed_at FROM switches', (role,))
+            conn.execute("INSERT INTO roles SELECT workspace, 'refine', enabled, changed_at FROM refine_switches")
     return conn
 
 
-def switched_on(workspace: str) -> bool:
-    """Whether the person switched the Dispatcher on for ``workspace`` on this device; off by default."""
+def roles(workspace: str) -> set[str]:
+    """The roles the person switched on for ``workspace`` on this device; none by default (ADR 0237)."""
     with closing(_connect()) as conn:
-        row = conn.execute('SELECT enabled FROM switches WHERE workspace = ?', (workspace,)).fetchone()
-    return bool(row and row['enabled'])
+        return {row['role'] for row in conn.execute('SELECT role FROM roles WHERE workspace = ? AND enabled = 1',
+                                                    (workspace,)) if row['role'] in ROLES}
+
+
+def set_roles(workspace: str, wanted) -> set[str]:
+    """Switch on exactly ``wanted`` for ``workspace`` on this device, and the
+    rest off; returns them."""
+    wanted = set(wanted)
+    unknown = wanted - set(ROLES)
+    if unknown:
+        raise ValueError(f"unknown Dispatcher role {', '.join(sorted(unknown))}: the roles are {', '.join(ROLES)}")
+    now = time.time()
+    with closing(_connect()) as conn, conn:
+        for role in ROLES:
+            conn.execute('INSERT INTO roles (workspace, role, enabled, changed_at) VALUES (?, ?, ?, ?) '
+                         'ON CONFLICT (workspace, role) DO UPDATE SET enabled = excluded.enabled, '
+                         'changed_at = CASE WHEN enabled = excluded.enabled THEN changed_at ELSE excluded.changed_at END',
+                         (workspace, role, int(role in wanted), now))
+        # Kept for a release that reads only these, should the device go back to one (ADR 0237).
+        for table, on in (('switches', any(role in wanted for role in SWITCH_ROLES)),
+                          ('refine_switches', 'refine' in wanted)):
+            conn.execute(f'INSERT INTO {table} (workspace, enabled, changed_at) VALUES (?, ?, ?) ON CONFLICT '
+                         '(workspace) DO UPDATE SET enabled = excluded.enabled, changed_at = excluded.changed_at',
+                         (workspace, int(on), now))
+    return wanted
+
+
+def set_role(workspace: str, role: str, enabled: bool) -> set[str]:
+    """Switch one role on or off for ``workspace``; returns the roles now on."""
+    current = roles(workspace)
+    return set_roles(workspace, current | {role} if enabled else current - {role})
+
+
+def switched_on(workspace: str) -> bool:
+    """Whether any role is on for ``workspace`` on this device; off by default."""
+    return bool(roles(workspace))
 
 
 def switch(workspace: str, enabled: bool) -> bool:
-    with closing(_connect()) as conn, conn:
-        conn.execute('INSERT INTO switches (workspace, enabled, changed_at) VALUES (?, ?, ?) ON CONFLICT (workspace)'
-                     ' DO UPDATE SET enabled = excluded.enabled, changed_at = excluded.changed_at',
-                     (workspace, int(bool(enabled)), time.time()))
+    """The old switch, kept as a shortcut: on is Work and Review, off is every role off."""
+    set_roles(workspace, roles(workspace) | set(SWITCH_ROLES) if enabled else set())
     return bool(enabled)
 
 
 def last_switched_on() -> float:
-    """When a workspace's Dispatcher on this device was last switched on; 0 when never."""
+    """When a role on this device was last switched on; 0 when never."""
     with closing(_connect()) as conn:
-        row = conn.execute('SELECT MAX(changed_at) AS at FROM switches WHERE enabled = 1').fetchone()
+        row = conn.execute('SELECT MAX(changed_at) AS at FROM roles WHERE enabled = 1').fetchone()
     return float(row['at'] or 0)
 
 
 def switched_on_workspaces() -> list[str]:
+    """The workspaces with any role on, on this device."""
     with closing(_connect()) as conn:
-        return [row['workspace'] for row in conn.execute('SELECT workspace FROM switches WHERE enabled = 1 '
-                                                         'ORDER BY workspace')]
+        return [row['workspace'] for row in conn.execute(
+            'SELECT DISTINCT workspace FROM roles WHERE enabled = 1 AND role IN (%s) ORDER BY workspace'
+            % ','.join('?' * len(ROLES)), ROLES)]
+
+
+def workspaces_with(role: str) -> list[str]:
+    """The workspaces where ``role`` is on, on this device."""
+    with closing(_connect()) as conn:
+        return [row['workspace'] for row in conn.execute(
+            'SELECT workspace FROM roles WHERE role = ? AND enabled = 1 ORDER BY workspace', (role,))]
 
 
 def refining(workspace: str) -> bool:
-    """Whether the person switched Backlog refinement on for ``workspace`` on this device; off by default (ADR 0230)."""
-    with closing(_connect()) as conn:
-        row = conn.execute('SELECT enabled FROM refine_switches WHERE workspace = ?', (workspace,)).fetchone()
-    return bool(row and row['enabled'])
+    """Whether the Refine role is on for ``workspace`` on this device (ADRs 0230, 0237)."""
+    return 'refine' in roles(workspace)
 
 
 def switch_refining(workspace: str, enabled: bool) -> bool:
-    with closing(_connect()) as conn, conn:
-        conn.execute('INSERT INTO refine_switches (workspace, enabled, changed_at) VALUES (?, ?, ?) '
-                     'ON CONFLICT (workspace) DO UPDATE SET enabled = excluded.enabled, changed_at = excluded.changed_at',
-                     (workspace, int(bool(enabled)), time.time()))
+    set_role(workspace, 'refine', enabled)
     return bool(enabled)
 
 
 def refining_workspaces() -> list[str]:
-    with closing(_connect()) as conn:
-        return [row['workspace'] for row in conn.execute('SELECT workspace FROM refine_switches WHERE enabled = 1 '
-                                                         'ORDER BY workspace')]
+    return workspaces_with('refine')
 
 
 def mark_run_cleaned(run_id: str) -> None:

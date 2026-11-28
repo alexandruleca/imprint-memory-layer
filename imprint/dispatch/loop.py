@@ -282,18 +282,21 @@ class Dispatcher:
 
     def dispatch(self) -> dict | None:
         """Start one Dispatched session when there is room and work: the
-        started run, or None. Reviews, then Stale and Ready Tasks, in the
-        workspaces switched on; only when none of them started, a Backlog
-        refinement in the workspaces it is switched on for (ADR 0230)."""
+        started run, or None. Reviews where the Review role is on, then Stale
+        and Ready Tasks where the Work role is on; only when none of them
+        started, a Backlog refinement where the Refine role is on (ADRs 0230,
+        0237)."""
         if len(running_runs()) >= max(0, int(_setting('dispatch.concurrency'))) or guards.held():
             return None
         self.skipped = {}
         for workspace in store.switched_on_workspaces():
-            for state in [*reviews(workspace), *candidates(workspace)]:  # reviews first (ADR 0221)
+            roles = store.roles(workspace)
+            for state in [*(reviews(workspace) if 'review' in roles else []),  # reviews first (ADR 0221)
+                          *(candidates(workspace) if 'work' in roles else [])]:
                 started = self._start(state, workspace)
                 if started is not _PASSED:
                     return started
-        for workspace in store.refining_workspaces():
+        for workspace in store.workspaces_with('refine'):
             for state in refinements(workspace):
                 started = self._start(state, workspace)
                 if started is not _PASSED:
@@ -338,9 +341,15 @@ class Dispatcher:
         """Why a run waiting for its claim to travel must not start after all (T-2tsmh)."""
         if self._stopping.is_set():
             return 'the dashboard server is stopping'
+        roles = store.roles(workspace)
+        if role in roles:
+            return None
         if role == 'refine':
-            return None if store.refining(workspace) else 'Backlog refinement was switched off'
-        return None if store.switched_on(workspace) else 'the Dispatcher was switched off'
+            return 'Backlog refinement was switched off'
+        if not roles:
+            return 'the Dispatcher was switched off'
+        return {'review': 'reviews were switched off',
+                'work': 'work on Tasks was switched off'}.get(role, f'its role ({role}) was switched off')
 
 
 _PASSED = object()  # a Task the pass went past, unlike None, which ends the pass

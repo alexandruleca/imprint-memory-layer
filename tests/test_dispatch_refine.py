@@ -53,7 +53,7 @@ class ChoiceTests(RefineCase):
         self.settle()
 
     def test_its_own_switch_refines_while_the_dispatcher_is_off(self):
-        self.assertFalse(store.switched_on('default'))
+        self.assertEqual(store.roles('default'), {'refine'})  # neither Work nor Review (ADR 0237)
         run = self.dispatcher.dispatch()
         self.assertEqual(run['role'], 'refine')
         self.settle()

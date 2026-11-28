@@ -137,10 +137,15 @@ def _parser() -> argparse.ArgumentParser:
                      help="The client to start (default: the one it is assigned to, else this device's default)")
     run.add_argument('--minutes', type=float, help='Its time limit (default: dispatch.session_minutes)')
     run.add_argument('--review', action='store_true', help='Review a Task in Review instead of working on it')
-    actions.add_parser('on', parents=[common], help="Switch this device's Dispatcher on for the workspace")
-    actions.add_parser('off', parents=[common], help="Switch this device's Dispatcher off for the workspace")
+    roles = actions.add_parser('roles', parents=[common],
+                               help="Choose what this device's Dispatcher does for the workspace (ADR 0237)")
+    roles.add_argument('roles', help='Comma-separated roles to switch on, the rest off: work, review, refine; '
+                       'or none')
+    actions.add_parser('on', parents=[common], help="Switch the Work and Review roles on for the workspace")
+    actions.add_parser('off', parents=[common], help="Switch every role of this device's Dispatcher off for the "
+                       'workspace')
     refine = actions.add_parser('refine', parents=[common],
-                                help="Switch this device's Backlog refinement on or off for the workspace (ADR 0230)")
+                                help="Switch the Refine role, Backlog refinement, on or off for the workspace (ADR 0230)")
     refine.add_argument('state', choices=('on', 'off'))
     actions.add_parser('status', parents=[common], help='What the Dispatcher does on this device')
     actions.add_parser('stop', parents=[common], help='Stop a running Dispatched session').add_argument('run')
@@ -153,14 +158,15 @@ def _filters(args) -> dict:
 
 
 def _dispatch_status_text(status: dict) -> str:
-    lines = [f"Dispatcher for {status['workspace']} on this device: {'on' if status['on'] else 'off'}"
+    roles = status.get('roles') or []
+    lines = [f"Dispatcher for {status['workspace']} on this device: {', '.join(roles) if roles else 'off'}"
              f"{'' if status['server'] or not status['on'] else ' (the dashboard server is not running: nothing is dispatched until it is)'}",
-             f"Backlog refinement on this device: {'on' if status.get('refine') else 'off'}",
              f"Agents take unasked here: {status['autonomy']}"]
     if status['on'] and status['held']:
         lines.append(f"Starting nothing now: {status['held']}")
     if status['devices']:
-        lines.append('Also on: ' + ', '.join(d['name'] for d in status['devices']))
+        lines.append('Also on: ' + ', '.join(f"{d['name']} ({', '.join(d.get('roles') or [])})"
+                                            for d in status['devices']))
     lines.append('Clients:')
     lines += [f"  {c['label']}: {'default' if c['default'] else 'allowed' if c['allowed'] else 'unticked' if c['available'] else c['reason']}"
               f"{' (' + c['version'] + ')' if c['version'] else ''}" for c in status['clients']]
@@ -193,6 +199,19 @@ def _dispatch(args, workspace: str | None, as_json: bool) -> None:
     action, name = args.dispatch_command, workspace_name(workspace)
     if action in ('on', 'run') or (action == 'refine' and args.state == 'on'):
         _refuse_inside_dispatched('refine on' if action == 'refine' else action)
+    if action == 'roles':
+        wanted = set() if args.roles.strip().lower() == 'none' else \
+            {role.strip().lower() for role in args.roles.split(',') if role.strip()}
+        from .dispatch import store as dispatch_store
+        if wanted - dispatch_store.roles(name):  # switching a role on (ADR 0229)
+            _refuse_inside_dispatched(f'roles {args.roles}')
+        now = dispatch_status.set_roles(name, wanted)
+        shown = [role for role in dispatch_store.ROLES if role in now]
+        note = ('' if not now or loop.server_running() else
+                ' It dispatches while the dashboard server runs: start it with `imprint ui start`.')
+        _print({'workspace': name, 'roles': shown, 'on': bool(now)}, as_json,
+               f"Dispatcher for {name} on this device: {', '.join(shown) if shown else 'off'}.{note}")
+        return
     if action == 'refine':
         dispatch_status.switch_refining(name, args.state == 'on')
         _print({'workspace': name, 'refine': args.state == 'on'}, as_json,

@@ -9,9 +9,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Timestamp } from "@/components/timestamp";
-import { getDispatch, setConfigValue, setDispatch, stopDispatched, type DispatchRun, type DispatchStatus } from "@/lib/api";
+import { getDispatch, setConfigValue, setDispatch, stopDispatched, type DispatchRole, type DispatchRun, type DispatchStatus } from "@/lib/api";
 import { useCached } from "@/lib/use-cached";
 import { cn } from "@/lib/utils";
 
@@ -26,8 +25,33 @@ const OUTCOMES: Record<string, { label: string; tone: string }> = {
   refused: { label: "not started", tone: "text-muted-foreground" },
 };
 
+/** The roles a device's Dispatcher can take on, each its own checkbox (ADR 0237), in the order a pass takes them. */
+const ROLES: { role: DispatchRole; label: string; doing: string; hint: string }[] = [
+  { role: "review", label: "Review", doing: "reviews tasks in Review",
+    hint: "Reviews tasks in Review, with another client than the one that did the work where one is available." },
+  { role: "work", label: "Work", doing: "takes over Stale tasks and starts Ready ones",
+    hint: "Takes over Stale tasks and starts Ready ones while nobody works on them, each in a worktree of its own." },
+  { role: "refine", label: "Refine Backlog", doing: "refines Backlog tasks when nothing else waits",
+    hint: "When nothing waits for review or work, an agent adds acceptance criteria and detail to Backlog tasks that have none. They stay in Backlog for you to move." },
+];
+
+/** The roles on, from an API that may predate them (ADR 0237): its on switch meant Work and Review. */
+function rolesOf(data: DispatchStatus): DispatchRole[] {
+  if (data.roles) return data.roles;
+  return [...(data.on ? (["work", "review"] as DispatchRole[]) : []), ...(data.refine ? (["refine"] as DispatchRole[]) : [])];
+}
+
+/** What the roles on make this device do, in a sentence. */
+function summary(roles: DispatchRole[], autonomy: DispatchStatus["autonomy"]): string {
+  if (roles.length === 0) return "Off. Tick what this device should do while nobody works on the board's tasks.";
+  const doing = ROLES.filter((r) => roles.includes(r.role)).map((r) => r.doing);
+  const said = doing.length > 1 ? `${doing.slice(0, -1).join(", ")} and ${doing[doing.length - 1]}` : doing[0];
+  const note = roles.includes("work") && autonomy === "off" ? " Agents take nothing unasked in this workspace, so Work starts nothing." : "";
+  return `On for this device: ${said}, one at a time, each in a worktree of its own.${note}`;
+}
+
 /**
- * This device's Dispatcher for the workspace on show (ADR 0220): the switch,
+ * This device's Dispatcher for the workspace on show (ADR 0220): its roles (ADR 0237),
  * the Dispatched sessions running with a Stop each, what it would take next,
  * the other devices whose Dispatcher is on, and the last results. Only the
  * person switches it; agents have no tool for it.
@@ -102,25 +126,16 @@ export function DispatcherStrip({ now, onOpen }: { now: Date; onOpen: (task: str
   const data = status.data;
   if (!data) return null;
 
-  async function toggle(on: boolean) {
-    setSaving(true);
-    try {
-      await setDispatch({ on });
-      await status.refresh();
-      toast.success(on ? "Dispatcher on for this device" : "Dispatcher off: running sessions finish");
-    } catch (e) {
-      toast.error("Not changed", { description: e instanceof Error ? e.message : String(e) });
-    } finally {
-      setSaving(false);
-    }
-  }
+  const roles = rolesOf(data);
 
-  async function toggleRefine(refine: boolean) {
+  async function toggleRole(role: DispatchRole, on: boolean) {
     setSaving(true);
+    const next = on ? [...roles.filter((r) => r !== role), role] : roles.filter((r) => r !== role);
+    const label = ROLES.find((r) => r.role === role)?.label ?? role;
     try {
-      await setDispatch({ refine });
+      await setDispatch({ roles: next });
       await status.refresh();
-      toast.success(refine ? "Backlog refinement on for this device" : "Backlog refinement off");
+      toast.success(on ? `${label} on for this device` : `${label} off${role === "refine" ? "" : ": running sessions finish"}`);
     } catch (e) {
       toast.error("Not changed", { description: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -145,24 +160,21 @@ export function DispatcherStrip({ now, onOpen }: { now: Date; onOpen: (task: str
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <Bot aria-hidden className="size-4 text-muted-foreground" />
         <span id="dispatcher-title" className="font-medium">Dispatcher</span>
-        <Switch aria-labelledby="dispatcher-title" checked={data.on} disabled={saving} onCheckedChange={(on) => void toggle(on)} />
-        <span className="text-xs text-muted-foreground">
-          {data.on
-            ? data.autonomy === "off"
-              ? "On, but agents take nothing unasked in this workspace."
-              : "On for this device: reviews tasks in Review, then takes over Stale and Ready ones, one at a time, each in a worktree of its own."
-            : "Off. Switch it on to have this device start agents on Ready tasks while nobody works on them."}
-        </span>
-        <span className="inline-flex items-center gap-1.5 text-xs">
-          <Switch aria-labelledby="refine-title" checked={data.refine === true} disabled={saving}
-            onCheckedChange={(on) => void toggleRefine(on)} />
-          <span id="refine-title" title="When nothing waits for review or work, an agent adds acceptance criteria and detail to Backlog tasks that have none. They stay in Backlog for you to move.">
-            Refine Backlog
-          </span>
-        </span>
+        <div role="group" aria-labelledby="dispatcher-title" className="inline-flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+          {ROLES.map((r) => (
+            <label key={r.role} className="inline-flex items-center gap-1.5" title={r.hint}>
+              <Checkbox aria-label={r.label} checked={roles.includes(r.role)} disabled={saving}
+                onCheckedChange={(on) => void toggleRole(r.role, on === true)} />
+              {r.label}
+            </label>
+          ))}
+        </div>
+        <span className="text-xs text-muted-foreground">{summary(roles, data.autonomy)}</span>
         <ClientsPicker data={data} onChanged={() => void status.refresh()} />
         {data.devices.length > 0 && (
-          <span className="text-xs text-muted-foreground">Also on: {data.devices.map((d) => d.name).join(", ")}</span>
+          <span className="text-xs text-muted-foreground">
+            Also on: {data.devices.map((d) => d.roles?.length ? `${d.name} (${d.roles.join(", ")})` : d.name).join("; ")}
+          </span>
         )}
       </div>
 
@@ -179,15 +191,15 @@ export function DispatcherStrip({ now, onOpen }: { now: Date; onOpen: (task: str
         </div>
       ))}
 
-      {(data.on || data.refine) && data.held && (
+      {roles.length > 0 && data.held && (
         <p className="text-xs text-amber-700 dark:text-amber-300">Starting nothing now: {data.held}.</p>
       )}
 
-      {(data.on || data.refine) && !data.held && data.running.length === 0 && (
+      {roles.length > 0 && !data.held && data.running.length === 0 && (
         <p className="text-xs text-muted-foreground">
           {data.next.length > 0
             ? <>Next: <Button variant="link" size="sm" className="h-auto px-0 text-xs font-mono" onClick={() => onOpen(data.next[0].id)}>{data.next[0].id}</Button> {data.next[0].title}, {data.next[0].role === "refine" ? "to refine with" : "for"} {data.clients.find((c) => c.client === data.next[0].client)?.label ?? data.next[0].client}</>
-            : "Nothing to take: no Ready standalone task is open to it."}
+            : "Nothing to take for its roles right now."}
         </p>
       )}
 
