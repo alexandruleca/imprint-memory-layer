@@ -60,10 +60,12 @@ func claudeDesktopRegistrations() []clientCleanup {
 }
 
 // chatGPTDesktopRegistrations: ChatGPT Desktop registers through the Codex
-// profile it shares, so disconnecting it disconnects Codex too. From WSL its
-// setup registers nothing (SetupChatGPTDesktop).
+// profile it shares, so disconnecting it disconnects Codex too. It has none
+// while it is not installed, so Codex's entry alone does not show it
+// connected and disconnecting it leaves Codex alone. From WSL its setup
+// registers nothing (SetupChatGPTDesktop).
 func chatGPTDesktopRegistrations() []clientCleanup {
-	if platform.IsWSL() {
+	if onWSL() || !chatGPTDesktopInstalled() {
 		return nil
 	}
 	return codexRegistrations()
