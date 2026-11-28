@@ -363,7 +363,7 @@ test("in the desktop app a Task alert opens the Agents window; that window alone
   await base(page, { mode: 'advanced', tutorials: false });
   await page.addInitScript(() => {
     const opened: string[] = [];
-    Object.assign(window, { __opened: opened, electronAPI: { isElectron: true, platform: 'linux', close() {}, quit() {}, minimize() {}, maximize() {},
+    Object.assign(window, { __opened: opened, electronAPI: { isElectron: true, platform: 'linux', close: () => opened.push('close'), quit() {}, minimize() {}, maximize() {},
       openCompanion() {}, closeCompanion() {}, pinCompanion() {}, openAgents: (task: string) => opened.push(task) } });
   });
   await mockBoard(page, board(), { comments: [{ id: 'c9', task: 'T-cccc3', title: 'Upload retries', text: 'Which bucket should I use?',
@@ -376,4 +376,7 @@ test("in the desktop app a Task alert opens the Agents window; that window alone
   await expect(page.locator('li[data-task="T-cccc3"]')).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Pages' })).toHaveCount(0);
   await expect(page.getByText('Which bucket should I use?')).toHaveCount(0);
+  // Without the sidebar, its window buttons are in the top bar: the frameless window can still be closed.
+  await page.getByRole('button', { name: 'Close the Agents window' }).click();
+  expect(await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened)).toContain('close');
 });

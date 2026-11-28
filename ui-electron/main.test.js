@@ -1257,3 +1257,23 @@ test('with the notification setting off, the default, waiting agents are counted
   assert.equal(h.calls.tooltip, 'Imprint · 1 agent waiting for you');
   assert.deepEqual(h.calls.filter(call => call[0] === 'notification'), []);
 });
+
+test('the Agents window closes from its own button, Ctrl+W and the system\'s close, and opens again after (ADR 0232)', async () => {
+  const h = harness({ alreadyUp: true }); await settle();
+  const open = async () => { h.calls.menu.find(item => item.label.startsWith('Open Agents')).click(); await settle(); return h.windows.at(-1); };
+  let agents = await open();
+  h.emit('win-close', agents);  // its top bar's close button
+  assert.equal(agents.destroyed, true);
+  agents = await open();
+  assert.equal(agents.destroyed, false, 'a new window opens after one was closed');
+  const key = (input) => { const e = { prevented: false, preventDefault() { this.prevented = true; } };
+    agents.webContents.emit('before-input-event', e, { type: 'keyDown', alt: false, shift: false, meta: false, control: false, ...input }); return e; };
+  assert.equal(key({ key: 'w' }).prevented, false, 'a plain w is typing');
+  assert.equal(key({ key: 'w', control: true }).prevented, true);
+  assert.equal(agents.destroyed, true);
+  agents = await open();
+  const e = { prevented: false, preventDefault() { this.prevented = true; } };
+  agents.emit('close', e);  // Alt+F4, the taskbar, the title bar
+  assert.equal(e.prevented, false, 'nothing holds the system close back');
+  assert.ok(!h.calls.includes('quit'));
+});

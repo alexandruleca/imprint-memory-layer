@@ -948,6 +948,15 @@ function openAgents(task = null) {
   agentsWin = window;
   window.on('close', () => saveCompanionBounds(window, AGENTS_BOUNDS));
   window.on('closed', () => { if (agentsWin === window) agentsWin = null; });
+  // Ctrl+W (Cmd+W) closes it, as a window with an app menu would.
+  window.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown' && (input.control || input.meta) && !input.alt && !input.shift
+        && String(input.key).toLowerCase() === 'w') {
+      event.preventDefault();
+      saveCompanionBounds(window, AGENTS_BOUNDS);
+      window.destroy();
+    }
+  });
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (externalURL(url) && !sameOrigin(url, UI_ORIGIN)) shell.openExternal(url);
     return { action: 'deny' };

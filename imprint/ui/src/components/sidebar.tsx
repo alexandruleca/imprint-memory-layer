@@ -212,15 +212,19 @@ function NavLink({ href, label, icon: Icon, active }: NavItem & { active: boolea
   );
 }
 
-function TrafficLights() {
+/** The frameless window's close, minimize and maximize buttons. The Agents
+ * window, which has no sidebar, shows them in its top bar (ADR 0232). */
+export function TrafficLights({ closeTitle = "Hide window (keep Imprint running)", className = "mb-3" }: {
+  closeTitle?: string; className?: string;
+} = {}) {
   const buttons = [
-    { color: "#ff5f57", label: "×", title: "Hide window (keep Imprint running)", action: () => window.electronAPI?.close() },
+    { color: "#ff5f57", label: "×", title: closeTitle, action: () => window.electronAPI?.close() },
     { color: "#febc2e", label: "−", title: "Minimize", action: () => window.electronAPI?.minimize() },
     { color: "#28c840", label: "+", title: "Maximize", action: () => window.electronAPI?.maximize() },
   ];
 
   return (
-    <div className="app-no-drag mb-3 flex gap-1.5">
+    <div className={`app-no-drag flex gap-1.5 ${className}`}>
       {buttons.map(({ color, label, title, action }) => (
         <Hint key={title} label={title} side="bottom">
           <Button
