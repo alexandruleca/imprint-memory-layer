@@ -5,7 +5,6 @@ description: The Dispatcher's single switch per device and workspace becomes fou
 
 - Status: Accepted
 - Date: 2026-11-28
-- Scope: Work, Review and Refine; the Deploy role takes effect with [ADR 0239](0239-the-dispatcher-deploys-tasks-a-dispatched-review-passed.md), still proposed
 - Amends:
   - [ADR 0220](0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md) — its "The switch": four role switches per device and workspace in place of one, `on` and `off` kept as shortcuts
   - [ADR 0230](0230-the-dispatcher-refines-backlog-tasks-when-the-person-switches-refinement-on.md) — its switch of its own: refinement becomes the Refine role

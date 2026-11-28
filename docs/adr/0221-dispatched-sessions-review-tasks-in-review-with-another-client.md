@@ -8,7 +8,9 @@ description: The Dispatcher starts a reviewer session for Tasks in Review that a
 - Amends:
   - [ADR 0208](0208-agents-track-work-as-tasks-on-a-board-in-each-workspace.md) — its "Agents review a Task when asked, never unasked": Dispatched sessions review Tasks in Review, and the holder of a Task in Review that did not do the work may move it to Done
   - [ADR 0211](0211-agents-take-ready-and-stale-tasks-unasked-within-their-project.md) — its "Reviewing a Task in Review is never taken unasked": Dispatched sessions review Tasks in Review
-- Amended by: [ADR 0234](0234-the-dispatcher-counts-review-rounds-and-failures-across-paired-devices.md) — its "Second failed review": the review rounds are counted on every paired device
+- Amended by:
+  - [ADR 0234](0234-the-dispatcher-counts-review-rounds-and-failures-across-paired-devices.md) — its "Second failed review": the review rounds are counted on every paired device
+  - [ADR 0239](0239-the-dispatcher-deploys-tasks-a-dispatched-review-passed.md) — its "Pass": the branch a passing review names is deployed by a device with the Deploy role, else merged by the person
 - Related: [ADR 0220](0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md) (the Dispatcher), [ADR 0222](0222-only-clients-with-a-sandbox-or-a-check-of-each-action-are-dispatched.md) (which clients), [ADR 0223](0223-dispatched-sessions-work-in-a-worktree-outside-the-project-and-never-push-or-merge.md) (branches and merging)
 
 ## Context

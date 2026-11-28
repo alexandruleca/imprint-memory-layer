@@ -286,6 +286,7 @@ class Dispatcher:
         and Ready Tasks where the Work role is on; only when none of them
         started, a Backlog refinement where the Refine role is on (ADRs 0230,
         0237)."""
+        self.deploy()  # starts no session, so neither limit holds it (ADR 0239)
         if len(running_runs()) >= max(0, guards.limit('dispatch.concurrency')) or guards.held():
             return None
         self.skipped = {}
@@ -301,6 +302,23 @@ class Dispatcher:
                 started = self._start(state, workspace)
                 if started is not _PASSED:
                     return started
+        return None
+
+    def deploy(self) -> dict | None:
+        """Deploy one Task a Dispatched review passed, in the workspaces whose
+        Deploy role is on (ADR 0239): its run record, or None."""
+        from . import deploy
+        for workspace in store.workspaces_with('deploy'):
+            for state in deploy.candidates(workspace):
+                if self._stopping.is_set():
+                    return None
+                try:
+                    run = deploy.deploy(state, workspace)
+                except (LookupError, PermissionError, ValueError, OSError, RuntimeError) as error:
+                    print(f"[imprint] dispatcher did not deploy {state['id']}: {error}", file=sys.stderr, flush=True)
+                    continue
+                if run is not None:
+                    return run
         return None
 
     def _start(self, state: dict, workspace: str):

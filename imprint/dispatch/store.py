@@ -15,7 +15,7 @@ from pathlib import Path
 from .. import config
 
 # What a device's Dispatcher may do in a workspace, each switched on by the person (ADR 0237).
-ROLES = ('work', 'review', 'refine')
+ROLES = ('work', 'review', 'refine', 'deploy')
 # The old single switch meant both of these (ADR 0220).
 SWITCH_ROLES = ('work', 'review')
 

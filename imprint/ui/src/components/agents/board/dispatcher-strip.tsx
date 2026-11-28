@@ -24,6 +24,8 @@ const OUTCOMES: Record<string, { label: string; tone: string }> = {
   stopped: { label: "stopped", tone: "text-muted-foreground" },
   lost: { label: "another device took it", tone: "text-muted-foreground" },
   refused: { label: "not started", tone: "text-muted-foreground" },
+  deployed: { label: "deployed", tone: "text-emerald-700 dark:text-emerald-300" },
+  conflict: { label: "conflicts: back to Ready", tone: "text-amber-700 dark:text-amber-300" },
 };
 
 /** The roles a device's Dispatcher can take on, each its own checkbox (ADR 0237), in the order a pass takes them. */
@@ -34,6 +36,8 @@ const ROLES: { role: DispatchRole; label: string; doing: string; hint: string }[
     hint: "Takes over Stale tasks and starts Ready ones while nobody works on them, each in a worktree of its own." },
   { role: "refine", label: "Refine Backlog", doing: "refines Backlog tasks when nothing else waits",
     hint: "When nothing waits for review or work, an agent adds acceptance criteria and detail to Backlog tasks that have none. They stay in Backlog for you to move." },
+  { role: "deploy", label: "Deploy", doing: "merges and pushes each task a review passed",
+    hint: "Merges each task a Dispatched review passed into the branch its work started from and pushes it, never with force and never to the remote's default branch unless Settings lists it. No agent runs for this." },
 ];
 
 /** The roles on, from an API that may predate them (ADR 0237): its on switch meant Work and Review. */
@@ -48,7 +52,8 @@ function summary(roles: DispatchRole[], autonomy: DispatchStatus["autonomy"]): s
   const doing = ROLES.filter((r) => roles.includes(r.role)).map((r) => r.doing);
   const said = doing.length > 1 ? `${doing.slice(0, -1).join(", ")} and ${doing[doing.length - 1]}` : doing[0];
   const note = roles.includes("work") && autonomy === "off" ? " Agents take nothing unasked in this workspace, so Work starts nothing." : "";
-  return `On for this device: ${said}, each in a worktree of its own.${note}`;
+  const worktree = roles.some((r) => r !== "deploy") ? ", each in a worktree of its own" : "";
+  return `On for this device: ${said}${worktree}.${note}`;
 }
 
 /**
@@ -205,7 +210,7 @@ export function DispatcherStrip({ now, onOpen }: { now: Date; onOpen: (task: str
       {roles.length > 0 && !data.held && data.running.length === 0 && (
         <p className="text-xs text-muted-foreground">
           {data.next.length > 0
-            ? <>Next: <Button variant="link" size="sm" className="h-auto px-0 text-xs font-mono" onClick={() => onOpen(data.next[0].id)}>{data.next[0].id}</Button> {data.next[0].title}, {data.next[0].role === "refine" ? "to refine with" : "for"} {data.clients.find((c) => c.client === data.next[0].client)?.label ?? data.next[0].client}</>
+            ? <>Next: <Button variant="link" size="sm" className="h-auto px-0 text-xs font-mono" onClick={() => onOpen(data.next[0].id)}>{data.next[0].id}</Button> {data.next[0].title}, {data.next[0].role === "deploy" ? "to deploy" : <>{data.next[0].role === "refine" ? "to refine with" : "for"} {data.clients.find((c) => c.client === data.next[0].client)?.label ?? data.next[0].client}</>}</>
             : "Nothing to take for its roles right now."}
         </p>
       )}
@@ -223,7 +228,7 @@ export function DispatcherStrip({ now, onOpen }: { now: Date; onOpen: (task: str
                   <li key={run.id} className="flex flex-wrap items-center gap-2">
                     <Button variant="link" size="sm" className="h-auto px-0 text-xs font-mono" onClick={() => onOpen(run.task)}>{run.task}</Button>
                     <span className="min-w-0 truncate">{run.title}</span>
-                    <Badge variant="outline" className="font-normal">{run.client}</Badge>
+                    <Badge variant="outline" className="font-normal">{run.role === "deploy" ? "deploy" : run.client}</Badge>
                     <span className={cn("font-medium", outcome.tone)} title={run.detail ?? undefined}>{outcome.label}</span>
                     <Timestamp seconds={run.ended_at ?? run.started_at} now={now} className="text-muted-foreground" />
                   </li>

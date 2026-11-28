@@ -426,6 +426,10 @@ HELP: dict[str, dict[str, str]] = {
         "help": "The client a Dispatched session uses for a Task that is not assigned to a client: claude-code or codex. Empty by default, which picks the first available client you allow, Claude Code before Codex. A Task assigned to a client always goes to that client, or waits when it is not available here.",
         "example": "codex: to have Codex work unassigned Tasks, and Claude Code review them.",
     },
+    "dispatch.deploy_branches": {
+        "help": "Deploy, a role of the Dispatcher you tick per device, merges each Task a Dispatched review passed into the branch its work started from and pushes it (ADR 0239). It never pushes to the remote's default branch, usually main, unless that branch is listed here. Empty by default: deploy pushes to working branches such as dev only.",
+        "example": "main: when Tasks are worked from main and a passed review should reach it by itself.",
+    },
     "dispatch.excluded_clients": {
         "help": "Clients the Dispatcher never starts on this device, though they are installed and connected; the Board's strip unticks them here. Empty by default: every available client is allowed.",
         "example": "codex: to keep Dispatched sessions to Claude Code.",

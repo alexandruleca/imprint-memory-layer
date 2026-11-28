@@ -453,6 +453,8 @@ SETTINGS: list[Setting] = [
             "The client Dispatched sessions use for a Task assigned to none; empty: the first allowed"),
     Setting("dispatch.excluded_clients",    "IMPRINT_DISPATCH_EXCLUDED_CLIENTS",    "", str,
             "Comma-separated clients the Dispatcher never starts, though available"),
+    Setting("dispatch.deploy_branches",     "IMPRINT_DISPATCH_DEPLOY_BRANCHES",     "", str,
+            "Comma-separated branches deploy may push to though they are the remote's default (ADR 0239)"),
 
     # ── Client rules (ADR 0214) ───────────────────────────────
     # Setup gives clients that load skills a short rules block pointing to

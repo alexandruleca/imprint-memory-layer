@@ -36,6 +36,12 @@ def switch_refining(workspace: str, on: bool) -> bool:
     return on
 
 
+def _deploys(workspace: str) -> list[dict]:
+    """The Tasks deploy would take next (ADR 0239), as the strip lists them."""
+    from . import deploy
+    return [{**state, 'client': 'imprint', 'role': 'deploy'} for state in deploy.candidates(workspace)]
+
+
 def status(workspace: str, *, projects: bool = True, refresh: bool = False) -> dict:
     """This device's Dispatcher for ``workspace``: whether it is on, whether
     the dashboard server that runs it is up, the sessions running and the
@@ -65,7 +71,8 @@ def status(workspace: str, *, projects: bool = True, refresh: bool = False) -> d
         'next': [{'id': s['id'], 'title': s['title'], 'project': s['project'], 'client': s['client'], 'role': s['role']}
                  for s in [*(loop.reviews(workspace) if 'review' in shown else []),
                            *(loop.candidates(workspace) if 'work' in shown else []),
-                           *(loop.refinements(workspace) if 'refine' in shown else [])]][:5],
+                           *(loop.refinements(workspace) if 'refine' in shown else []),
+                           *(_deploys(workspace) if 'deploy' in roles else [])]][:5],
         'devices': [d for d in tasks.dispatching(workspace) if d['on'] and d['device'] != here],
     }
     if projects:

@@ -41,7 +41,7 @@ When your prompt says you are to **review** the Task, another session did the wo
 2. **Read the Task**: its acceptance criteria, the worker's checkpoints (how it says it verified each criterion) and the comments.
 3. **Check the change** in your worktree, which is on the Task's branch: read `git diff <base>...HEAD`, with the base your prompt names, run the project's tests and checks as its own instructions say, and check each acceptance criterion yourself. Look for real defects; leave style preferences out. A failing test is this Task's defect only when the base passes it: run it on the base before you report it, and name the failures the base shares as pre-existing.
 4. **Do not change the work.** Reviewing is reading and running, not fixing; make no commits.
-5. **Pass**: when every criterion holds and you found no defect, comment what you checked and how, then `task_edit(action="move", task="T-…", status="Done")`. The Dispatcher tells the person the branch is ready to merge.
+5. **Pass**: when every criterion holds and you found no defect, comment what you checked and how, then `task_edit(action="move", task="T-…", status="Done")`. A device with the Deploy role then merges the branch and pushes it; without one, the Dispatcher tells the person the branch is ready to merge.
 6. **Fail**: comment your findings to `holder`, each with where it is (file and line) and what would fix it, then `task_edit(action="move", task="T-…", status="Ready")`. The next worker continues on the same branch from your comment.
 
 ## Refining

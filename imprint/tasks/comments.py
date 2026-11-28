@@ -34,7 +34,8 @@ def _addresses(values, text: str) -> list[str]:
     return found[:ASSIGNEES]
 
 
-DISPATCH_OUTCOMES = ('passed', 'returned', 'failed', 'stopped')
+DISPATCH_OUTCOMES = ('passed', 'returned', 'failed', 'stopped', 'deployed', 'conflict')
+DISPATCH_ROLES = ('work', 'review', 'refine', 'deploy')
 
 
 def comment(task: str, text: str, *, to=(), actor: dict | None = None, workspace: str | None = None,
@@ -79,7 +80,7 @@ def _dispatch_tag(tag: dict, actor: dict | None) -> dict:
     if (actor or {}).get('kind') != 'system':
         raise PermissionError('Only Imprint tags its note at the end of a Dispatched run')
     if not isinstance(tag, dict) or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', str(tag.get('run') or '')) \
-            or tag.get('role') not in ('work', 'review', 'refine') or tag.get('outcome') not in DISPATCH_OUTCOMES \
+            or tag.get('role') not in DISPATCH_ROLES or tag.get('outcome') not in DISPATCH_OUTCOMES \
             or not isinstance(tag.get('started'), bool):
         raise ValueError('a dispatch tag is {"run", "role", "outcome", "started"}')
     return {key: tag[key] for key in ('run', 'role', 'outcome', 'started')}

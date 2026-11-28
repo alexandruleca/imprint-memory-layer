@@ -1372,10 +1372,10 @@ export function setAutonomy(value: Autonomy) {
 export type DispatchRun = {
   id: string; workspace: string; task: string; title: string; project: string; client: string; role: string;
   pid: number | null; worktree: string | null; branch: string | null; base: string | null; started_at: number;
-  ended_at: number | null; exit_code: number | null; outcome: "review" | "passed" | "returned" | "refined" | "failed" | "stopped" | "lost" | "refused" | null; detail: string | null;
+  ended_at: number | null; exit_code: number | null; outcome: "review" | "passed" | "returned" | "refined" | "failed" | "stopped" | "lost" | "refused" | "deployed" | "conflict" | null; detail: string | null;
 };
 /** What a device's Dispatcher may do in a workspace, each switched on by the person (ADR 0237). */
-export type DispatchRole = "work" | "review" | "refine";
+export type DispatchRole = "work" | "review" | "refine" | "deploy";
 /** This device's Dispatcher for the active workspace: the Board's strip. */
 export type DispatchStatus = {
   workspace: string; on: boolean; server: boolean; autonomy: Autonomy; running: DispatchRun[]; recent: DispatchRun[];
@@ -1389,7 +1389,7 @@ export type DispatchStatus = {
   limits?: { today: number; daily: number; concurrency: number };
   /** The clients the person unticked (dispatch.excluded_clients), also those this device cannot start right now. */
   excluded?: string[];
-  next: { id: string; title: string; project: string; client: string; role: "work" | "review" | "refine" }[];
+  next: { id: string; title: string; project: string; client: string; role: DispatchRole }[];
   /** The clients it can start here (ADR 0222): available ones with a version, the rest with the reason. */
   clients: { client: string; label: string; available: boolean; version: string | null; reason: string | null;
     allowed: boolean; default: boolean;

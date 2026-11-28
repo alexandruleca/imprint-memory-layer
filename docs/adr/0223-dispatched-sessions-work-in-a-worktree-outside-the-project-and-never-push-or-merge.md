@@ -5,7 +5,9 @@ description: Each Dispatched session works on its Task's branch in a git worktre
 
 - Status: Amended
 - Date: 2026-11-27
-- Amended by: [ADR 0238](0238-task-branches-travel-through-the-base-branchs-remote.md) — its "Never push or merge" and "Takeovers from another device": Imprint pushes the Task's branch when it reaches Review, and a device fetches before it checks for the commit
+- Amended by:
+  - [ADR 0238](0238-task-branches-travel-through-the-base-branchs-remote.md) — its "Never push or merge" and "Takeovers from another device": Imprint pushes the Task's branch when it reaches Review, and a device fetches before it checks for the commit
+  - [ADR 0239](0239-the-dispatcher-deploys-tasks-a-dispatched-review-passed.md) — its "Never push or merge" and its rejected "reviewer merging a passing branch": on a device with the Deploy role, Imprint merges and pushes a Task a Dispatched review passed
 - Related: [ADR 0210](0210-claims-are-leases-held-by-the-agent-session.md) (Task branches and pushing), [ADR 0220](0220-a-dispatcher-starts-agent-sessions-for-board-tasks-when-the-person-switches-it-on.md) (the Dispatcher), [ADR 0221](0221-dispatched-sessions-review-tasks-in-review-with-another-client.md) (reviews), [ADR 0224](0224-a-dispatched-session-starts-only-after-its-claim-has-reached-the-paired-devices.md) (lost claims)
 
 ## Context

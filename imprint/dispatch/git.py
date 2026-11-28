@@ -54,9 +54,11 @@ def command(path: str, *args: str, env: dict | None = None) -> tuple[list[str], 
     return ['git', '-C', where, *args], options
 
 
-def run(path: str, *args: str, timeout: float = TIMEOUT, network: bool = False) -> str:
-    """git's standard output, stripped; GitError when git is missing, slow or
-    fails. ``network``: a fetch or push, which never prompts for credentials."""
+def result(path: str, *args: str, timeout: float = TIMEOUT, network: bool = False) -> tuple[int, str, str]:
+    """git's exit code, standard output and standard error, both stripped,
+    for a caller that tells failures apart; GitError only when git is
+    missing or slow. ``network``: a fetch or push, which never prompts for
+    credentials."""
     argv, options = command(path, *args, env=_NO_PROMPTS if network else None)
     try:
         proc = subprocess.run(argv, capture_output=True, timeout=timeout, check=False, **options)
@@ -64,10 +66,17 @@ def run(path: str, *args: str, timeout: float = TIMEOUT, network: bool = False) 
         raise GitError(f'{argv[0]} is not installed') from None
     except subprocess.TimeoutExpired:
         raise GitError(f'git did not answer within {timeout:g} seconds on {path}') from None
-    if proc.returncode:
-        error = proc.stderr.decode('utf-8', 'replace').strip() or f'git exited with {proc.returncode}'
-        raise GitError(error.splitlines()[-1])
-    return proc.stdout.decode('utf-8', 'replace').strip()
+    return (proc.returncode, proc.stdout.decode('utf-8', 'replace').strip(),
+            proc.stderr.decode('utf-8', 'replace').strip())
+
+
+def run(path: str, *args: str, timeout: float = TIMEOUT, network: bool = False) -> str:
+    """git's standard output, stripped; GitError when git is missing, slow or
+    fails. ``network``: a fetch or push, which never prompts for credentials."""
+    code, out, err = result(path, *args, timeout=timeout, network=network)
+    if code:
+        raise GitError((err or f'git exited with {code}').splitlines()[-1])
+    return out
 
 
 def has_commit(path: str, commit: str) -> bool:
@@ -102,3 +111,25 @@ def fetch_branch(path: str, remote: str, branch: str) -> None:
     commits are here (ADR 0238)."""
     run(path, 'fetch', '--quiet', '--no-tags', remote, f'+refs/heads/{branch}:refs/remotes/{remote}/{branch}',
         timeout=NETWORK_TIMEOUT, network=True)
+
+
+def is_ancestor(path: str, older: str, newer: str) -> bool:
+    """Whether ``older`` is in ``newer``'s history (or is it)."""
+    code, _, err = result(path, 'merge-base', '--is-ancestor', older, newer)
+    if code not in (0, 1):
+        raise GitError((err or f'git exited with {code}').splitlines()[-1])
+    return code == 0
+
+
+def default_branch(path: str, remote: str) -> str | None:
+    """The branch ``remote``'s HEAD names (its default, often ``main``): from
+    the local ``refs/remotes/<remote>/HEAD`` when it is set, else asked of
+    the remote; None when neither says."""
+    code, out, _ = result(path, 'symbolic-ref', '--quiet', '--short', f'refs/remotes/{remote}/HEAD')
+    if code == 0 and out.startswith(f'{remote}/'):
+        return out[len(remote) + 1:]
+    code, out, _ = result(path, 'ls-remote', '--symref', remote, 'HEAD', timeout=NETWORK_TIMEOUT, network=True)
+    for line in out.splitlines() if code == 0 else []:
+        if line.startswith('ref: refs/heads/') and line.endswith('\tHEAD'):
+            return line[len('ref: refs/heads/'):-len('\tHEAD')]
+    return None

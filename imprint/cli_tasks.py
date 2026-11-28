@@ -139,8 +139,8 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument('--review', action='store_true', help='Review a Task in Review instead of working on it')
     roles = actions.add_parser('roles', parents=[common],
                                help="Choose what this device's Dispatcher does for the workspace (ADR 0237)")
-    roles.add_argument('roles', help='Comma-separated roles to switch on, the rest off: work, review, refine; '
-                       'or none')
+    roles.add_argument('roles', help='Comma-separated roles to switch on, the rest off: work, review, refine, '
+                       'deploy; or none')
     actions.add_parser('on', parents=[common], help="Switch the Work and Review roles on for the workspace")
     actions.add_parser('off', parents=[common], help="Switch every role of this device's Dispatcher off for the "
                        'workspace')

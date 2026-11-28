@@ -3,9 +3,12 @@ title: ADR 0239 — The Dispatcher deploys Tasks a Dispatched review passed
 description: On a device with the Deploy role, Imprint's own git code merges the branch of each Task a Dispatched review passed into the branch its work started from and pushes it, without force and never to the remote's default branch unless the person allows it.
 ---
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-28
-- Related: [ADR 0223](0223-dispatched-sessions-work-in-a-worktree-outside-the-project-and-never-push-or-merge.md) (its "Never push or merge" and its rejected "reviewer merging a passing branch", which this would amend), [ADR 0221](0221-dispatched-sessions-review-tasks-in-review-with-another-client.md) (a pass names the branch to merge, which this would amend), [ADR 0234](0234-the-dispatcher-counts-review-rounds-and-failures-across-paired-devices.md) (end-of-run tags), [ADR 0237](0237-a-devices-dispatcher-does-only-the-roles-the-person-switches-on.md) (the Deploy role), [ADR 0238](0238-task-branches-travel-through-the-base-branchs-remote.md) (Task branches on the remote)
+- Amends:
+  - [ADR 0223](0223-dispatched-sessions-work-in-a-worktree-outside-the-project-and-never-push-or-merge.md) — its "Never push or merge" and its rejected "reviewer merging a passing branch": on a device with the Deploy role, Imprint merges and pushes a Task a Dispatched review passed
+  - [ADR 0221](0221-dispatched-sessions-review-tasks-in-review-with-another-client.md) — its "Pass": the branch a passing review names is deployed by a device with the Deploy role, else merged by the person
+- Related: [ADR 0234](0234-the-dispatcher-counts-review-rounds-and-failures-across-paired-devices.md) (end-of-run tags), [ADR 0237](0237-a-devices-dispatcher-does-only-the-roles-the-person-switches-on.md) (the Deploy role), [ADR 0238](0238-task-branches-travel-through-the-base-branchs-remote.md) (Task branches on the remote)
 
 ## Context
 
@@ -37,7 +40,8 @@ The person's checkout and local branches are never touched; the person pulls.
 **When it cannot.**
 - **The push is rejected because the base moved.** It is retried on the next pass and counts as nothing.
 - **A conflict.** The Task goes back to Ready with a comment to merge `<remote>/<base>` into its branch and resolve the conflict. The fixed branch is reviewed again. A second conflict on the same Task, counted from the synced tags of every device, assigns the Task to the person.
-- **Anything else** (no remote, authentication, network) counts toward `dispatch.failure_limit`, and the Board's strip says why.
+- **Nothing it may push to, or nothing to push.** When the base tracks no remote, when it is the remote's default branch and `dispatch.deploy_branches` does not list it, or when the work's last commit is not in this copy of the repository, the Task gets one comment to the person saying which, and waits. These are not failures: a project without a remote would otherwise switch the Dispatcher off.
+- **Anything else** (authentication, network, a merge git refuses for another reason) is a failed deploy in the device's run record, counted toward `dispatch.failure_limit`, and the Board's strip says why.
 
 **No tests at deploy.** The review tested the branch, and the project's CI tests the push.
 
@@ -48,6 +52,7 @@ The person's checkout and local branches are never touched; the person pulls.
 - **Keeping a passed Task in Review until it is deployed.** Done would then mean "merged". But on a setup where no device deploys, every passed Task would wait in Review. The owner chose Done plus a note (2026-11-28).
 - **Rebasing the branch onto a moved base.** It rewrites the reviewed commits. A merge commit keeps them as reviewed.
 - **Running the project's tests before pushing.** There is no per-project test command. A failing CI run shows on the push, and a per-project command can be added later.
+- **Counting a missing remote as a failure.** The record first said so. A project whose base tracks no remote would then fail on every pass and switch the Dispatcher off after `dispatch.failure_limit` passes, so it waits with a comment instead.
 
 ## Consequences
 
@@ -65,4 +70,19 @@ The person's checkout and local branches are never touched; the person pulls.
 
 ## Validation
 
-Proposed; not yet implemented. To be validated by T-k9gjm, with tests against a bare remote: fast-forward, merge commit, already merged, conflict then a second conflict, two deployers racing, and the default branch refused without `dispatch.deploy_branches`.
+T-k9gjm, 2026-11-28, `tests/test_dispatch_deploy.py` (11 tests) against a bare remote whose default branch is `main` while the work happens on `dev`, as in this repository:
+- a passing Dispatched review makes a Task a candidate, and a Task the person moved to Done does not;
+- nothing is deployed without the Deploy role;
+- an unmoved base is fast-forwarded, the remote Task branch is deleted, `main` and the person's checkout are untouched, and the deploy counts toward neither limit;
+- a moved base gets a merge commit with the repository's identity and the message "Merge task/… (T-…)" and nothing else;
+- a branch already in the base is noted and nothing is pushed;
+- a push the base moved under is tried again on the next pass, with no note and no record, and then merged;
+- a second device finds nothing to deploy once the first one's note is on the Board;
+- the remote's default branch is refused, with one comment, until `dispatch.deploy_branches` lists it;
+- a base without a remote waits with one comment;
+- an unreachable remote is a failed deploy that counts toward switching off;
+- a conflict sends the Task back to Ready with the conflicting files named, and the second conflict assigns it to the person, neither counted as a failure.
+
+Breaking the code four ways (always fast-forward, no default-branch guard, no second-conflict hand-off, no retry on a rejected push) fails the tests that cover each. `test_dispatch_*` passes on Linux and natively on Windows.
+
+Not yet run: a deploy against a hosted remote with real credentials, and two physical devices deploying at once.
