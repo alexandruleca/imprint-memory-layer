@@ -3,6 +3,7 @@
 import io
 import os
 import time
+import uuid
 import unittest
 from contextlib import redirect_stderr
 from unittest.mock import patch
@@ -17,7 +18,8 @@ from test_dispatch_loop import LoopCase
 def _ended(task, outcome, *, started=None, workspace='default'):
     """A finished run, as the Dispatcher records one."""
     now = started or time.time()
-    return store.add({'id': f'{outcome[:2]}{now:.6f}'.replace('.', ''), 'workspace': workspace, 'task': task,
+    # A random id: two runs made in a row can read the same time.time() where the clock is coarse (Windows).
+    return store.add({'id': f'{outcome[:2]}{uuid.uuid4().hex[:12]}', 'workspace': workspace, 'task': task,
                       'title': 't', 'project': 'shop', 'client': 'claude-code', 'role': 'work',
                       'started_at': now, 'ended_at': now + 1, 'outcome': outcome, 'detail': outcome})
 
