@@ -157,7 +157,9 @@ class CodexRunTests(ClientsCase):
 
         self.assertEqual(run['outcome'], 'review', run)
         seen = json.loads(self.record.read_text())
-        self.assertEqual(seen['argv'][:4], ['exec', '--approve-for-me', '-C', seen['cwd']])
+        self.assertEqual(seen['argv'][:3], ['exec', '--approve-for-me', '-C'])
+        # The fake records os.getcwd(), which resolves symlinks (macOS's /var is /private/var): the same folder.
+        self.assertEqual(os.path.realpath(seen['argv'][3]), os.path.realpath(seen['cwd']))
         self.assertNotIn('--sandbox', seen['argv'])  # Codex refuses it beside --approve-for-me
         self.assertIn('escalated permissions', seen['prompt'])  # how to commit from its sandbox
         git_dir = seen['argv'][seen['argv'].index('-c') + 1]

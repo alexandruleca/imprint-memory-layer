@@ -77,8 +77,14 @@ def _worktrees(folder: dict) -> dict[str, str]:
     return found
 
 
-def _same(a: str, b: str) -> bool:
-    return os.path.normcase(os.path.normpath(a)) == os.path.normcase(os.path.normpath(b))
+def _same(folder: dict, a: str, b: str) -> bool:
+    """Whether two paths name one worktree. git lists a worktree by its real
+    path, so a local folder reached through a symlink (macOS's /var is
+    /private/var) compares by real path; a WSL distribution's paths are
+    compared as written, since this runtime cannot resolve them."""
+    if folder.get('distro'):
+        return posixpath.normpath(a) == posixpath.normpath(b)
+    return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
 
 
 def _task_branch(folder: dict, task_id: str) -> str | None:
@@ -99,7 +105,7 @@ def prepare(folder: dict, task_id: str, title: str, *, start: str | None = None)
     commit now."""
     path = location(folder, task_id)
     base = start or folder.get('branch') or folder['commit']
-    existing = next((branch for listed, branch in _worktrees(folder).items() if _same(listed, path)), None)
+    existing = next((branch for listed, branch in _worktrees(folder).items() if _same(folder, listed, path)), None)
     fresh = False
     if existing is not None:
         branch, created = existing or _task_branch(folder, task_id) or branch_name(task_id, title), False
@@ -138,7 +144,7 @@ def scratch(folder: dict, task_id: str) -> dict:
     made afresh each time; ``remove_scratch`` takes it away. Returns the
     keys ``prepare`` returns, ``branch`` None and ``scratch`` True."""
     path = scratch_location(folder, task_id)
-    if any(_same(listed, path) for listed in _worktrees(folder)):
+    if any(_same(folder, listed, path) for listed in _worktrees(folder)):
         git.run(folder['path'], 'worktree', 'remove', '--force', path)
     elif _exists(folder, path):
         raise FileExistsError(f'{path} exists and is not a worktree of {folder["repository"]}: move it away')
@@ -157,7 +163,7 @@ def scratch(folder: dict, task_id: str) -> dict:
 def remove_scratch(folder: dict, task_id: str) -> bool:
     """Remove a refinement's throwaway copy; False when there was none."""
     path = scratch_location(folder, task_id)
-    if not any(_same(listed, path) for listed in _worktrees(folder)):
+    if not any(_same(folder, listed, path) for listed in _worktrees(folder)):
         return False
     git.run(folder['path'], 'worktree', 'remove', '--force', path)
     return True
@@ -174,7 +180,7 @@ def wsl_native(folder: dict, path: str) -> str:
 def remove(folder: dict, task_id: str) -> bool:
     """Remove the Task's worktree, keeping its branch and commits; False when it had none."""
     path = location(folder, task_id)
-    if not any(_same(listed, path) for listed in _worktrees(folder)):
+    if not any(_same(folder, listed, path) for listed in _worktrees(folder)):
         return False
     git.run(folder['path'], 'worktree', 'remove', '--force', path)
     return True
