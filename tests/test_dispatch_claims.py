@@ -1,6 +1,7 @@
 """A Dispatched session's claim across paired devices (ADR 0224, Dispatcher 9)."""
 
 import os
+from pathlib import Path
 import threading
 import time
 from unittest.mock import patch
@@ -123,6 +124,47 @@ class WhileRunningTests(DispatchCase):
         note = [e for e in tasks.history(self.task) if e['kind'] == 'comment'][-1]
         self.assertIn('stay on task/', note['data']['text'])
         self.assertEqual(tasks.get(self.task)['holder']['name'], 'bedrock-agent')  # theirs is untouched
+
+    def _until_taken_over(self, session):
+        took = Path(str(self.record) + '.took')
+        deadline = time.monotonic() + 20
+        while not took.exists() and time.monotonic() < deadline:
+            self.assertIsNone(session.step())
+            time.sleep(0.05)
+        self.assertTrue(took.exists(), 'the fake session never took the claim over')
+
+    def test_a_takeover_without_the_token_is_another_agents_and_stops_the_session(self):
+        with patch.dict(os.environ, {'FAKE_MODE': 'take-and-hang'}), patch.object(dispatched, 'LOST_CHECK', 0.1):
+            run, proc = dispatched.start(self.task)
+            session = dispatched.Session(run, proc)
+            self._until_taken_over(session)
+            self.assertTrue(tasks.get(self.task)['stale'])  # its server's process ended
+            self.assertEqual(len(dispatched._our_sessions(self.task, run['id'], 'default')), 2)
+            other = tasks.agent('conversation:interactive-2', client='codex')
+            tasks.claim(self.task, actor=other)  # a Stale Task, taken over without the token
+            self.assertNotIn('conversation:interactive-2', dispatched._our_sessions(self.task, run['id'], 'default'))
+            deadline = time.monotonic() + 20
+            while (ended := session.step()) is None and time.monotonic() < deadline:
+                time.sleep(0.1)
+
+        self.assertEqual(ended['outcome'], 'lost')
+        self.assertIsNotNone(proc.poll())
+        self.assertEqual(tasks.get(self.task)['holder']['session'], 'conversation:interactive-2')
+        self.assertNotIn('released', [e['kind'] for e in tasks.history(self.task)])
+
+    def test_the_end_of_a_run_never_releases_another_agents_claim(self):
+        with patch.dict(os.environ, {'FAKE_MODE': 'take-and-hang'}):
+            run, proc = dispatched.start(self.task)
+            session = dispatched.Session(run, proc)
+            self._until_taken_over(session)
+            other = tasks.agent('conversation:interactive-2', client='codex')
+            tasks.claim(self.task, actor=other)
+            dispatched.kill(proc.pid, proc)
+            ended = dispatched.finish(run['id'], proc.returncode)  # before any check saw the takeover
+
+        self.assertEqual(ended['outcome'], 'failed')
+        self.assertEqual(tasks.get(self.task)['holder']['session'], 'conversation:interactive-2')
+        self.assertNotIn('released', [e['kind'] for e in tasks.history(self.task)])
 
     def test_a_lost_claim_is_no_failure(self):
         from imprint.dispatch import guards

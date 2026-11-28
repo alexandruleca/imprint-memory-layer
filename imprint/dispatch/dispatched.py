@@ -218,12 +218,17 @@ def log_tail(path, limit: int = LOG_TAIL) -> str:
 
 def _our_sessions(task: str, run_id: str, workspace: str) -> set[str]:
     """The Board sessions that hold this run's claim: the Dispatcher's, and
-    each session that took it over with the token."""
-    ours, claims = {session_of(run_id)}, set()
+    each session that took one of its claims over with the token (ADR 0224).
+    A takeover of a Stale claim without the token is another agent's: it
+    gets a token of its own."""
+    ours, tokens = {session_of(run_id)}, {}
     for event in tasks.history(task, workspace=workspace):
-        if event['kind'] == 'claimed' and (event['session'] == session_of(run_id)
-                                           or event['data'].get('replaces') in claims):
-            claims.add(event['id'])
+        if event['kind'] != 'claimed':
+            continue
+        data = event['data']
+        replaced = data.get('replaces')
+        if event['session'] == session_of(run_id) or (replaced in tokens and data.get('token_hash') == tokens[replaced]):
+            tokens[event['id']] = data.get('token_hash')
             ours.add(event['session'])
     return ours
 

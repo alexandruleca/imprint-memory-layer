@@ -44,6 +44,16 @@ FAKE_CLAUDE = textwrap.dedent('''\
     task = re.search(r'- Task: (T-[0-9a-z]+)', prompt).group(1)
     token = re.search(r'- Your claim token: (\\S+)', prompt).group(1)
     me = tasks.agent('conversation:' + session, client='claude-code')
+    if mode in ('take-and-hang', 'release-and-hang'):
+        # Takes the claim over as a server whose process then ended: the Task is Stale at once.
+        import subprocess
+        gone = subprocess.Popen([sys.executable, '-c', 'pass'])
+        gone.wait()
+        tasks.claim(task, actor=me, token=token, pid=gone.pid)
+        if mode == 'release-and-hang':
+            tasks.release(task, actor=me)
+        open(os.environ['FAKE_RECORD'] + '.took', 'w').write('1')
+        time.sleep(600)
     tasks.claim(task, actor=me, token=token)
     if '- Your role: review' in prompt:
         verdict = os.environ.get('FAKE_REVIEW', 'pass')
