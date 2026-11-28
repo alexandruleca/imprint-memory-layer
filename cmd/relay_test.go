@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -406,18 +405,6 @@ func TestRelayCountsPairedSessions(t *testing.T) {
 	}
 	if got := getHealth(t).Sessions - before; got != 1 {
 		t.Fatalf("sessions grew by %d, want 1", got)
-	}
-}
-
-// TestRelayConsentMatchesSite: the relay embeds the website's consent script
-// unchanged, so the banner behaves the same on both.
-func TestRelayConsentMatchesSite(t *testing.T) {
-	site, err := os.ReadFile("../site/public/scripts/consent.js")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(site, relayConsent) {
-		t.Fatal("cmd/relay-consent.js differs from site/public/scripts/consent.js; copy it")
 	}
 }
 

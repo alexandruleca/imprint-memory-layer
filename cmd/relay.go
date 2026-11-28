@@ -56,8 +56,8 @@ var (
 //go:embed relay.html
 var relayPage []byte
 
-// The website's consent banner (site/public/scripts/consent.js), byte for
-// byte: Google Analytics loads only after the visitor accepts (ADR 0194).
+// The relay page's consent banner: Google Analytics loads only after the
+// visitor accepts (ADR 0194). The website asks with Volenti instead (ADR 0231).
 //
 //go:embed relay-consent.js
 var relayConsent []byte

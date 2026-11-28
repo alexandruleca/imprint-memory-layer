@@ -6,16 +6,16 @@ import Icon from '../components/Icon.astro';
 
 const title = 'Privacy policy — Imprint';
 const description = 'What the Imprint app, the Imprint Capture browser extension, the sync relay and this website collect, where it goes and how to remove it.';
-const updated = '20 November 2026';
+const updated = '28 November 2026';
 const repo = 'https://github.com/alexandruleca/imprint-memory-layer';
-// The consent banner exists only in builds with analytics (consent.js).
+// Volenti's consent banner exists only in builds with analytics (Analytics.astro).
 const analytics = Boolean(import.meta.env.PUBLIC_GA4_ID);
 
 const summary = [
   {icon: 'server', text: 'Imprint runs on your computer. There is no account, and the app sends us no telemetry.'},
   {icon: 'globe', text: 'The browser extension reads a page only when you ask it to, and sends what you save only to Imprint on your own computer.'},
   {icon: 'lock', text: 'Sync between your devices is end-to-end encrypted. The relay forwards ciphertext and keeps none of it.'},
-  {icon: 'monitor', text: 'This website counts visits, downloads and clicks with Google Analytics, only if you accept.'},
+  {icon: 'monitor', text: 'This website counts visits, downloads and clicks with Google Analytics, only if you allow it.'},
 ] as const;
 
 const contents = [
@@ -153,8 +153,8 @@ const contents = [
           While it forwards a session the relay sees the session’s room ID, the two devices’ IP addresses, and the
           number, size and timing of the encrypted frames. The relay software writes none of this to disk and keeps
           only a running count of sessions relayed since it started, which its health check reports. The relay’s
-          web page counts visits with Google Analytics only if you accept in its own banner, as on this website,
-          and reports every visit as its home page, so an address holding a share code never reaches Google. The
+          web page counts visits with Google Analytics only if you accept in its own banner, separate from this
+          website’s, and reports every visit as its home page, so an address holding a share code never reaches Google. The
           sync connection itself uses no analytics.
           To keep even that metadata to yourself, <a href="/docker/">run your own relay</a> or move snapshots
           offline.
@@ -170,14 +170,25 @@ const contents = [
         </p>
         <p>
           With your consent, we use <strong>Google Analytics 4</strong> to understand which pages are read and
-          which downloads are used. A banner asks the first time you visit. Until you accept, no Google Analytics
-          script loads, no cookie is set and nothing is sent to Google Analytics; if you decline, that stays so. A
-          browser that sends <a href="https://globalprivacycontrol.org/">Global Privacy Control</a> is treated as
-          declining and is not asked. Your choice is kept in your browser’s local storage (<code>imprint-consent</code>)
-          for a year, and then you are asked again.
+          which downloads are used. A banner from <strong>Volenti</strong>, a consent service loaded from
+          <code>gdpr.sys.cloud.alexandruleca.com</code>, asks the first time you visit. Of its categories, this website
+          uses only Statistics, for Google Analytics; nothing here uses Preferences or Marketing. Until you allow
+          Statistics, no Google Analytics script loads, no Google Analytics cookie is set and nothing is sent to
+          Google Analytics; if you reject, that stays so. A browser that sends
+          <a href="https://globalprivacycontrol.org/">Global Privacy Control</a> is treated as rejecting and is not asked.
         </p>
         <p>
-          If you accept, Google Analytics records the pages you view, the page you came from, your browser, device and approximate location
+          Volenti keeps your choice in a necessary first-party cookie, <code>volenti_consent</code>: a random consent
+          ID, the categories you allowed, when you chose and which version of the banner’s texts you saw. It lasts
+          182 days, and then you are asked again; you are also asked again when the texts change. Each choice is sent
+          to Volenti as a consent record, so that it can be shown later: the consent ID, the categories, whether you
+          accepted, rejected, chose, withdrew or sent Global Privacy Control, the version of the texts, the language
+          and the banner’s version. Volenti looks up your country from your IP address for the record and stores
+          neither your IP address nor your browser in it. The banner’s settings panel shows your consent ID; quote it
+          if you ask us about your choice.
+        </p>
+        <p>
+          If you allow Statistics, Google Analytics records the pages you view, the page you came from, your browser, device and approximate location
           (which Google derives from your IP address), and these actions: downloading a release file, copying an
           install command, switching a tab, opening an answer or menu, choosing an option, and clicking a link or
           button. It sets first-party cookies named <code>_ga</code> and <code>_ga_*</code>, kept for up to two years.
@@ -185,9 +196,9 @@ const contents = [
           it under <a href="https://policies.google.com/privacy">Google’s privacy policy</a>; we see only
           aggregated reports and do not combine them with anything else. You can withdraw at any time with
           <strong>Cookie settings</strong> in the site’s footer or the button below; withdrawing stops Google
-          Analytics on the page and deletes its cookies.
+          Analytics on the page, and Volenti deletes its cookies.
         </p>
-        {analytics && <p><button type="button" class="consent-button" data-consent-open data-track-ignore>Change cookie settings</button></p>}
+        {analytics && <p><button type="button" class="consent-button" data-volenti-open>Change cookie settings</button></p>}
         <p>
           Fonts are loaded from Google Fonts, so Google also receives your IP address and browser details when a page
           loads. On the home page, your browser checks the public relay’s status at
@@ -202,7 +213,8 @@ const contents = [
         <h2>Sharing and selling</h2>
         <p>
           We do not sell or rent personal data, do not use it for advertising, and do not share it with anyone
-          except as described above: Google for this website’s fonts and, if you accept, its analytics, GitHub for hosting, and the
+          except as described above: Google for this website’s fonts and, if you allow it, its analytics, Volenti for
+          the consent banner and its records, GitHub for hosting, and the
           model providers or relays you choose yourself. Imprint is not directed at children under 13.
         </p>
       </section>
@@ -213,7 +225,7 @@ const contents = [
           <li><strong>Delete captures.</strong> Remove a captured source from the dashboard or with Imprint’s purge workflow. Deletions reach your paired devices.</li>
           <li><strong>Remove the extension.</strong> Removing it from the browser deletes its settings.</li>
           <li><strong>Keep content local.</strong> Leave sync and cloud providers off, which is the default, or run your own relay.</li>
-          <li><strong>Analytics.</strong> Decline in the banner, or withdraw later with <strong>Cookie settings</strong> in the site’s footer or in <a href="#website">This website</a>. Global Privacy Control counts as declining. Blocking cookies, tracking protection or the <a href="https://tools.google.com/dlpage/gaoptout">Google Analytics opt-out add-on</a> also work.</li>
+          <li><strong>Analytics.</strong> Reject in the banner, or withdraw later with <strong>Cookie settings</strong> in the site’s footer or in <a href="#website">This website</a>. Global Privacy Control counts as rejecting. Blocking cookies, tracking protection or the <a href="https://tools.google.com/dlpage/gaoptout">Google Analytics opt-out add-on</a> also work.</li>
         </ul>
       </section>
 

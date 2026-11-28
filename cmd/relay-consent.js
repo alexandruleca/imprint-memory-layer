@@ -6,12 +6,11 @@
 // deletes its cookies. The choice is kept in localStorage for a year, then
 // asked again. Any element with [data-consent-open] reopens the banner.
 //
-// Loaded by Analytics.astro (landing pages) and the Starlight head in
-// astro.config.mjs, as <script defer src="/scripts/consent.js" data-ga4="G-…">.
-// The sync relay's page inlines a byte-identical copy (cmd/relay-consent.js,
-// checked by TestRelayConsentMatchesSite) with data-page-location="root",
-// which reports every view as / or /not-found so an address holding a share
-// code never reaches Google, and data-privacy, the policy to link (none if empty).
+// The sync relay's page inlines it at the end of its body when started with --ga4-id
+// (cmd/relay.go), with data-ga4="G-…", data-page-location="root", which
+// reports every view as / or /not-found so an address holding a share code
+// never reaches Google, and data-privacy, the policy to link (none if empty).
+// The website asked with a copy of it until it moved to Volenti (ADR 0231).
 (() => {
   const script = document.currentScript;
   const id = script?.dataset.ga4 || '';

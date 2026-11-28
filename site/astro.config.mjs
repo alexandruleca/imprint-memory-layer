@@ -6,6 +6,7 @@ import mdx from '@astrojs/mdx';
 import tailwindcss from '@tailwindcss/vite';
 import { satteri } from '@astrojs/markdown-satteri';
 import { docLinks } from './scripts/doc-links.mjs';
+import { analyticsTags, volentiLoader, volentiSnippet } from './src/lib/volenti.mjs';
 
 const env = loadEnv(process.env.NODE_ENV ?? '', process.cwd(), 'PUBLIC_');
 const ga4Id = env.PUBLIC_GA4_ID || process.env.PUBLIC_GA4_ID;
@@ -13,9 +14,11 @@ const ga4Id = env.PUBLIC_GA4_ID || process.env.PUBLIC_GA4_ID;
 /** @type {import('@astrojs/starlight/types').HeadConfig} */
 const analyticsHead = ga4Id
   ? [
-      // Google Analytics loads only after the visitor accepts in the consent
-      // banner, as on the landing pages (Analytics.astro).
-      { tag: 'script', attrs: { defer: true, src: '/scripts/consent.js', 'data-ga4': ga4Id } },
+      // Volenti asks for consent, and Google Analytics runs only once the
+      // visitor allows Statistics, as on the landing pages (Analytics.astro).
+      { tag: 'script', content: volentiSnippet },
+      { tag: 'script', attrs: { src: volentiLoader, async: true } },
+      ...analyticsTags(ga4Id).map((attrs) => ({ tag: 'script', attrs })),
       // Visitor actions as events; the same script runs on the landing pages.
       { tag: 'script', attrs: { type: 'module', src: '/scripts/events.js' } },
     ]
@@ -82,7 +85,8 @@ export default defineConfig({
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/alexandruleca/imprint-memory-layer' },
       ],
-      head: [...anchorHead, ...analyticsHead, ...fontHead, ...mermaidHead],
+      // The consent snippet first, before every other script, as Volenti asks.
+      head: [...analyticsHead, ...anchorHead, ...fontHead, ...mermaidHead],
       customCss: ['./src/styles/starlight.css'],
       sidebar: [
         {

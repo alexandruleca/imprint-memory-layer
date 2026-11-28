@@ -1,8 +1,10 @@
 // GA4 events for what visitors do, from one listener on every page: release
 // downloads, copied commands, tabs, opened answers and menus, the docs theme,
 // and every other link and button. Loaded only when the build has a
-// measurement ID (Analytics.astro and the Starlight head in astro.config.mjs);
-// it sends nothing until consent.js defines gtag, after the visitor accepts.
+// measurement ID (Analytics.astro and the Starlight head in astro.config.mjs).
+// It sends nothing unless the visitor has allowed Statistics in Volenti's
+// banner: the install snippet defines gtag for everyone, and an event queued
+// before consent would reach Google once gtag.js loaded (ADR 0231).
 //
 // An element can name its own event: data-track="copy_command" plus
 // data-track-* attributes for the parameters (data-track-command="unix").
@@ -10,7 +12,10 @@
 
 const RELEASE_ASSET = /\/releases\/download\/([^/]+)\/([^/?#]+)$/;
 
-const send = (name, params) => window.gtag?.('event', name, params);
+const allowed = () => window.volenti?.getConsent?.()?.categories?.statistics === true;
+const send = (name, params) => {
+  if (allowed()) window.gtag?.('event', name, params);
+};
 
 const label = (el) =>
   (el.getAttribute('aria-label') || el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 100);
@@ -33,8 +38,8 @@ function declared(el) {
 }
 
 function describe(el) {
-  // The consent banner and its openers (consent.js) are not visitor actions.
-  if (el.closest('[data-track-ignore]')) return null;
+  // Opening Volenti's cookie settings is not a visitor action.
+  if (el.closest('[data-track-ignore], [data-volenti-open]')) return null;
   if (el.dataset.track) return [el.dataset.track, declared(el)];
   if (el.localName === 'summary') {
     // Clicking an open summary closes it; only opening is an action.

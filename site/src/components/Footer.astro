@@ -1,6 +1,6 @@
 ---
 const year = new Date().getFullYear();
-// The consent banner exists only in builds with analytics (consent.js).
+// Volenti's consent banner exists only in builds with analytics (Analytics.astro).
 const analytics = Boolean(import.meta.env.PUBLIC_GA4_ID);
 ---
 
@@ -46,7 +46,7 @@ const analytics = Boolean(import.meta.env.PUBLIC_GA4_ID);
         <li><a href="/download" class="hover:text-ink">Desktop installers</a></li>
         <li><a href="https://github.com/alexandruleca/imprint-memory-layer/blob/main/LICENSE" class="hover:text-ink">License (Apache 2.0)</a></li>
         <li><a href="/privacy/" class="hover:text-ink">Privacy policy</a></li>
-        {analytics && <li><button type="button" class="hover:text-ink cursor-pointer" data-consent-open data-track-ignore>Cookie settings</button></li>}
+        {analytics && <li><a href="#cookie-settings" data-volenti-open class="hover:text-ink">Cookie settings</a></li>}
       </ul>
     </div>
   </div>

@@ -29,7 +29,8 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0001](0001-record-significant-decisions.md) **Record significant decisions.** Repository documentation and ADRs are the durable engineering record.
 - [ADR 0019](0019-reproducible-benchmark-evidence.md) **Reproducible benchmark evidence.** Frozen public corpora, paired trials, visible failures and auditable JSON statistics for benchmark claims.
 - [ADR 0031](0031-website-analytics-and-public-relay-status.md) **Website analytics events and public relay status.** GA4 events for website actions, a live public-relay status from a CORS-readable `/health`, and opt-in analytics on the relay page. Amended by [ADR 0194](0194-website-and-relay-analytics-load-only-after-consent.md) (analytics only after consent).
-- [ADR 0194](0194-website-and-relay-analytics-load-only-after-consent.md) **Website and relay analytics load only after consent.** Google Analytics loads only after the visitor accepts a banner; no answer, declining or Global Privacy Control loads nothing, and withdrawing deletes its cookies.
+- [ADR 0194](0194-website-and-relay-analytics-load-only-after-consent.md) **Website and relay analytics load only after consent.** Google Analytics loads only after the visitor accepts a banner; no answer, declining or Global Privacy Control loads nothing, and withdrawing deletes its cookies. Amended by [ADR 0231](0231-the-website-asks-for-consent-with-volenti.md) (the website asks with Volenti).
+- [ADR 0231](0231-the-website-asks-for-consent-with-volenti.md) **The website asks for consent with Volenti.** Volenti's snippet first on every page; Google Analytics tagged for its Basic mode runs only once the visitor allows Statistics; events only while it is allowed; the relay page keeps its own banner.
 
 ### Storage and retrieval
 
@@ -496,7 +497,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0191](0191-chrome-full-page-screenshots-are-stitched-in-the-popup.md) | 2026-11-19 | Accepted | Chrome full-page screenshots are stitched in the popup |
 | [0192](0192-the-capture-api-accepts-firefox-extension-origins.md) | 2026-11-20 | Accepted | The capture API accepts Firefox extension origins |
 | [0193](0193-firefox-capture-is-the-chrome-extension-signed-as-an-unlisted-add-on.md) | 2026-11-20 | Amended by [ADR 0203](0203-the-firefox-add-on-is-listed-on-addons-mozilla-org.md), [ADR 0206](0206-the-firefox-add-on-goes-back-to-unlisted-signing.md), [ADR 0207](0207-the-firefox-add-on-is-listed-on-addons-mozilla-org-again.md) | Firefox capture is the Chrome extension, signed as an unlisted add-on |
-| [0194](0194-website-and-relay-analytics-load-only-after-consent.md) | 2026-11-20 | Accepted | Website and relay analytics load only after consent |
+| [0194](0194-website-and-relay-analytics-load-only-after-consent.md) | 2026-11-20 | Amended by [ADR 0231](0231-the-website-asks-for-consent-with-volenti.md) | Website and relay analytics load only after consent |
 | [0195](0195-data-files-are-kept-whole-and-found-by-a-digest.md) | 2026-11-22 | Amended by [ADR 0201](0201-upkeep-brings-what-is-stored-up-to-date-in-the-idle-slot.md) | Data files are kept whole and found by a digest |
 | [0196](0196-a-file-gone-from-disk-keeps-its-snapshot.md) | 2026-11-22 | Accepted | A file gone from disk keeps its snapshot |
 | [0197](0197-restore-writes-indexed-files-back-from-their-snapshots.md) | 2026-11-22 | Accepted | Restore writes indexed files back from their snapshots |
@@ -533,6 +534,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0228](0228-a-dispatched-session-that-fails-to-start-ends-the-pass-and-counts-toward-switching-off.md) | 2026-11-28 | Accepted | A Dispatched session that fails to start ends the pass and counts toward switching the Dispatcher off |
 | [0229](0229-dispatched-sessions-cannot-switch-the-dispatcher-on-or-start-more-sessions.md) | 2026-11-28 | Accepted | Dispatched sessions cannot switch the Dispatcher on or start more sessions |
 | [0230](0230-the-dispatcher-refines-backlog-tasks-when-the-person-switches-refinement-on.md) | 2026-11-28 | Accepted | The Dispatcher refines Backlog Tasks when the person switches refinement on |
+| [0231](0231-the-website-asks-for-consent-with-volenti.md) | 2026-11-28 | Accepted | The website asks for consent with Volenti |
 
 ## How to write and maintain ADRs
 
