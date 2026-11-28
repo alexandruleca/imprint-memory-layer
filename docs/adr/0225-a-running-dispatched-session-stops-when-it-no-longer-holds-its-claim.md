@@ -61,6 +61,7 @@ Two further facts bear on this:
   - the person's release, cancel and Done recorded as stopped;
   - a lost claim removing the worktree;
   - a takeover without the token recorded as lost;
+  - a takeover with the token that lands while the check reads the Board still counted as the run's (the check reads the Task's state before its history);
   - a release while waiting starting nothing.
 - Linux (WSL Ubuntu 26.04, Python 3.12 venv): the `test_dispatch_*` modules pass.
 - Not run: two real devices with clocks set apart.

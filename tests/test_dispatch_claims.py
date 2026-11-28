@@ -2,6 +2,8 @@
 
 import os
 from pathlib import Path
+import re
+import sys
 import threading
 import time
 from unittest.mock import patch
@@ -38,6 +40,23 @@ def _earlier_claim(task: str, *, by='bedrock-agent') -> None:
          'agent': by, 'client': 'codex', 'recorded_at': at / 1000, 'data': {'token_hash': 'x' * 64}},
         {'type': 'lease', 'claim': claim_id, 'renewed_at': now, 'active_at': now, 'device': 'device-b'},
     ])
+
+
+def _story(task: str, run: dict | None = None) -> str:
+    """What the Board recorded for ``task`` and the end of the run's log: a
+    failure's message, so a failure on a runner nobody can reach explains itself."""
+    lines = []
+    for event in tasks.history(task):
+        data = event['data']
+        lines.append(f"{event['hlc']} {event['kind']} by {event['actor']} {event['session']} ({event.get('client')}) "
+                     f"id={event['id'][:8]} token={str(data.get('token_hash'))[:8]} "
+                     f"replaces={str(data.get('replaces'))[:8]} claim={str(data.get('claim'))[:8]} "
+                     f"status={data.get('status')}")
+    state = tasks.get(task)
+    lines.append(f"holder={state.get('holder')} stale={state.get('stale')} previous={state.get('previous_holder')}")
+    if run:
+        lines.append('log: ' + dispatched.log_tail(store.log_path(run['id'])))
+    return '\n'.join(lines)
 
 
 class SyncRequestTests(DispatchCase):
@@ -149,7 +168,8 @@ class WhileRunningTests(DispatchCase):
         took = Path(str(self.record) + '.took')
         deadline = time.monotonic() + 20
         while not took.exists() and time.monotonic() < deadline:
-            self.assertIsNone(session.step())
+            ended = session.step()
+            self.assertIsNone(ended, ended and _story(self.task, session.run))
             time.sleep(0.05)
         self.assertTrue(took.exists(), 'the fake session never took the claim over')
 
@@ -171,6 +191,30 @@ class WhileRunningTests(DispatchCase):
         self.assertIsNotNone(proc.poll())
         self.assertEqual(tasks.get(self.task)['holder']['session'], 'conversation:interactive-2')
         self.assertNotIn('released', [e['kind'] for e in tasks.history(self.task)])
+
+    def test_a_takeover_with_the_token_while_the_check_reads_is_still_the_runs(self):
+        # Seen on a slow runner: the client's takeover landed between the check's reads of the Board.
+        with patch.dict(os.environ, {'FAKE_MODE': 'hang'}):
+            run, proc = dispatched.start(self.task)
+            self.addCleanup(lambda: (dispatched.kill(proc.pid, proc), proc.wait()))
+            session = dispatched.Session(run, proc)
+            deadline = time.monotonic() + 60
+            while not self.record.exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            token = re.search(r'- Your claim token: (\S+)', self.recorded()['prompt']).group(1)
+            client = tasks.agent('conversation:fake-client', client='claude-code')
+            read, took = tasks.get, []
+
+            def takeover_then_read(task, **kwargs):
+                if not took and sys._getframe(1).f_globals['__name__'] == claimcheck.__name__:
+                    took.append(tasks.claim(task, actor=client, token=token))
+                return read(task, **kwargs)
+            with patch.object(tasks, 'get', takeover_then_read):
+                ended = session._claim_ended()
+
+        self.assertTrue(took, 'the check never read the Task')
+        self.assertIsNone(ended)
+        self.assertIsNone(session.lost)
 
     def test_the_end_of_a_run_never_releases_another_agents_claim(self):
         with patch.dict(os.environ, {'FAKE_MODE': 'take-and-hang'}):
@@ -216,7 +260,7 @@ class ClaimEndedTests(DispatchCase):
                 ended = session.step()
                 time.sleep(0.05)
             if act:
-                self.assertIsNone(ended, 'the session ended before the test acted')
+                self.assertIsNone(ended, ended and 'the session ended before the test acted\n' + _story(self.task, run))
                 act()
             while ended is None and time.monotonic() < deadline + 20:
                 ended = session.step()
@@ -228,7 +272,7 @@ class ClaimEndedTests(DispatchCase):
         from imprint.dispatch import guards
         run, ended = self._run_until('release-and-hang', None)
         self.assertEqual((ended['outcome'], ended['detail']),
-                         ('failed', 'released its claim without finishing and was stopped'))
+                         ('failed', 'released its claim without finishing and was stopped'), _story(self.task, run))
         self.assertEqual(guards.failures_in_a_row(), 1)
         self.assertTrue(Path(run['worktree']).exists())
 
@@ -241,7 +285,8 @@ class ClaimEndedTests(DispatchCase):
 
     def test_the_persons_cancel_stops_the_session(self):
         run, ended = self._run_until('take-and-hang', lambda: tasks.move(self.task, 'cancelled', actor=tasks.USER))
-        self.assertEqual((ended['outcome'], ended['detail']), ('stopped', 'was stopped: the person cancelled the Task'))
+        self.assertEqual((ended['outcome'], ended['detail']), ('stopped', 'was stopped: the person cancelled the Task'),
+                         _story(self.task, run))
         self.assertTrue(Path(run['worktree']).exists())  # cleanup removes it later, keeping the branch
 
     def test_the_persons_done_stops_the_session(self):

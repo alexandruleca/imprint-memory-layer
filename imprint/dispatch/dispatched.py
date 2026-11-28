@@ -272,20 +272,10 @@ def _state_or_none(task: str, workspace: str) -> dict | None:
 
 
 def _our_sessions(task: str, run_id: str, workspace: str) -> set[str]:
-    """The Board sessions that hold this run's claim: the Dispatcher's, and
-    each session that took one of its claims over with the token (ADR 0224).
-    A takeover of a Stale claim without the token is another agent's: it
-    gets a token of its own."""
-    ours, tokens = {session_of(run_id)}, {}
-    for event in tasks.history(task, workspace=workspace):
-        if event['kind'] != 'claimed':
-            continue
-        data = event['data']
-        replaced = data.get('replaces')
-        if event['session'] == session_of(run_id) or (replaced in tokens and data.get('token_hash') == tokens[replaced]):
-            tokens[event['id']] = data.get('token_hash')
-            ours.add(event['session'])
-    return ours
+    """The Board sessions that hold this run's claim (``claimcheck.holders``).
+    Read the Task's state before calling this, never after."""
+    from . import claimcheck
+    return claimcheck.holders(tasks.history(task, workspace=workspace), session_of(run_id))
 
 
 def start(task: str, *, workspace: str | None = None, client: str | None = None,
@@ -465,7 +455,7 @@ class Session:
         task, workspace = self.run['task'], self.run['workspace']
         if _state_or_none(task, workspace) is None:
             return f'was stopped: {GONE}', True
-        verdict, who = claimcheck.standing(task, workspace, _our_sessions(task, self.run['id'], workspace))
+        verdict, who = claimcheck.standing(task, workspace, session_of(self.run['id']))
         if verdict == claimcheck.LOST:
             self.lost = who
             return f'lost its claim to {who} and was stopped', False

@@ -43,9 +43,27 @@ def _who(event: dict) -> str:
     return tasks.label({'name': event.get('agent'), 'client': event.get('client'), 'session': event['session']})
 
 
-def standing(task: str, workspace: str, sessions: set[str]) -> tuple[str, str | None]:
-    """How a Dispatched session's claim stands, ``sessions`` being the Board
-    sessions that hold it for the run (ADR 0225):
+def holders(events: list[dict], session: str) -> set[str]:
+    """The Board sessions that hold the claims ``session`` made, from a
+    Task's ``events``: ``session`` and each session that took one of its
+    claims over with the token (ADR 0224). A takeover of a Stale claim
+    without the token is another agent's: it gets a token of its own."""
+    ours, tokens = {session}, {}
+    for event in events:
+        if event['kind'] != 'claimed':
+            continue
+        data = event['data']
+        replaced = data.get('replaces')
+        if event['session'] == session or (replaced in tokens and data.get('token_hash') == tokens[replaced]):
+            tokens[event['id']] = data.get('token_hash')
+            ours.add(event['session'])
+    return ours
+
+
+def standing(task: str, workspace: str, session: str) -> tuple[str, str | None]:
+    """How the claim the Dispatcher's ``session`` made for a run stands, held
+    by it or by a session that took it over with the token (``holders``,
+    ADR 0225):
 
     - (HELD, None): one of them holds it, live or Stale;
     - (LOST, winner): another session's claim holds or took the Task (ADR 0224);
@@ -56,13 +74,18 @@ def standing(task: str, workspace: str, sessions: set[str]) -> tuple[str, str | 
 
     Raises LookupError when the Task was deleted."""
     state = tasks.get(task, workspace=workspace)
+    # Events only accumulate, so history read after the state holds every
+    # takeover the state shows. Read the other way round, a takeover with the
+    # token landing between the two reads looks like another agent's claim.
+    events = tasks.history(task, workspace=workspace)
+    sessions = holders(events, session)
     held = state.get('holder') or (state.get('previous_holder') if state.get('stale') else None)
     if held and held.get('session') in sessions:
         return HELD, None
     if held:
         return LOST, f"{tasks.label(held)} on {held.get('device') or 'another device'}"
     claims, ending = set(), None
-    for event in tasks.history(task, workspace=workspace):
+    for event in events:
         kind, data = event['kind'], event['data']
         if kind == 'claimed' and event['session'] in sessions:
             claims.add(event['id'])
@@ -103,4 +126,4 @@ def confirm(task: str, workspace: str, session: str, claimed_at: float, *, on_wa
             if on_wait:
                 on_wait()
             time.sleep(POLL)
-    return standing(task, workspace, {session})
+    return standing(task, workspace, session)
