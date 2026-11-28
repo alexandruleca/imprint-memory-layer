@@ -188,6 +188,7 @@ The records in force, by area. An amended record is listed with the records that
 
 ### Dashboard and desktop
 
+- [ADR 0241](0241-a-needs-you-list-shows-what-waits-for-the-person.md) **A Needs-you list shows what waits for the person.** Home lists comments to the person, Tasks to review, move or take back, a Dispatcher that switched itself off and agents waiting for an answer, each with its reason, until it ends or is dismissed (a synced read mark); closing a toast no longer reads a comment.
 - [ADR 0008](0008-dashboard-retrieval-and-accessibility.md) **Dashboard retrieval and accessibility.** Same-origin dashboard, usable search states and accessible modal behavior. Amended by [ADR 0039](0039-shadcn-overlays-and-desktop-drag-handles.md) (dialog primitive) and [ADR 0154](0154-the-dashboard-and-desktop-app-follow-a-light-dark-or-system-theme.md) (light, dark or system theme).
 - [ADR 0025](0025-desktop-owned-background-service.md) **Desktop-owned background service.** Open the splash before Python startup, hide the dashboard independently and stop its owned API on explicit Quit. Amended by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) (service registration).
 - [ADR 0039](0039-shadcn-overlays-and-desktop-drag-handles.md) **shadcn overlays and desktop drag handles.** Dashboard overlays and controls use the vendored shadcn (Base UI) components; the frameless window's drag handles stand down while an overlay is open.
@@ -306,7 +307,6 @@ Under consideration; not current behavior.
 
 - [ADR 0009](0009-model-profiles-and-embedding-identity.md) **Model profiles and embedding identity.** Evaluate local model profiles with explicit embedding identity and safe re-embedding.
 - [ADR 0239](0239-the-dispatcher-deploys-tasks-a-dispatched-review-passed.md) **The Dispatcher deploys Tasks a Dispatched review passed.** Imprint's own git code merges the branch into its base in a throwaway worktree and pushes without force; never the default branch unless allowed; conflicts back to Ready, twice to the person.
-- [ADR 0241](0241-a-needs-you-list-shows-what-waits-for-the-person.md) **A Needs-you list shows what waits for the person.** Home and the Board list what waits for the person with its reason until it ends or is dismissed; the tray and orb count it; toasts no longer mark comments read.
 
 ## Decision log
 
@@ -554,7 +554,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0238](0238-task-branches-travel-through-the-base-branchs-remote.md) | 2026-11-28 | Accepted | Task branches travel through the base branch's remote |
 | [0239](0239-the-dispatcher-deploys-tasks-a-dispatched-review-passed.md) | 2026-11-28 | Proposed | The Dispatcher deploys Tasks a Dispatched review passed |
 | [0240](0240-the-persons-comments-reach-a-working-agent-after-its-next-tool-call.md) | 2026-11-28 | Accepted | The person's comments reach a working agent after its next tool call |
-| [0241](0241-a-needs-you-list-shows-what-waits-for-the-person.md) | 2026-11-28 | Proposed | A Needs-you list shows what waits for the person |
+| [0241](0241-a-needs-you-list-shows-what-waits-for-the-person.md) | 2026-11-28 | Accepted | A Needs-you list shows what waits for the person |
 
 ## How to write and maintain ADRs
 

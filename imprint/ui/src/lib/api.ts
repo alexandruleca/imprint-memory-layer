@@ -1325,6 +1325,20 @@ export type TaskAction = "move" | "edit" | "append" | "comment" | "tags" | "assi
 /** Comments to the user from every workspace (each names its own), and the Tasks in Review on the workspace on show. */
 export type TaskInbox = { workspace?: string; comments: (TaskComment & { task: string; title: string; workspace?: string })[]; review: BoardTask[] };
 
+/** One thing waiting for the person, with its reason (ADR 0241). */
+export type NeedsYouRow = {
+  kind: "comment" | "assigned" | "review" | "fed" | "stale" | "dispatcher" | "answer";
+  id: string; task: string | null; title: string; reason: string; since: number | null; workspace: string;
+};
+export type NeedsYouList = { workspace: string; rows: NeedsYouRow[] };
+export function getNeedsYou() {
+  return fetchAPI<NeedsYouList>("/api/tasks/needs-you");
+}
+/** Dismiss one row: a comment is read; another row hides until its Task changes. */
+export function dismissNeedsYou(row: Pick<NeedsYouRow, "id" | "workspace">) {
+  return fetchAPI<{ dismissed: boolean }>("/api/tasks/needs-you/dismiss", { method: "POST", body: JSON.stringify({ id: row.id, workspace: row.workspace }) });
+}
+
 /** The workspace's Board by status, filtered, with what every filter offers. */
 export function getBoard(filters: BoardFilters = {}) {
   const qs = new URLSearchParams();

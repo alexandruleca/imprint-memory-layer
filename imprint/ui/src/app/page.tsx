@@ -15,6 +15,7 @@ import { Breakdown } from "@/components/home/breakdown";
 import { Attention, Freshness, RecentSources } from "@/components/home/activity";
 import { Code, Database, FileCode, FolderOpen, Tags } from "lucide-react";
 import { ReviewInbox } from "@/components/home/review-inbox";
+import { NeedsYou } from "@/components/home/needs-you";
 import { useUiMode } from "@/lib/ui-mode";
 
 const list = (value: unknown): [string, number][] =>
@@ -87,6 +88,9 @@ export default function DashboardPage() {
         )}
 
         <IngestionProgress />
+
+        {/* What waits for the person, in both dashboards (ADR 0241). */}
+        <NeedsYou />
 
         {empty && (
           <Empty className="border bg-card">

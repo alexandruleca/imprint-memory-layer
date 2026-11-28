@@ -95,6 +95,30 @@ def inbox():
     return {'workspace': active, 'comments': comments, 'review': review}
 
 
+@router.get("/needs-you")
+def needs_you():
+    """What waits for the person, each row with its reason (ADR 0241): the
+    list on Home and atop the Board."""
+    from . import needs_you as listing
+    try:
+        return listing.rows()
+    except (ValueError, LookupError) as error:
+        return _refused(error)
+
+
+@router.post("/needs-you/dismiss")
+async def needs_you_dismiss(request: Request):
+    """Dismiss one row: a comment is marked read, any other row is hidden
+    until its Task changes; the mark reaches paired devices (ADR 0241)."""
+    from . import needs_you as listing
+    try:
+        body = await _body(request)
+        workspace = str(body.get('workspace') or '') or None
+        return {'dismissed': listing.dismiss(str(body.get('id') or ''), workspace=workspace)}
+    except (ValueError, LookupError) as error:
+        return _refused(error)
+
+
 @router.post("/inbox/read")
 async def inbox_read(request: Request):
     try:
@@ -214,6 +238,10 @@ async def change(task_id: str, action: str, request: Request):
             state = tasks.append(task_id, str(body.get('text') or ''))
         elif action == 'comment':
             state = tasks.comment(task_id, str(body.get('text') or ''), to=_list(body, 'to'))
+            # Replying reads what was written to the person on this Task (ADR 0241).
+            unread = [c['id'] for c in tasks.user_inbox(mark=False) if c['task'] == state['id']]
+            if unread:
+                tasks.mark_user_read(unread)
         elif action == 'tags':
             state = tasks.tag(task_id, add=_list(body, 'add'), remove=_list(body, 'remove'))
         elif action == 'assignees':

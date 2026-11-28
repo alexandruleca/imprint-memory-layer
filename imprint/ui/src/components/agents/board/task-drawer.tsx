@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import {
   ArrowLeft, Ban, Circle, CircleCheck, CircleDashed, CircleDot, CircleX, Eye, GitBranch, Link2, Pencil, Plus, Send, Trash2, Unlock,
   UserMinus, X,
@@ -23,7 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  TASK_STATUSES, changeTask, deleteTask, getProgress, getTask, type BoardOptions, type BoardTask, type RelatedTask, type TaskAction,
+  TASK_STATUSES, changeTask, deleteTask, getProgress, getTask, getTaskInbox, markTaskCommentsRead, type BoardOptions, type BoardTask, type RelatedTask, type TaskAction,
   type TaskDetails, type TaskEvent, type TaskPriority, type TaskStatus,
 } from "@/lib/api";
 import { useCached } from "@/lib/use-cached";
@@ -64,6 +64,17 @@ export function TaskDrawer({ taskId, options, known, now, simple, backTo, onOpen
 }) {
   const details = useCached<TaskDetails>(`task:${taskId}`, () => getTask(taskId), { refreshInterval: 5000, persist: false });
   const [deleting, setDeleting] = useState(false);
+
+  // Opening a Task reads what was written to the person on it (ADR 0241).
+  useEffect(() => {
+    let cancelled = false;
+    getTaskInbox().then((inbox) => {
+      if (cancelled || !Array.isArray(inbox.comments)) return;
+      const here = inbox.comments.filter((c) => c.task === taskId && (!c.workspace || c.workspace === inbox.workspace));
+      if (here.length) void markTaskCommentsRead(here.map((c) => c.id)).catch(() => {});
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [taskId]);
 
   async function act(action: TaskAction, body: Record<string, unknown> = {}, done?: string): Promise<boolean> {
     try {

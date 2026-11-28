@@ -65,6 +65,8 @@ export const TOURS: Tour[] = [
         body: "One summary of the active workspace: its totals, what was added, what needs attention and what the memory is made of." },
       { target: "home-add", title: "Add to memory",
         body: "Pick what to add: a folder, a document, an audio file, a web page, or the conversations you had with your AI tools." },
+      { target: "home-needs-you", optional: true, title: "Needs you",
+        body: "What your agents and the board wait on you for: comments written to you, tasks to review or move, and agents waiting for an answer. Each stays until it is dealt with, or you dismiss it." },
       { target: "home-review", only: "simple", optional: true, title: "Needs your review",
         body: "When Imprint is not sure, it asks here: where something belongs, or whether something it noticed about you is right. One click answers, and every answer can be undone." },
       { target: "home-review", only: "advanced", optional: true, title: "Needs attention",

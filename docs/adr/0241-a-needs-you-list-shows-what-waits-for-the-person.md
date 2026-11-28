@@ -3,8 +3,9 @@ title: ADR 0241 — A Needs-you list shows what waits for the person
 description: Home and the Board show one list of what waits for the person, each row with its reason, which leaves only when the reason ends or the person dismisses it; the tray's and the orb's count include it, and closing a toast no longer marks a comment read.
 ---
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-28
+- Scope: The list, its API and Home, and toasts that no longer read a comment (T-nm1x4); the list atop the Board and in the tray's and orb's count come with T-qqk35.
 - Related: [ADR 0212](0212-agents-talk-through-comments-on-tasks.md) (toasts for comments and Reviews), [ADR 0182](0182-the-dashboard-has-a-simple-and-an-advanced-form.md) (Home's review inbox in the simple dashboard), [ADR 0232](0232-agents-get-their-own-desktop-window-and-a-fourth-orb-action.md) (the count of agents waiting for you), [ADR 0227](0227-dispatched-work-never-feeds-the-dispatcher-until-the-person-moves-it.md) (Tasks waiting for the person's move), [ADR 0237](0237-a-devices-dispatcher-does-only-the-roles-the-person-switches-on.md) (roles)
 
 ## Context
@@ -56,4 +57,19 @@ The owner asked (2026-11-28): "I should also see on the dashboard tasks that nee
 
 ## Validation
 
-Proposed; not yet implemented. To be validated by T-nm1x4 (API and Home) and T-qqk35 (Board, tray and orb).
+T-nm1x4, 2026-11-28:
+- **Tests:** `tests/test_needs_you.py` (11 tests) through the dashboard's API:
+  - a quiet Board lists nothing;
+  - a comment to the person is a row until dismissed, which reads it, or until the person replies on its Task;
+  - a Task assigned to the person comes back after a dismissal once it changes;
+  - Review Tasks are rows only while no device reviews, whether that is this device's role, a paired device's roles, or an earlier release's `on`;
+  - a Task dispatched work fed is a row until the person moves it;
+  - a Stale Task whose last commit is elsewhere is a row;
+  - a Dispatcher that switched itself off is a row until its roles are ticked again;
+  - an agent in `needs_answer` is a row;
+  - a dismissal is one of the user's read marks;
+  - row ids are refused when empty or long.
+  The full Linux suite passes.
+- **Browser** (Playwright, throwaway dashboard server on scratch data, every role off): Home shows the list in the advanced and the simple dashboard. Dismissing a row removed it, opening a commented Task from the list read the comment, and at a phone's width the page does not scroll sideways. `tsc`, `eslint` and `next build` pass.
+
+Not yet run: the desktop app's native notification with the new toast behaviour, and an agent reporting `needs_answer`, which the Agents page does not report yet; the test feeds one in.

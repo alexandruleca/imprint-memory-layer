@@ -9,6 +9,17 @@ import { useCached } from "@/lib/use-cached";
 import { who } from "@/components/agents/board/format";
 
 const SEEN_KEY = "imprint.board.review-seen";
+const TOLD_KEY = "imprint.board.comments-told";
+
+/** Comments already toasted in this browser: closing a toast no longer reads one (ADR 0241), so a reload must not toast it again. */
+function toldComments(): Set<string> {
+  try { return new Set(JSON.parse(window.localStorage.getItem(TOLD_KEY) ?? "[]")); } catch { return new Set(); }
+}
+
+function rememberTold(told: Set<string>, unread: string[]) {
+  // Only the comments still unread are kept, so the list stays short.
+  try { window.localStorage.setItem(TOLD_KEY, JSON.stringify(unread.filter((id) => told.has(id)))); } catch { /* Told again after a reload. */ }
+}
 
 /** Tasks in Review the viewer was already told about, kept in this browser. */
 function seenReview(): Record<string, number> {
@@ -30,7 +41,9 @@ function notifyDesktop(title: string, body: string, onClick: () => void) {
 /** Tells the user, on any page, about comments agents addressed to them and
  * Tasks that reached Review (ADR 0212): a toast, and in the desktop app a
  * native notification while it is not in front. A comment counts as read
- * once its toast is opened or closed; a Task in Review is told once. */
+ * once its Task is opened or answered, or it is dismissed on Home's
+ * Needs-you list (ADR 0241); closing a toast leaves it there. A Task in
+ * Review is told once. */
 export function BoardAlerts() {
   const router = useRouter();
   const inbox = useCached<TaskInbox>("tasks-inbox", () => getTaskInbox(), { refreshInterval: 15_000, persist: false });
@@ -47,18 +60,22 @@ export function BoardAlerts() {
       ? window.electronAPI.openAgents(id) : router.push(`/agents/?task=${encodeURIComponent(id)}#board`));
     // Comments come from every workspace; one from another names it and opens nothing here, since its Task is on that Board.
     const here = inbox.data?.workspace;
+    // A comment stays unread, and on Home's Needs-you list, until it is opened, answered or dismissed there (ADR 0241).
+    const told = toldComments();
     for (const comment of comments) {
-      if (shown.current.has(comment.id)) continue;
+      if (shown.current.has(comment.id) || told.has(comment.id)) continue;
       shown.current.add(comment.id);
+      told.add(comment.id);
       const read = () => { void markTaskCommentsRead([comment.id], comment.workspace).catch(() => {}); };
       const elsewhere = comment.workspace && here && comment.workspace !== here;
       const title = `${who(comment.by)} on ${comment.task}${elsewhere ? ` (workspace ${comment.workspace})` : ""}`;
       toast(title, {
-        id: `task-comment-${comment.id}`, description: comment.text, duration: 20_000, onDismiss: read, onAutoClose: () => {},
+        id: `task-comment-${comment.id}`, description: comment.text, duration: 20_000,
         action: elsewhere ? undefined : { label: "Open", onClick: () => { read(); openTask(comment.task); } },
       });
       notifyDesktop(title, comment.text, () => { read(); if (!elsewhere) openTask(comment.task); });
     }
+    rememberTold(told, comments.map((c) => c.id));
     const seen = seenReview();
     let changed = false;
     for (const task of review) {
