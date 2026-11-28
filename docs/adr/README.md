@@ -302,6 +302,11 @@ The records in force, by area. An amended record is listed with the records that
 Under consideration; not current behavior.
 
 - [ADR 0009](0009-model-profiles-and-embedding-identity.md) **Model profiles and embedding identity.** Evaluate local model profiles with explicit embedding identity and safe re-embedding.
+- [ADR 0237](0237-a-devices-dispatcher-does-only-the-roles-the-person-switches-on.md) **A device's Dispatcher does only the roles the person switches on.** Work, Review, Refine and Deploy switches per device and workspace, off by default; the old switch migrates to Work and Review.
+- [ADR 0238](0238-task-branches-travel-through-the-base-branchs-remote.md) **Task branches travel through the base branch's remote.** Imprint pushes a Dispatched run's Task branch when it reaches Review; other devices fetch before reviewing, taking over or deploying.
+- [ADR 0239](0239-the-dispatcher-deploys-tasks-a-dispatched-review-passed.md) **The Dispatcher deploys Tasks a Dispatched review passed.** Imprint's own git code merges the branch into its base in a throwaway worktree and pushes without force; never the default branch unless allowed; conflicts back to Ready, twice to the person.
+- [ADR 0240](0240-the-persons-comments-reach-a-working-agent-after-its-next-tool-call.md) **The person's comments reach a working agent after its next tool call.** One notice registry printed by a sourced hook after every tool call and on every prompt; claims and Dispatched prompts carry unread comments; the person's comment overrides the plan.
+- [ADR 0241](0241-a-needs-you-list-shows-what-waits-for-the-person.md) **A Needs-you list shows what waits for the person.** Home and the Board list what waits for the person with its reason until it ends or is dismissed; the tray and orb count it; toasts no longer mark comments read.
 
 ## Decision log
 
@@ -545,6 +550,11 @@ Every record in number order. *Date* is when the decision was made.
 | [0234](0234-the-dispatcher-counts-review-rounds-and-failures-across-paired-devices.md) | 2026-11-28 | Accepted | The Dispatcher counts review rounds and failures across paired devices |
 | [0235](0235-cursor-cli-inside-wsl-gets-imprints-mcp-entry-and-rule.md) | 2026-11-28 | Amended by [ADR 0236](0236-cursor-gets-imprints-hooks-wherever-it-runs-and-one-hook-answers-each-event.md) | Cursor CLI inside WSL gets Imprint's MCP entry and rule |
 | [0236](0236-cursor-gets-imprints-hooks-wherever-it-runs-and-one-hook-answers-each-event.md) | 2026-11-28 | Accepted | Cursor gets Imprint's hooks wherever it runs, and one hook answers each event |
+| [0237](0237-a-devices-dispatcher-does-only-the-roles-the-person-switches-on.md) | 2026-11-28 | Proposed | A device's Dispatcher does only the roles the person switches on |
+| [0238](0238-task-branches-travel-through-the-base-branchs-remote.md) | 2026-11-28 | Proposed | Task branches travel through the base branch's remote |
+| [0239](0239-the-dispatcher-deploys-tasks-a-dispatched-review-passed.md) | 2026-11-28 | Proposed | The Dispatcher deploys Tasks a Dispatched review passed |
+| [0240](0240-the-persons-comments-reach-a-working-agent-after-its-next-tool-call.md) | 2026-11-28 | Proposed | The person's comments reach a working agent after its next tool call |
+| [0241](0241-a-needs-you-list-shows-what-waits-for-the-person.md) | 2026-11-28 | Proposed | A Needs-you list shows what waits for the person |
 
 ## How to write and maintain ADRs
 
