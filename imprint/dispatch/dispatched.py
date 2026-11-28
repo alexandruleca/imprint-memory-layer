@@ -216,6 +216,21 @@ def log_tail(path, limit: int = LOG_TAIL) -> str:
     return (last_text or '\n'.join(lines).strip())[-limit:]
 
 
+GONE = 'the Task was deleted'
+
+
+def _state_or_none(task: str, workspace: str) -> dict | None:
+    """The Task's state, or None when it was deleted or its workspace is gone."""
+    try:
+        return tasks.get(task, workspace=workspace)
+    except LookupError:
+        return None
+    except ValueError as error:
+        if str(error).startswith('Unknown workspace'):
+            return None
+        raise
+
+
 def _our_sessions(task: str, run_id: str, workspace: str) -> set[str]:
     """The Board sessions that hold this run's claim: the Dispatcher's, and
     each session that took one of its claims over with the token (ADR 0224).
@@ -385,6 +400,8 @@ class Session:
         from . import claimcheck
         self.checked = time.monotonic()
         task, workspace = self.run['task'], self.run['workspace']
+        if _state_or_none(task, workspace) is None:
+            return f'was stopped: {GONE}', True
         verdict, who = claimcheck.standing(task, workspace, _our_sessions(task, self.run['id'], workspace))
         if verdict == claimcheck.LOST:
             self.lost = who
@@ -436,7 +453,8 @@ def _lost(run: dict, winner: str, started: bool) -> str:
     text = f"The Dispatched session on this device {detail}."
     if started and run.get('branch'):
         text += f" Its commits, if any, stay on {run['branch']} here."
-    tasks.comment(run['task'], text, actor=SYSTEM, workspace=run['workspace'])
+    if _state_or_none(run['task'], run['workspace']) is not None:
+        tasks.comment(run['task'], text, actor=SYSTEM, workspace=run['workspace'])
     return detail
 
 
@@ -457,9 +475,12 @@ def finish(run_id: str, exit_code: int | None, *, reason: str | None = None, sto
         return store.get(run_id)
     if run.get('stop_reason'):
         reason, stopped = run['stop_reason'], True
-    state = tasks.get(task, workspace=workspace)
+    state = _state_or_none(task, workspace)
     label = runners.RUNNERS[run['client']].label if run['client'] in runners.RUNNERS else run['client']
-    if not reason and run['role'] == 'work' and state['status'] == 'review':
+    if state is None:
+        # Nothing to release or comment on; cleanup removes its worktree, keeping the branch.
+        outcome, detail = 'stopped', reason or f'ended: {GONE}'
+    elif not reason and run['role'] == 'work' and state['status'] == 'review':
         outcome, detail = 'review', 'moved the Task to Review'
     elif not reason and run['role'] == 'review' and state['status'] in ('done', 'ready'):
         from . import guards

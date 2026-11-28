@@ -105,6 +105,27 @@ class PairedDeviceTests(DispatchApiCase):
         self.assertEqual(tasks.dispatching(), [])
 
 
+
+class ServerStartupTests(DispatchCase):
+    def test_the_dashboard_server_starts_with_a_run_whose_task_was_deleted(self):
+        import subprocess
+        import sys
+        from imprint.api import app
+        from imprint.dispatch import dispatched
+        dead = subprocess.Popen([sys.executable, '-c', 'pass'])
+        dead.wait()
+        store.add({'id': 'r1', 'workspace': 'default', 'task': self.task, 'title': 't', 'project': 'shop',
+                   'client': 'claude-code', 'role': 'work', 'session': dispatched.session_of('r1'), 'pid': dead.pid,
+                   'started_at': time.time() - 60, 'watcher': dead.pid})
+        tasks.delete(self.task, actor=tasks.USER)
+        from imprint.dispatch import clients
+        with patch('imprint.updates.auto_loop', lambda: __import__('asyncio').sleep(0)), \
+                patch.object(clients, 'detected'), \
+                TestClient(app, base_url='http://127.0.0.1:8420', client=('127.0.0.1', 1234)) as api:
+            self.assertEqual(api.get('/api/tasks/dispatch').status_code, 200)
+        self.assertEqual(store.get('r1')['outcome'], 'stopped')
+
+
 if __name__ == '__main__':
     import unittest
     unittest.main()

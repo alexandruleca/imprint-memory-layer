@@ -104,10 +104,7 @@ def cleanup() -> int:
     for run in store.uncleaned():
         if any(r['task'] == run['task'] for r in running_runs()):
             continue
-        try:
-            state = tasks.get(run['task'], workspace=run['workspace'])
-        except LookupError:
-            state = None  # deleted
+        state = dispatched._state_or_none(run['task'], run['workspace'])  # None: deleted, or its workspace is gone
         if state is not None and state['status'] not in ('done', 'cancelled'):
             continue
         try:
@@ -135,7 +132,7 @@ class Dispatcher:
     # ── Lifecycle ──────────────────────────────────────────────
 
     def start(self) -> None:
-        self.recover()
+        self.recover()  # never raises: one run's trouble must not keep the dashboard server from starting
         threading.Thread(target=clients.detected, kwargs={'refresh': True}, daemon=True).start()
         self._thread = threading.Thread(target=self._run, name='imprint-dispatcher', daemon=True)
         self._thread.start()
@@ -172,14 +169,23 @@ class Dispatcher:
 
     def recover(self) -> None:
         """Take on runs nobody watches: adopt a running one by its pid, and
-        record how a gone one ended."""
-        for run in store.unfinished():
-            if run['id'] in self.sessions or (run['watcher'] != os.getpid() and processes.is_alive(run['watcher'])):
-                continue
-            if processes.is_alive(run['pid']):
-                self.sessions[run['id']] = dispatched.Session(run)
-            else:
-                dispatched.finish(run['id'], None, reason='ended while no Dispatcher watched it')
+        record how a gone one ended. One run's error is logged and the
+        others are still taken on."""
+        try:
+            unfinished = store.unfinished()
+        except Exception as error:
+            print(f'[imprint] dispatcher could not read its runs: {error}', file=sys.stderr, flush=True)
+            return
+        for run in unfinished:
+            try:
+                if run['id'] in self.sessions or (run['watcher'] != os.getpid() and processes.is_alive(run['watcher'])):
+                    continue
+                if processes.is_alive(run['pid']):
+                    self.sessions[run['id']] = dispatched.Session(run)
+                else:
+                    dispatched.finish(run['id'], None, reason='ended while no Dispatcher watched it')
+            except Exception as error:
+                print(f"[imprint] dispatcher could not take on run {run['id']}: {error}", file=sys.stderr, flush=True)
 
     def tick(self) -> None:
         self.watch()
@@ -193,7 +199,11 @@ class Dispatcher:
 
     def watch(self) -> None:
         for run_id, session in list(self.sessions.items()):
-            ended = session.step()
+            try:
+                ended = session.step()
+            except Exception as error:  # one session's trouble must not stop the others being watched
+                print(f'[imprint] dispatcher could not check run {run_id}: {error}', file=sys.stderr, flush=True)
+                continue
             if ended is None:
                 continue
             del self.sessions[run_id]

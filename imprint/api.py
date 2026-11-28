@@ -167,7 +167,10 @@ async def _start_queue_dispatcher():
     schedule.start(run_prompt=_scheduled_prompt)
     # The Dispatcher starts agent sessions for Tasks where the person switched it on (ADR 0220).
     from .dispatch import loop as dispatch_loop
-    dispatch_loop.start()
+    try:
+        dispatch_loop.start()
+    except Exception as error:  # The dashboard serves everything else without its Dispatcher.
+        print(f"[imprint] the Dispatcher could not start: {error}", file=sys.stderr, flush=True)
     # Skills and personas: written into the clients, edits there taken back (ADR 0169).
     from . import registry_files
     app.state.registry_pass = asyncio.create_task(registry_files.loop())

@@ -216,5 +216,55 @@ class CommandLineTests(LoopCase):
             self.assertEqual(cli_tasks.main(['dispatch', 'stop', 'nope']), 1)
 
 
+
+def _dead_run(run_id, task, *, workspace='default'):
+    dead = subprocess.Popen([sys.executable, '-c', 'pass'])
+    dead.wait()
+    return store.add({'id': run_id, 'workspace': workspace, 'task': task, 'title': 't', 'project': 'shop',
+                      'client': 'claude-code', 'role': 'work', 'session': dispatched.session_of(run_id),
+                      'pid': dead.pid, 'started_at': time.time() - 60, 'watcher': dead.pid})
+
+
+class GoneTaskTests(LoopCase):
+    """A deleted Task, or a workspace gone, never stops the Dispatcher (T-cm0rb)."""
+
+    def test_a_task_deleted_while_its_session_runs_stops_it_and_the_loop_goes_on(self):
+        other = tasks.create('Next', project='shop', status='ready', acceptance=['ok'], priority='P3')['id']
+        store.switch('default', True)
+        with patch.dict(os.environ, {'FAKE_MODE': 'hang'}), patch.object(dispatched, 'LOST_CHECK', 0.1):
+            run = self.dispatcher.dispatch()
+            self.assertEqual(run['task'], self.task)
+            tasks.delete(self.task, actor=tasks.USER)
+            self.settle()
+        ended = store.get(run['id'])
+        self.assertEqual((ended['outcome'], ended['detail']), ('stopped', 'was stopped: the Task was deleted'))
+        self.assertEqual(self.dispatcher.dispatch()['task'], other)
+        self.settle()
+
+    def test_a_restart_records_the_end_of_runs_whose_task_or_workspace_is_gone(self):
+        _dead_run('deleted', self.task)
+        _dead_run('elsewhere', self.task, workspace='gone')
+        tasks.delete(self.task, actor=tasks.USER)
+        fresh = loop.Dispatcher(interval=0, poll=0.05)
+        with patch.object(loop.clients, 'detected'):  # its background check would outlive the test
+            fresh.start()
+            self.addCleanup(fresh.stop)
+        self.assertEqual([store.get(r)['outcome'] for r in ('deleted', 'elsewhere')], ['stopped', 'stopped'])
+
+    def test_one_runs_error_does_not_keep_the_others_from_being_taken_on(self):
+        _dead_run('broken', self.task)
+        _dead_run('fine', self.task)
+        finish = dispatched.finish
+
+        def failing(run_id, *args, **kwargs):
+            if run_id == 'broken':
+                raise RuntimeError('disk full')
+            return finish(run_id, *args, **kwargs)
+        with patch.object(dispatched, 'finish', side_effect=failing), redirect_stdout(io.StringIO()):
+            self.dispatcher.recover()
+        self.assertIsNone(store.get('broken')['outcome'])
+        self.assertEqual(store.get('fine')['outcome'], 'failed')
+
+
 if __name__ == '__main__':
     unittest.main()
