@@ -10,14 +10,70 @@ import re
 import sqlite3
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 REMINDER = 'Imprint memory is available. Search prior context before exploring; verify source files before making changes.'
 
 
 def _cwd(payload):
+    """The session's directory. Cursor's payloads name none, and its hooks
+    run in their configuration folder, so its first workspace root stands for
+    it (ADR 0236)."""
     cwd = payload.get('cwd')
-    return cwd if isinstance(cwd, str) and cwd else None
+    if isinstance(cwd, str) and cwd:
+        return cwd
+    roots = payload.get('workspace_roots')
+    root = roots[0] if isinstance(roots, list) and roots else None
+    return root if isinstance(root, str) and root else None
+
+
+def read_payload():
+    """The hook's JSON payload, or None. Cursor on Windows puts a UTF-8 byte
+    order mark before it (ADR 0236)."""
+    try:
+        stream = getattr(sys.stdin, 'buffer', None)
+        text = stream.read().decode('utf-8-sig') if stream is not None else sys.stdin.read().lstrip('\ufeff')
+        return json.loads(text)
+    except (ValueError, OSError):
+        return None
+
+
+ONCE_SECONDS = 60
+ONCE_KEEP_SECONDS = 86400
+
+
+def first_hook(payload, data_dir):
+    """Whether this is the first of Imprint's hooks to answer this event of a
+    Cursor turn. Cursor also runs Claude Code's hooks, so where both clients
+    are connected Imprint's hook for an event runs twice, at the same moment;
+    the first one acts and the other stays silent (ADR 0236). Claims are kept
+    per minute, so a resumed session is told again; other clients' payloads,
+    and anything that cannot be told apart, always act."""
+    if not isinstance(payload, dict) or 'cursor_version' not in payload:
+        return True
+    session = payload.get('session_id') or payload.get('conversation_id')
+    event = payload.get('hook_event_name')
+    if not (isinstance(session, str) and session and isinstance(event, str) and event):
+        return True
+    now = time.time()
+    key = '\n'.join((session, event, str(payload.get('generation_id') or ''), str(int(now // ONCE_SECONDS))))
+    claims = Path(data_dir) / '.sessions' / 'once'
+    try:
+        claims.mkdir(parents=True, exist_ok=True)
+        os.close(os.open(claims / hashlib.sha256(key.encode()).hexdigest(), os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+    except FileExistsError:
+        return False
+    except OSError:
+        return True  # a second reminder is better than none
+    if event == 'sessionStart':
+        for claim in claims.iterdir():
+            try:
+                if now - claim.stat().st_mtime > ONCE_KEEP_SECONDS:
+                    claim.unlink()
+            except OSError:
+                pass
+    return True
 
 
 def pin_session(payload):
@@ -62,8 +118,8 @@ def remember_transcript(payload):
 
 def session_context(payload):
     """The session-start reminder, with the session's workspace or the
-    question the agent should ask the user about it. A payload without a cwd
-    (Cursor's) says nothing about the directory, so neither does the hook."""
+    question the agent should ask the user about it. A payload that names no
+    directory says nothing about it, so neither does the hook."""
     from imprint import workspace_policy as policy
     if not _cwd(payload):
         return REMINDER
@@ -78,7 +134,8 @@ def session_context(payload):
         from imprint import tasks_tool
         session = payload.get('session_id') or payload.get('conversation_id')
         transcript = str(payload.get('transcript_path') or '').replace('\\', '/')
-        client = 'codex' if '/.codex/' in transcript else 'claude-code' if '/.claude/' in transcript else None
+        client = ('cursor' if 'cursor_version' in payload else 'codex' if '/.codex/' in transcript
+                  else 'claude-code' if '/.claude/' in transcript else None)
         board = tasks_tool.session_start(_cwd(payload), resolution['workspace'],
                                          session if isinstance(session, str) else None, resolution.get('project'),
                                          client)
@@ -92,14 +149,17 @@ def main():
     project_dir = str(Path(__file__).resolve().parent.parent)
     os.environ['PYTHONPATH'] = project_dir
     os.environ['IMPRINT_DATA_DIR'] = data_dir
+    payload = read_payload()  # A malformed hook payload must not prevent normal tool use.
+    if action in {'session-start', 'pre-compact', 'cursor-pre-compact', 'stop'} and not first_hook(payload, data_dir):
+        print('{}')  # Another of Imprint's hooks answers this event (ADR 0236).
+        return 0
     if action in {'pre-compact', 'cursor-pre-compact'}:
-        key = 'user_message' if action == 'cursor-pre-compact' else 'systemMessage'
+        # Cursor reads user_message from preCompact (cursor-pre-compact is
+        # what its hooks ran before ADR 0236); Claude Code shows systemMessage.
+        cursor = action == 'cursor-pre-compact' or isinstance(payload, dict) and 'cursor_version' in payload
+        key = 'user_message' if cursor else 'systemMessage'
         print(json.dumps({key: 'Save durable decisions and findings with Imprint before compaction.'}))
         return 0
-    try:
-        payload = json.load(sys.stdin)
-    except (ValueError, OSError):
-        payload = None  # A malformed hook payload must not prevent normal tool use.
     if action in {'session-start', 'copilot-session-start'}:
         if isinstance(payload, dict):
             remember_transcript(payload)

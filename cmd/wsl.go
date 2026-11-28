@@ -433,6 +433,7 @@ type wslLayout struct {
 	rule              string // Imprint's text: the whole file when ownRules, else a managed block
 	ownRules          bool
 	hooks             string // Claude-style hooks file; "" for a client without hooks
+	cursorHooks       bool   // hooks is Cursor's hooks.json: {version, hooks: {event: [{command, matcher}]}}
 	hookSet           []wslHook
 	ownedHooks        string // Copilot's hooks file, which Imprint owns whole
 	permission        bool   // Claude Code's permission for Imprint's tools
@@ -464,10 +465,18 @@ func wslLayoutOf(p wslProfile, target, dir string) wslLayout {
 			ownedHooks: path.Join(dir, "hooks", "imprint.json")}
 	case "cursor":
 		// Cursor CLI runs inside the distribution and reads the profile's
-		// MCP servers and user rules; the Windows app's agent is wired by
-		// Imprint's Windows Cursor setup (ADRs 0052, 0235). No hooks yet.
+		// MCP servers, user rules and hooks; the Windows app's agent is wired
+		// by Imprint's Windows Cursor setup (ADRs 0052, 0235). Its hooks are
+		// the ones Windows Cursor gets, through the launcher (ADR 0236).
 		return wslLayout{registry: path.Join(dir, "mcp.json"), rootKey: "mcpServers", spec: stdio, idle: p.CursorCLI == "",
-			rules: path.Join(dir, "rules", "imprint.mdc"), rule: instructions.CursorRule, ownRules: true}
+			rules: path.Join(dir, "rules", "imprint.mdc"), rule: instructions.CursorRule, ownRules: true,
+			hooks: path.Join(dir, "hooks.json"), cursorHooks: true, hookSet: []wslHook{
+				{"sessionStart", "", "session-start", 0, false},
+				{"preCompact", "", "pre-compact", 0, false},
+				{"postToolUse", "MCP:search", "post-search", 0, false},
+				{"postToolUse", "Read|Grep", "cursor-post-read", 0, false},
+				{"stop", "", "stop", 0, false},
+				{"sessionEnd", "", "stop", 0, false}}}
 	case "cline":
 		// Cline's data and rules under its directory; its hooks receive no
 		// transcript, so it gets none (ADR 0056).
@@ -535,7 +544,13 @@ func applyWSLProfile(p wslProfile, bp backendPaths, target string, local func(st
 	}
 	for _, h := range layout.hookSet {
 		command := shellQuote(launcher) + " hook " + h.action
-		if err := jsonutil.SetOwnedHookWithMatcher(local(layout.hooks), h.event, h.matcher, command, h.timeout, h.async); err != nil {
+		set := func() error {
+			return jsonutil.SetOwnedHookWithMatcher(local(layout.hooks), h.event, h.matcher, command, h.timeout, h.async)
+		}
+		if layout.cursorHooks {
+			set = func() error { return jsonutil.SetOwnedCursorHook(local(layout.hooks), h.event, h.matcher, command) }
+		}
+		if err := set(); err != nil {
 			return err
 		}
 	}

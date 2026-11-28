@@ -11,17 +11,19 @@ import (
 	"github.com/hunter/imprint/internal/runner"
 )
 
-// SetupCursor wires the Imprint MCP server into Cursor. Cursor exposes a
-// hook system (version 1, ~/.cursor/hooks.json) as of 2026-04, so this
-// target gets parity with Claude Code wherever Cursor's events line up:
-// sessionStart, preCompact, preToolUse (Read|Grep gate), and postToolUse
-// (mcp__imprint__search sentinel). Stop/sessionEnd is skipped because
-// Cursor's payload omits transcript_path — the summarizer has nothing
-// to read.
+// SetupCursor wires the Imprint MCP server, rule and hooks into Cursor's
+// ~/.cursor, which the Cursor app and Cursor CLI both read, on Windows, macOS
+// and Linux; Cursor CLI creates the folder too. The hooks (ADR 0236):
+// sessionStart, preCompact, postToolUse after an Imprint search (the
+// sentinel) and after Read|Grep (the read reminder, ADR 0142), and stop and
+// sessionEnd, which learn the conversation from the transcript Cursor names.
+// Cursor also runs Claude Code's hooks; outside Windows Imprint's commands
+// for both are the same, so Cursor drops Claude Code's copies, and the hook
+// lets one of two answer an event where they differ.
 func SetupCursor(backend func() backendPaths) {
 	cursorDir := platform.CursorConfigDir()
 	if !platform.DirExists(cursorDir) {
-		output.Warn("Cursor config dir not found: " + cursorDir + " — install Cursor first (https://cursor.sh). Skipping.")
+		output.Warn("Cursor config dir not found: " + cursorDir + " — install Cursor or Cursor CLI first (https://cursor.com). Skipping.")
 		return
 	}
 	output.Success("Cursor config dir found: " + cursorDir)
@@ -75,16 +77,7 @@ func SetupCursor(backend func() backendPaths) {
 	hooksPath := platform.CursorHooksPath()
 	output.Info("Checking Cursor hooks...")
 	hp := hooks.Paths{ProjectDir: bp.ProjectDir, VenvPython: bp.VenvPython, DataDir: bp.DataDir}
-	type cursorHook struct{ event, matcher, command string }
-	cursorHooks := []cursorHook{
-		{"sessionStart", "", hooks.SessionStartCommand(hp)},
-		// Cursor's preCompact is observational (can't block); we emit
-		// `user_message` as a save-context nudge to the user.
-		{"preCompact", "", hooks.CursorPreCompactCommand(hp)},
-		{"postToolUse", "MCP:search", hooks.PostSearchSentinelCommand(hp)},
-		// A read before any Imprint search gets one reminder, never a refusal (ADR 0142).
-		{"postToolUse", "Read|Grep", hooks.CursorPostReadCommand(hp)},
-	}
+	cursorHooks := cursorHookSet(hp)
 	// The read gate that refused reads (exit 2) is gone; drop its preToolUse entry.
 	if removed, err := jsonutil.RemoveOwnedCursorHooks(hooksPath, "preToolUse"); err != nil {
 		output.Fail("Could not remove the old preToolUse hook: " + err.Error())
@@ -120,4 +113,22 @@ func SetupCursor(backend func() backendPaths) {
 	output.Info("  1. Restart Cursor to pick up the new MCP server + hooks")
 	output.Info("  2. In Cursor settings, verify the 'imprint' MCP server is listed")
 	output.Info("  3. Use 'imprint ingest <dir>' to index your project directories")
+}
+
+type cursorHook struct{ event, matcher, command string }
+
+// cursorHookSet is what Imprint registers in Cursor's hooks.json (ADR 0236).
+// Cursor's preCompact is observational (it cannot block), so the hook nudges
+// the user to save context; stop fires after each interactive turn and
+// sessionEnd when a session ends, print mode included.
+func cursorHookSet(hp hooks.Paths) []cursorHook {
+	return []cursorHook{
+		{"sessionStart", "", hooks.CursorSessionStartCommand(hp)},
+		{"preCompact", "", hooks.CursorPreCompactCommand(hp)},
+		{"postToolUse", "MCP:search", hooks.CursorPostSearchCommand(hp)},
+		// A read before any Imprint search gets one reminder, never a refusal (ADR 0142).
+		{"postToolUse", "Read|Grep", hooks.CursorPostReadCommand(hp)},
+		{"stop", "", hooks.CursorStopCommand(hp)},
+		{"sessionEnd", "", hooks.CursorStopCommand(hp)},
+	}
 }

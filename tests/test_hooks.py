@@ -144,3 +144,70 @@ class HookTests(unittest.TestCase):
             self.assertTrue(options['start_new_session'])
         learner.return_value.wait.assert_not_called()
         self.assertEqual(json.loads(stdout.getvalue()), {})
+
+    # Cursor (ADR 0236): its payloads name no cwd, and it runs Claude Code's
+    # hooks beside its own, so Imprint's hook for one event can run twice.
+
+    def cursor_payload(self, event, **over):
+        return {'conversation_id': 'c1', 'session_id': 'c1', 'generation_id': 'g1', 'hook_event_name': event,
+                'cursor_version': '2026.11.22-e9042b2', 'workspace_roots': [], 'transcript_path': None, **over}
+
+    def test_cursors_first_workspace_root_stands_for_the_sessions_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'shop').mkdir()
+            (root / 'shop' / 'package.json').write_text('{"name": "shop"}')
+            payload = self.cursor_payload('sessionStart', workspace_roots=[str(root / 'shop'), str(root)])
+            context = json.loads(self.run_hook('session-start', root / 'data', payload).stdout)
+            unnamed = json.loads(self.run_hook('session-start', root / 'data', self.cursor_payload('sessionStart', session_id='c2',
+                                                                                             conversation_id='c2')).stdout)
+        text = context['hookSpecificOutput']['additionalContext']
+        self.assertIn('workspace', text)
+        self.assertNotEqual(text, unnamed['hookSpecificOutput']['additionalContext'])
+
+    def test_one_of_imprints_hooks_answers_each_cursor_event(self):
+        with tempfile.TemporaryDirectory() as directory:
+            start = self.cursor_payload('sessionStart')
+            first, second = (json.loads(self.run_hook('session-start', directory, start).stdout) for _ in range(2))
+            self.assertIn('additionalContext', first['hookSpecificOutput'])
+            self.assertEqual(second, {})
+            # Another session, and a later turn of the same one, are answered.
+            other = json.loads(self.run_hook('session-start', directory, {**start, 'session_id': 'c2'}).stdout)
+            self.assertIn('hookSpecificOutput', other)
+            compact = self.cursor_payload('preCompact', generation_id='g2')
+            answers = [json.loads(self.run_hook(action, directory, compact).stdout) for action in ('pre-compact', 'cursor-pre-compact')]
+            self.assertEqual(answers, [{'user_message': 'Save durable decisions and findings with Imprint before compaction.'}, {}])
+            # Claude Code's own payloads are answered every time.
+            claude = {'hook_event_name': 'PreCompact', 'session_id': 'c1'}
+            for _ in range(2):
+                self.assertIn('systemMessage', json.loads(self.run_hook('pre-compact', directory, claude).stdout))
+            self.assertEqual(len(list((Path(directory) / '.sessions' / 'once').iterdir())), 3)
+
+    def test_a_cursor_stop_learns_its_transcript_once(self):
+        from unittest.mock import patch
+        from imprint import hook_entry
+        with tempfile.TemporaryDirectory() as directory:
+            transcript = str(Path(directory) / 'agent-transcripts' / 'c1' / 'c1.jsonl')
+            payload = self.cursor_payload('stop', workspace_roots=[directory], transcript_path=transcript, status='completed')
+            for event, starts in (('stop', 1), ('stop', 0), ('sessionEnd', 1)):
+                with patch.object(hook_entry.sys, 'argv', ['hook_entry.py', 'stop', directory]), \
+                        patch.object(hook_entry.sys, 'stdin', io.StringIO(json.dumps({**payload, 'hook_event_name': event}))), \
+                        patch.object(hook_entry.sys, 'stdout', io.StringIO()) as stdout, \
+                        patch.dict(hook_entry.os.environ), \
+                        patch.object(hook_entry, 'remember_transcript'), \
+                        patch.object(hook_entry.subprocess, 'Popen') as learner:
+                    self.assertEqual(hook_entry.main(), 0)
+                self.assertEqual(json.loads(stdout.getvalue()), {})
+                self.assertEqual(learner.call_count, starts, event)
+                if starts:
+                    self.assertEqual(learner.call_args.args[0][1:], ['-m', 'imprint.session_learn', transcript])
+
+    def test_a_payload_after_a_byte_order_mark_is_read(self):
+        # Cursor on Windows sends one (ADR 0236).
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run([sys.executable, str(ENTRY), 'post-search', directory],
+                                    input=('﻿' + json.dumps(self.cursor_payload('postToolUse'))).encode('utf-8'),
+                                    capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            import hashlib
+            self.assertTrue((Path(directory) / '.sessions' / hashlib.sha256(b'c1').hexdigest()).exists())

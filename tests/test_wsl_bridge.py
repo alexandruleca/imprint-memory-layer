@@ -153,6 +153,26 @@ class WSLPathTests(unittest.TestCase):
             self.assertEqual(result, 0)
             self.assertIn('additionalContext', json.loads(output.getvalue()))
 
+    def test_cursors_hooks_pass_through_the_bridge_with_their_workspace_roots(self):
+        # Cursor names no cwd: its workspace roots are the paths to translate (ADR 0236).
+        from imprint import hook_entry
+        payload = {'hook_event_name': 'postToolUse', 'session_id': 'c1', 'cursor_version': '2026.11.22',
+                   'workspace_roots': ['/home/test/shop', 'relative', '/home/test/with\\backslash'], 'tool_name': 'Read'}
+        seen = []
+        def capture():
+            seen.append(json.load(wsl_bridge.sys.stdin))
+            return 0
+        with tempfile.TemporaryDirectory() as data, patch.dict(os.environ), \
+                patch.object(wsl_bridge.os, 'chdir'), \
+                patch.object(wsl_bridge.sys, 'platform', 'win32'), \
+                patch.object(wsl_bridge.sys, 'stdin', io.StringIO(json.dumps(payload))), \
+                patch.object(wsl_bridge.sys, 'argv', ['wsl_bridge.py']), \
+                patch.object(hook_entry, 'main', side_effect=capture):
+            self.assertEqual(wsl_bridge.main(['--data-dir', data, '--distribution', 'Ubuntu',
+                '--cwd', '/home/test/.cursor', '--home', '/home/test', 'hook', 'cursor-post-read']), 0)
+        self.assertEqual(seen[0]['workspace_roots'], [r'\\wsl.localhost\Ubuntu\home\test\shop', 'relative'])
+        self.assertEqual(hook_entry._cwd(seen[0]), r'\\wsl.localhost\Ubuntu\home\test\shop')
+
     def test_stop_checks_ownership_in_the_sessions_workspace(self):
         # The client's cwd, translated, decides the session's workspace (ADR
         # 0072): here a project file this device approved for beta.

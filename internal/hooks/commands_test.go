@@ -56,8 +56,7 @@ func TestHookCommandsExecuteWithSpacesAndApostrophes(t *testing.T) {
 		return err
 	}
 	// A read before searching is reminded, never refused (ADR 0142).
-	for _, command := range []string{PreReadGateCommand(bp), PostSearchSentinelCommand(bp), PreReadGateCommand(bp),
-		CursorPostReadCommand(bp)} {
+	for _, command := range []string{PreReadGateCommand(bp), PostSearchSentinelCommand(bp), PreReadGateCommand(bp)} {
 		if err := run(command); err != nil {
 			t.Fatal(err)
 		}
@@ -97,6 +96,61 @@ func TestCopilotHookCommandsExecuteInCopilotsShell(t *testing.T) {
 	var stop map[string]any
 	if err := json.Unmarshal(run(CopilotStopCommand(bp), `{"hook_event_name":"Stop","session_id":"s","stop_reason":"end_turn","stop_hook_active":false}`), &stop); err != nil || len(stop) != 0 {
 		t.Fatalf("Stop output %v, %v", stop, err)
+	}
+}
+
+// Cursor pipes the payload into a hook inside a PowerShell script block on
+// Windows, a UTF-8 BOM first, and runs it in sh elsewhere (ADR 0236). Outside
+// Windows its commands are Claude Code's, byte for byte, so Cursor drops the
+// copies of Claude Code's hooks it would otherwise run as well.
+func TestCursorHookCommandsExecuteInCursorsShell(t *testing.T) {
+	python := "python3"
+	if runtime.GOOS == "windows" {
+		python = "python"
+	}
+	interpreter, err := exec.LookPath(python)
+	if err != nil {
+		t.Skip("Python needed for hook execution fixture")
+	}
+	root := installHookFixture(t)
+	bp := Paths{ProjectDir: root, VenvPython: interpreter, DataDir: filepath.Join(root, "user's data")}
+	if runtime.GOOS != "windows" {
+		for cursor, claude := range map[string]string{CursorSessionStartCommand(bp): SessionStartCommand(bp),
+			CursorPreCompactCommand(bp): PreCompactCommand(bp), CursorPostSearchCommand(bp): PostSearchSentinelCommand(bp),
+			CursorStopCommand(bp): StopCommand(bp)} {
+			if cursor != claude {
+				t.Errorf("Cursor's %q differs from Claude Code's %q", cursor, claude)
+			}
+		}
+	}
+	run := func(command, payload string) map[string]any {
+		t.Helper()
+		child := cursorShellCommand(t, command, payload)
+		output, err := child.Output()
+		if err != nil {
+			t.Fatalf("%s: %v %s", command, err, output)
+		}
+		var answer map[string]any
+		if len(bytes.TrimSpace(output)) > 0 && json.Unmarshal(output, &answer) != nil {
+			t.Fatalf("%s printed %q", command, output)
+		}
+		return answer
+	}
+	cursor := `"session_id":"c1","conversation_id":"c1","cursor_version":"2026.11.22","workspace_roots":[]`
+	start := run(CursorSessionStartCommand(bp), `{"hook_event_name":"sessionStart","generation_id":"c1",`+cursor+`}`)
+	if output, _ := start["hookSpecificOutput"].(map[string]any); output == nil || output["additionalContext"] == "" {
+		t.Fatalf("sessionStart answered %v", start)
+	}
+	if compact := run(CursorPreCompactCommand(bp), `{"hook_event_name":"preCompact","generation_id":"g1",`+cursor+`}`); compact["user_message"] == nil {
+		t.Fatalf("preCompact answered %v", compact)
+	}
+	read := `{"hook_event_name":"postToolUse","generation_id":"g1","tool_name":"Read",` + cursor + `}`
+	if reminded := run(CursorPostReadCommand(bp), read); reminded["additional_context"] == nil {
+		t.Fatalf("a read before searching answered %v", reminded)
+	}
+	run(CursorPostSearchCommand(bp), `{"hook_event_name":"postToolUse","generation_id":"g1","tool_name":"MCP:search",`+cursor+`}`)
+	if stop := run(CursorStopCommand(bp), `{"hook_event_name":"stop","generation_id":"g2","status":"completed","transcript_path":null,`+cursor+`}`); len(stop) != 0 {
+		t.Fatalf("stop answered %v", stop)
 	}
 }
 

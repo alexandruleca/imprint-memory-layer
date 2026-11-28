@@ -25,10 +25,12 @@ func command(bp Paths, action string) string {
 		" " + action + " " + quote(bp.DataDir)
 }
 
-// copilotCommand is a hook command for the shell GitHub Copilot runs a
-// command hook in: PowerShell on Windows, which needs the call operator to
-// run a quoted path, and bash elsewhere.
-func copilotCommand(bp Paths, action string) string {
+// powershellCommand is a hook command for a client that runs command hooks
+// in PowerShell on Windows and in sh or bash elsewhere: GitHub Copilot, and
+// Cursor, which pipes the payload into the command inside a PowerShell
+// script block (ADR 0236). PowerShell needs the call operator to run a quoted
+// path; elsewhere the command is the one every other client gets.
+func powershellCommand(bp Paths, action string) string {
 	if runtime.GOOS != "windows" {
 		return command(bp, action)
 	}
@@ -39,19 +41,29 @@ func copilotCommand(bp Paths, action string) string {
 
 // Copilot reads a SessionStart hook's context from top-level
 // additionalContext; its Stop payload is Claude Code's (ADR 0057).
-func CopilotSessionStartCommand(bp Paths) string { return copilotCommand(bp, "copilot-session-start") }
-func CopilotStopCommand(bp Paths) string         { return copilotCommand(bp, "stop") }
+func CopilotSessionStartCommand(bp Paths) string {
+	return powershellCommand(bp, "copilot-session-start")
+}
+func CopilotStopCommand(bp Paths) string { return powershellCommand(bp, "stop") }
 
 func StopCommand(bp Paths) string               { return command(bp, "stop") }
 func PreCompactCommand(bp Paths) string         { return command(bp, "pre-compact") }
-func CursorPreCompactCommand(bp Paths) string   { return command(bp, "cursor-pre-compact") }
 func SessionStartCommand(bp Paths) string       { return command(bp, "session-start") }
 func PostSearchSentinelCommand(bp Paths) string { return command(bp, "post-search") }
 func PreReadGateCommand(bp Paths) string        { return command(bp, "pre-read") }
 
+// Cursor's hooks (ADR 0236). Outside Windows each is byte for byte the
+// command Claude Code gets for the same action, so Cursor, which also runs
+// Claude Code's hooks, drops Claude Code's copy as a duplicate. The hook
+// answers in Cursor's shape when the payload is Cursor's.
+func CursorSessionStartCommand(bp Paths) string { return powershellCommand(bp, "session-start") }
+func CursorPreCompactCommand(bp Paths) string   { return powershellCommand(bp, "pre-compact") }
+func CursorPostSearchCommand(bp Paths) string   { return powershellCommand(bp, "post-search") }
+func CursorStopCommand(bp Paths) string         { return powershellCommand(bp, "stop") }
+
 // CursorPostReadCommand reminds a Cursor session that reads before searching
 // Imprint, after the read (ADR 0142): Cursor's preToolUse can only allow or deny.
-func CursorPostReadCommand(bp Paths) string { return command(bp, "cursor-post-read") }
+func CursorPostReadCommand(bp Paths) string { return powershellCommand(bp, "cursor-post-read") }
 
 // PromptNoticesCommand prints, on each prompt, what the conversation's
 // Imprint server prepared for it (ADR 0212): a shell script sourced in the

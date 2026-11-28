@@ -374,7 +374,7 @@ func TestWSLCursorRegistrationWithoutCursorCLIRecordsItsStoreAndWritesNothing(t 
 // PATH, registering Cursor writes the bridge launcher, the MCP entry and the
 // rule into the profile's ~/.cursor, and imprint disconnect cursor takes out
 // only those (ADR 0235).
-func TestWSLCursorCLIRegistrationWritesItsMCPEntryAndRule(t *testing.T) {
+func TestWSLCursorCLIRegistrationWritesItsMCPEntryRuleAndHooks(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
@@ -406,9 +406,11 @@ func TestWSLCursorCLIRegistrationWritesItsMCPEntryAndRule(t *testing.T) {
 	registry := local(path.Join(p.CursorHome, "mcp.json"))
 	rule := local(path.Join(p.CursorHome, "rules", "imprint.mdc"))
 	userRule := local(path.Join(p.CursorHome, "rules", "mine.mdc"))
+	hooksFile := local(path.Join(p.CursorHome, "hooks.json"))
 	launcher := path.Join(p.CursorHome, "imprint-wsl")
 	writeCleanupFixture(t, registry, `{"mcpServers":{"other":{"command":"keep-other","args":["serve"]}},"keep":true}`)
 	writeCleanupFixture(t, userRule, "User rule.\n")
+	writeCleanupFixture(t, hooksFile, `{"version":1,"hooks":{"stop":[{"command":"./mine.sh"}]}}`)
 	bp := backendPaths{ProjectDir: project, VenvPython: filepath.Join(project, ".venv", "bin", "python"), DataDir: filepath.Join(project, "data")}
 	var executable []string
 	apply := func() {
@@ -419,7 +421,7 @@ func TestWSLCursorCLIRegistrationWritesItsMCPEntryAndRule(t *testing.T) {
 	}
 	files := func() []string {
 		var contents []string
-		for _, file := range []string{registry, rule, local(launcher)} {
+		for _, file := range []string{registry, rule, local(launcher), hooksFile} {
 			content, err := os.ReadFile(file)
 			if err != nil {
 				t.Fatal(err)
@@ -453,6 +455,24 @@ func TestWSLCursorCLIRegistrationWritesItsMCPEntryAndRule(t *testing.T) {
 	if !slices.Equal(executable, []string{launcher, launcher}) {
 		t.Fatalf("made executable: %v", executable)
 	}
+	// Cursor's hooks, in its own format, through the launcher (ADR 0236).
+	hooksData, err := jsonutil.ReadJSON(hooksFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := func(action string) string { return shellQuote(launcher) + " hook " + action }
+	want := map[string][]map[string]any{
+		"sessionStart": {{"command": command("session-start")}},
+		"preCompact":   {{"command": command("pre-compact")}},
+		"postToolUse":  {{"command": command("post-search"), "matcher": "MCP:search"}, {"command": command("cursor-post-read"), "matcher": "Read|Grep"}},
+		"stop":         {{"command": "./mine.sh"}, {"command": command("stop")}},
+		"sessionEnd":   {{"command": command("stop")}},
+	}
+	gotHooks, _ := json.Marshal(hooksData["hooks"])
+	wantHooks, _ := json.Marshal(want)
+	if string(gotHooks) != string(wantHooks) || hooksData["version"] != float64(1) {
+		t.Fatalf("hooks.json = %s, want %s", gotHooks, wantHooks)
+	}
 
 	// imprint disconnect cursor removes the recorded registration's files.
 	if err := saveWSLRegistration(project, wslRegistration{Profile: p, Target: "cursor"}, false); err != nil {
@@ -476,6 +496,13 @@ func TestWSLCursorCLIRegistrationWritesItsMCPEntryAndRule(t *testing.T) {
 	}
 	if content, _ := os.ReadFile(userRule); string(content) != "User rule.\n" {
 		t.Fatal("removal touched the user's rule")
+	}
+	hooksData, err = jsonutil.ReadJSON(hooksFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if left, _ := json.Marshal(hooksData["hooks"]); string(left) != `{"stop":[{"command":"./mine.sh"}]}` {
+		t.Fatalf("removal left hooks %s", left)
 	}
 	if records, _ := readWSLRegistrations(project); len(records) != 0 {
 		t.Fatalf("records = %+v", records)

@@ -89,20 +89,27 @@ def main(argv=None):
         # interpolate a command string or alter URLs, flags or relative keys.
         translated = cli_arguments(args.args, args.distribution, args.mounts)
         return subprocess.call([args.cli, *translated])
-    allowed = {'session-start', 'copilot-session-start', 'stop', 'pre-compact', 'post-search', 'pre-read'}
+    allowed = {'session-start', 'copilot-session-start', 'stop', 'pre-compact', 'post-search', 'pre-read',
+               'cursor-post-read'}
     if len(args.args) != 1 or args.args[0] not in allowed:
         parser.error('Unknown bridge hook')
-    try:
-        payload = json.load(sys.stdin)
-        if not isinstance(payload, dict):
-            payload = {}
-    except (ValueError, OSError):
+    from imprint.hook_entry import read_payload
+    payload = read_payload()
+    if not isinstance(payload, dict):
         payload = {}
     # Only filesystem metadata is translated. Transcript messages themselves
     # remain unchanged, and policy checks translate their recorded cwd values.
     for key in ('cwd', 'transcript_path'):
         if isinstance(payload.get(key), str):
             payload[key] = linux_to_windows(payload[key], args.distribution, args.mounts)
+    if isinstance(payload.get('workspace_roots'), list):  # Cursor's, in place of a cwd (ADR 0236)
+        roots = []
+        for root in payload['workspace_roots']:
+            try:
+                roots.append(linux_to_windows(root, args.distribution, args.mounts))
+            except ValueError:
+                pass  # no Windows representation: it cannot stand for the session's directory
+        payload['workspace_roots'] = roots
     if args.args[0] == 'stop' and payload.get('transcript_path'):
         # All Stop consumers must share the same scope check, including the
         # extraction/summarization modules that do not inspect roots themselves.
