@@ -7,13 +7,14 @@ import { test, expect, type Page } from '@playwright/test';
 type Recorder = { phase: string; id: string; title: string; project: string; startedAt: number; others: boolean; error: string };
 const idle: Recorder = { phase: 'idle', id: '', title: '', project: '', startedAt: 0, others: false, error: '' };
 
-// A ring opening to the right of an orb at (40, 85), as companion.js lays it out.
+// A ring of four opening to the right of an orb at (40, 108), as companion.js lays it out (ADR 0232).
 const ring = (over: Record<string, unknown> = {}) => ({
-  kind: 'ring', side: 1, tilt: 'level', bounds: { x: 100, y: 100, width: 290, height: 173 }, orb: { x: 40, y: 85 }, radius: 68,
+  kind: 'ring', side: 1, tilt: 'level', bounds: { x: 100, y: 100, width: 319, height: 215 }, orb: { x: 40, y: 108 }, radius: 84,
   satellites: [
-    { angle: -45, x: 88, y: 37, slot: { x: 108, y: 5, width: 150, height: 26 } },
-    { angle: 0, x: 108, y: 85, slot: { x: 136, y: 72, width: 150, height: 26 } },
-    { angle: 45, x: 88, y: 133, slot: { x: 108, y: 136, width: 168, height: 32 } },
+    { angle: -54, x: 89, y: 40, slot: { x: 106, y: 4, width: 150, height: 26 } },
+    { angle: -18, x: 120, y: 82, slot: { x: 147, y: 60, width: 150, height: 26 } },
+    { angle: 18, x: 120, y: 134, slot: { x: 147, y: 127, width: 168, height: 32 } },
+    { angle: 54, x: 89, y: 176, slot: { x: 106, y: 186, width: 150, height: 26 } },
   ],
   seq: 1, focus: null, echo: false, recorder: idle, ...over,
 });
@@ -58,12 +59,12 @@ async function open(page: Page, layout: Record<string, unknown>, recorder: Recor
 const calls = (page: Page) => page.evaluate(() => (window as unknown as { haloCalls: unknown[] }).haloCalls.splice(0));
 const actions = async (page: Page) => (await calls(page)).filter(call => (call as unknown[])[0] === 'action').map(call => (call as unknown[])[1]);
 
-test('the ring fans Dashboard, Echo and Record around the orb, says it is drawn, and acts', async ({ page }) => {
+test('the ring fans Dashboard, Echo, Record and Agents around the orb, says it is drawn, and acts', async ({ page }) => {
   await open(page, ring());
   const menu = page.getByRole('menu', { name: 'Imprint actions' });
-  await expect(menu.getByRole('menuitem')).toHaveCount(3);
+  await expect(menu.getByRole('menuitem')).toHaveCount(4);
   await expect.poll(async () => (await calls(page)).some(call => (call as unknown[])[0] === 'ready' && (call as unknown[])[1] === 1)).toBe(true);
-  for (const [name, x, y] of [['Open dashboard', 88, 37], ['Show Echo', 108, 85], ['New recording', 88, 133]] as const) {
+  for (const [name, x, y] of [['Open dashboard', 89, 40], ['Show Echo', 120, 82], ['New recording', 120, 134], ['Open Agents', 89, 176]] as const) {
     // Once each has travelled out from the orb.
     await expect.poll(async () => {
       const box = (await menu.getByRole('menuitem', { name }).boundingBox())!;
@@ -77,8 +78,9 @@ test('the ring fans Dashboard, Echo and Record around the orb, says it is drawn,
   await expect(page.getByText('Show Echo', { exact: true })).toBeVisible();
   await menu.getByRole('menuitem', { name: 'Show Echo' }).click();
   await menu.getByRole('menuitem', { name: 'New recording' }).click();
+  await menu.getByRole('menuitem', { name: 'Open Agents' }).click();
   await page.keyboard.press('Escape');
-  expect(await actions(page)).toEqual(['echo', 'record', 'close']);
+  expect(await actions(page)).toEqual(['echo', 'record', 'agents', 'close']);
   // Closing plays out, then main hides the window.
   await page.evaluate(() => (window as unknown as { emit: (n: string, v: unknown) => void }).emit('layout', null));
   await expect(page.locator('.imprint-halo[data-closing]')).toBeAttached();
@@ -90,7 +92,7 @@ test('a keyboard-opened ring takes focus and arrows move through it, wrapping', 
   await expect(menu.getByRole('menuitem', { name: 'Open dashboard' })).toBeFocused();
   await expect(menu.getByRole('menuitem', { name: 'Collapse Echo' })).toHaveAttribute('data-on', 'true');
   await page.keyboard.press('ArrowDown'); await expect(menu.getByRole('menuitem', { name: 'Collapse Echo' })).toBeFocused();
-  await page.keyboard.press('End'); await expect(menu.getByRole('menuitem', { name: 'New recording' })).toBeFocused();
+  await page.keyboard.press('End'); await expect(menu.getByRole('menuitem', { name: 'Open Agents' })).toBeFocused();
   await page.keyboard.press('ArrowDown'); await expect(menu.getByRole('menuitem', { name: 'Open dashboard' })).toBeFocused();
   await page.keyboard.press('Enter');
   expect(await actions(page)).toEqual(['dashboard']);

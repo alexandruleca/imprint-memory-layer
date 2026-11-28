@@ -79,7 +79,7 @@ declare global {
       getHaloLayout?: () => Promise<HaloLayout | null>;
       onHaloLayout?: (callback: (layout: HaloLayout | null) => void) => () => void;
       haloReady?: (seq: number) => void;
-      haloAction?: (action: "dashboard" | "echo" | "record" | "details" | "stop" | "close" | "microphone-settings") => void;
+      haloAction?: (action: "dashboard" | "echo" | "record" | "agents" | "details" | "stop" | "close" | "microphone-settings") => void;
       haloSize?: (height: number) => void;
       getCompanionState?: () => Promise<{ open: boolean; docked?: boolean; pinned: boolean; shortcutAvailable?: boolean } | null>;
       setCompanionVisible?: (visible: boolean) => Promise<{ open: boolean; pinned: boolean; shortcutAvailable?: boolean } | null>;

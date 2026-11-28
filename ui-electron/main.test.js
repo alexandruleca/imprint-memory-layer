@@ -712,6 +712,11 @@ test('the session permission request asks macOS consent and refuses a page that 
 const ORIGIN = 'http://127.0.0.1:8420';
 const inside = (box, area) => box.x >= area.x && box.y >= area.y && box.x + box.width <= area.x + area.width && box.y + box.height <= area.y + area.height;
 
+const overlap = (a, b) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+// The buttons are 40 px circles: apart when their centres are a diameter and a gap apart; a name covers one when it reaches its circle.
+const touching = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) < 44;
+const covers = (box, c) => Math.hypot(c.x - Math.max(box.x, Math.min(c.x, box.x + box.width)), c.y - Math.max(box.y, Math.min(c.y, box.y + box.height))) < 20;
+
 test('the orb fans its actions toward free space and keeps them on screen at every edge and corner', () => {
   const { fitLauncher, orbSide, haloLayout } = require('./companion');
   const area = { x: 1920, y: 25, width: 1440, height: 875 };
@@ -723,12 +728,23 @@ test('the orb fans its actions toward free space and keeps them on screen at eve
     const ring = haloLayout(orb, area, side);
     assert.ok(inside(ring.bounds, area), JSON.stringify(ring.bounds));
     assert.deepEqual({ x: ring.bounds.x + ring.orb.x, y: ring.bounds.y + ring.orb.y }, { x: orb.x + 36, y: orb.y + 36 });
-    assert.equal(ring.satellites.length, 3);
+    assert.equal(ring.satellites.length, 4, 'Dashboard, Echo, Record and Agents (ADR 0232)');
+    const button = satellite => ({ x: satellite.x - 20, y: satellite.y - 20, width: 40, height: 40 });
     for (const satellite of ring.satellites) {
       assert.ok(Math.sign(satellite.x - ring.orb.x) !== -side.side, 'never behind the orb');
-      assert.ok(inside({ x: ring.bounds.x + satellite.x - 20, y: ring.bounds.y + satellite.y - 20, width: 40, height: 40 }, area));
+      assert.ok(inside({ ...button(satellite), x: ring.bounds.x + satellite.x - 20, y: ring.bounds.y + satellite.y - 20 }, area));
       assert.ok(inside({ ...satellite.slot, x: satellite.slot.x + ring.bounds.x, y: satellite.slot.y + ring.bounds.y }, area));
     }
+    // No button touches another, no name covers another button, and Record's capsule (slot 2) covers no other name.
+    const where = `${fx},${fy}`;
+    ring.satellites.forEach((a, i) => ring.satellites.forEach((b, j) => {
+      if (i >= j) return;
+      assert.ok(!touching(a, b), `buttons ${i} and ${j} overlap at ${where}`);
+      assert.ok(!overlap(a.slot, b.slot), `names ${i} and ${j} overlap at ${where}`);
+    }));
+    ring.satellites.forEach((a, i) => ring.satellites.forEach((b, j) => {
+      if (i !== j) assert.ok(!covers(a.slot, b), `name ${i} covers button ${j} at ${where}`);
+    }));
     const panel = haloLayout(orb, area, side, 'record', { width: 344, height: 402 });
     assert.ok(inside(panel.bounds, area));
     assert.ok(side.side > 0 ? panel.bounds.x >= orb.x + 60 : panel.bounds.x + panel.bounds.width <= orb.x + 12, 'beside the orb');
@@ -763,7 +779,7 @@ test('the orb opens its ring in a window of its own; clicking elsewhere or on th
   assert.equal(ring.url, `${ORIGIN}/launcher/halo/`);
   assert.equal(ring.options.transparent, true); assert.equal(ring.options.webPreferences.backgroundThrottling, false);
   const layout = layouts.at(-1);
-  assert.equal(layout.kind, 'ring'); assert.equal(layout.focus, 'first'); assert.equal(layout.satellites.length, 3);
+  assert.equal(layout.kind, 'ring'); assert.equal(layout.focus, 'first'); assert.equal(layout.satellites.length, 4);
   assert.deepEqual(ring.getBounds(), layout.bounds);
   assert.equal(ring.visible, false, 'shown only once the page has drawn it');
   h.emit('halo-ready', orb, layout.seq); assert.equal(ring.visible, false);
@@ -1168,5 +1184,20 @@ test('closing the Agents window keeps the app, the dashboard and the orb; it min
   assert.ok(h.calls.some(call => Array.isArray(call) && call[0] === 'write' && call[1].startsWith('agents-window.json')), 'its bounds are kept');
   assert.ok(!h.calls.includes('quit'));
   assert.equal(dashboard.destroyed, false);
+  assert.equal(orb.visible, true, 'the orb stays');
+});
+
+test('the orb\'s Agents action opens the Agents window and closes the ring (ADR 0232)', async () => {
+  const h = harness({ alreadyUp: true }); await settle();
+  const dashboard = h.windows[1];
+  dashboard.emit('minimize'); await settle();
+  const orb = h.windows[2];
+  h.emit('launcher-ring', orb, 'first'); await settle();
+  const ring = h.windows[3];
+  ring.url = `${ORIGIN}/launcher/halo/`;
+  h.emit('halo-action', ring, 'agents'); await settle();
+  const agents = h.windows.at(-1);
+  assert.equal(agents.url, `${ORIGIN}/agents/?window=agents#live`);
+  assert.equal(ring.visible, false, 'the ring closes');
   assert.equal(orb.visible, true, 'the orb stays');
 });

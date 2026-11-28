@@ -581,6 +581,7 @@ ipcMain.on('halo-action', (event, action) => {
   if (action === 'dashboard') { closeHalo(); showWindow(); }
   else if (action === 'echo') { closeHalo(); if (echoVisible()) collapseCompanion(); else void openCompanion(); }
   else if (action === 'record') void openHalo('record');
+  else if (action === 'agents') { closeHalo(); openAgents(); }
   else if (action === 'details') void openHalo('live');
   else if (action === 'stop') { closeHalo(); stopRecorder(); }
   else if (action === 'close') closeHalo();

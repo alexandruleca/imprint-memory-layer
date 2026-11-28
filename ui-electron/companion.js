@@ -45,7 +45,8 @@ const clamp = (value, low, high) => Math.round(Math.max(low, Math.min(high, valu
 // Which side of the orb its actions open toward (1 right, -1 left) and how the
 // fan tilts: level when there is room above and below, else toward the roomier
 // side. A preferred side (where Echo is docked) holds while `need` px fit there.
-const RADIUS = 68, SATELLITE = 40, VERTICAL_ROOM = 96;
+// Four actions (Dashboard, Echo, Record, Agents; ADR 0232) need a wider arc than three did.
+const RADIUS = 84, SATELLITE = 40, VERTICAL_ROOM = 120;
 function orbSide(launcher, area, prefer = 0, need = 0) {
   const right = area.x + area.width - (launcher.x + launcher.width), left = launcher.x - area.x;
   const side = prefer && (prefer > 0 ? right : left) >= need ? Math.sign(prefer) : right >= left ? 1 : -1;
@@ -53,9 +54,9 @@ function orbSide(launcher, area, prefer = 0, need = 0) {
   return { side, tilt: above >= VERTICAL_ROOM && below >= VERTICAL_ROOM ? 'level' : below > above ? 'down' : 'up' };
 }
 
-const ANGLES = { level: [-45, 0, 45], down: [0, 45, 90], up: [-90, -45, 0] };
+const ANGLES = { level: [-54, -18, 18, 54], down: [-8, 24, 56, 88], up: [-88, -56, -24, 8] };
 const LABEL = { width: 150, height: 26 }, CAPSULE = { width: 168, height: 32 };
-// Where the actions window goes for the ring of Dashboard, Echo and Record, or
+// Where the actions window goes for the ring of Dashboard, Echo, Record and Agents, or
 // for a panel of `size` beside the orb. `orb` is the orb's centre inside it.
 function haloLayout(launcher, area, { side, tilt }, kind = 'ring', size = null) {
   const cx = launcher.x + launcher.width / 2, cy = launcher.y + launcher.height / 2;
