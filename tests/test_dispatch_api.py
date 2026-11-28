@@ -127,8 +127,11 @@ class ServerStartupTests(DispatchCase):
                    'client': 'claude-code', 'role': 'work', 'session': dispatched.session_of('r1'), 'pid': dead.pid,
                    'started_at': time.time() - 60, 'watcher': dead.pid})
         tasks.delete(self.task, actor=tasks.USER)
+        from imprint import queue
         from imprint.dispatch import clients
+        # The app's startup points the job queue at the test client's event loop, closed afterwards.
         with patch('imprint.updates.auto_loop', lambda: __import__('asyncio').sleep(0)), \
+                patch.object(queue, '_dispatcher_loop', None), patch.object(queue, '_dispatcher_wake', None), \
                 patch.object(clients, 'detected'), \
                 TestClient(app, base_url='http://127.0.0.1:8420', client=('127.0.0.1', 1234)) as api:
             self.assertEqual(api.get('/api/tasks/dispatch').status_code, 200)
