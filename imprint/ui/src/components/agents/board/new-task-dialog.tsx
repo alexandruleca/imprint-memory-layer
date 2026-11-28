@@ -20,11 +20,15 @@ export const lines = (text: string) => text.split("\n").map((l) => l.trim()).fil
 export const words = (text: string) => text.split(",").map((w) => w.trim()).filter(Boolean);
 
 /** A new Task, put on the Board as the user's. Ready needs at least one
- * acceptance criterion, so an agent taking it unasked knows when it is done. */
-export function NewTaskDialog({ open, onOpenChange, options, defaultProject, onCreated }: {
+ * acceptance criterion, so an agent taking it unasked knows when it is done.
+ * A new Feature has no status to choose: its tasks decide it (ADR 0242). */
+export function NewTaskDialog({ open, onOpenChange, options, defaultProject, defaultFeature, onCreated, kind = "task" }: {
   open: boolean; onOpenChange: (open: boolean) => void; options: BoardOptions; defaultProject: string;
-  onCreated: (task: BoardTask) => void;
+  /** The Feature a new Task goes in, when it is added from that Feature. */
+  defaultFeature?: string;
+  onCreated: (task: BoardTask) => void; kind?: "task" | "feature";
 }) {
+  const isFeature = kind === "feature";
   const id = useId();
   const [title, setTitle] = useState("");
   const [project, setProject] = useState(defaultProject);
@@ -33,7 +37,7 @@ export function NewTaskDialog({ open, onOpenChange, options, defaultProject, onC
   const [criteria, setCriteria] = useState("");
   const [tags, setTags] = useState("");
   const [assignees, setAssignees] = useState("");
-  const [feature, setFeature] = useState(NO_FEATURE);
+  const [feature, setFeature] = useState(defaultFeature ?? NO_FEATURE);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -42,17 +46,19 @@ export function NewTaskDialog({ open, onOpenChange, options, defaultProject, onC
 
   function reset() {
     setTitle(""); setDescription(""); setPriority("P2"); setCriteria(""); setTags(""); setAssignees("");
-    setFeature(NO_FEATURE); setReady(false); setProblem(null);
+    setFeature(defaultFeature ?? NO_FEATURE); setReady(false); setProblem(null);
   }
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setBusy(true);
     try {
-      const { task } = await createTask({
-        title, project, description, priority, status: ready ? "ready" : "backlog", acceptance: lines(criteria),
-        tags: words(tags), assignees: words(assignees), feature: feature === NO_FEATURE ? undefined : feature,
-      });
+      const { task } = await createTask(isFeature
+        ? { title, project, description, priority, acceptance: lines(criteria), tags: words(tags), kind: "feature" }
+        : {
+          title, project, description, priority, status: ready ? "ready" : "backlog", acceptance: lines(criteria),
+          tags: words(tags), assignees: words(assignees), feature: feature === NO_FEATURE ? undefined : feature,
+        });
       toast.success(`Created ${task.id}`, { description: task.title });
       onCreated(task);
       reset();
@@ -69,16 +75,18 @@ export function NewTaskDialog({ open, onOpenChange, options, defaultProject, onC
     <Dialog open={open} onOpenChange={(next) => { if (!busy) onOpenChange(next); }}>
       <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-xl [&>*]:min-w-0">
         <DialogHeader>
-          <DialogTitle>New task</DialogTitle>
+          <DialogTitle>{isFeature ? "New Feature" : "New task"}</DialogTitle>
           <DialogDescription>
-            It goes to Backlog. Mark it ready for agents once it says when it is finished: agents may then take it on their own.
+            {isFeature
+              ? "A Feature groups the tasks of one piece of work. Its status follows them: it is Done once they all are."
+              : "It goes to Backlog. Mark it ready for agents once it says when it is finished: agents may then take it on their own."}
           </DialogDescription>
         </DialogHeader>
         <form id={`${id}-form`} onSubmit={submit} className="grid gap-4">
           <div className="grid gap-1.5">
             <Label htmlFor={`${id}-title`}>Title</Label>
             <Input id={`${id}-title`} value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={200} autoFocus
-              placeholder="Add retries to the uploader" />
+              placeholder={isFeature ? "Resumable uploads" : "Add retries to the uploader"} />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-1.5">
@@ -105,22 +113,24 @@ export function NewTaskDialog({ open, onOpenChange, options, defaultProject, onC
             <Label htmlFor={`${id}-criteria`}>Acceptance criteria</Label>
             <Textarea id={`${id}-criteria`} value={criteria} onChange={(e) => setCriteria(e.target.value)} rows={3}
               aria-describedby={`${id}-criteria-help`} placeholder={"A 503 is retried three times\nThe upload resumes where it stopped"} />
-            <p id={`${id}-criteria-help`} className="text-xs text-muted-foreground">One per line. How anyone can tell it is finished.</p>
+            <p id={`${id}-criteria-help`} className="text-xs text-muted-foreground">
+              {isFeature ? "One per line. What the whole should do; each task carries its own." : "One per line. How anyone can tell it is finished."}
+            </p>
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor={`${id}-tags`}>Tags</Label>
             <Input id={`${id}-tags`} value={tags} onChange={(e) => setTags(e.target.value)} placeholder="upload, bug" aria-describedby={`${id}-tags-help`} />
             <p id={`${id}-tags-help`} className="text-xs text-muted-foreground">Separated by commas.</p>
           </div>
-          <div className="grid gap-1.5">
+          {!isFeature && <div className="grid gap-1.5">
             <Label htmlFor={`${id}-assignees`}>Assign to</Label>
             <Input id={`${id}-assignees`} value={assignees} onChange={(e) => setAssignees(e.target.value)} aria-describedby={`${id}-assign-help`}
               placeholder="codex, user" />
             <p id={`${id}-assign-help`} className="text-xs text-muted-foreground">
               Empty: any agent. &quot;user&quot; is you; also a client (codex), a device (@laptop) or both (codex@laptop).
             </p>
-          </div>
-          {options.features.length > 0 && (
+          </div>}
+          {!isFeature && options.features.length > 0 && (
             <div className="grid gap-1.5">
               <Label htmlFor={`${id}-feature`}>Feature</Label>
               <Select items={featureItems} value={feature} onValueChange={(next) => setFeature((next as string) ?? NO_FEATURE)}>
@@ -129,7 +139,7 @@ export function NewTaskDialog({ open, onOpenChange, options, defaultProject, onC
               </Select>
             </div>
           )}
-          <div className="flex items-start gap-2">
+          {!isFeature && <div className="flex items-start gap-2">
             <Checkbox id={`${id}-ready`} checked={ready} onCheckedChange={(checked) => setReady(checked === true)} />
             <div className="grid gap-0.5">
               <Label htmlFor={`${id}-ready`}>Ready for agents</Label>
@@ -137,12 +147,12 @@ export function NewTaskDialog({ open, onOpenChange, options, defaultProject, onC
                 {readyBlocked ? "Add at least one acceptance criterion first." : "Agents may claim it, also without being asked."}
               </p>
             </div>
-          </div>
+          </div>}
           {problem && <p role="alert" className="text-sm text-destructive">{problem}</p>}
         </form>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
-          <Button type="submit" form={`${id}-form`} disabled={busy || !title.trim() || !project.trim() || readyBlocked}>Create task</Button>
+          <Button type="submit" form={`${id}-form`} disabled={busy || !title.trim() || !project.trim() || (!isFeature && readyBlocked)}>{isFeature ? "Create Feature" : "Create task"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

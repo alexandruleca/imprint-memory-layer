@@ -14,7 +14,7 @@ type Task = Record<string, unknown> & { id: string; title: string; status: Statu
 
 function task(over: Partial<Task> & { id: string; title: string }): Task {
   return {
-    description: '', project: 'shop', status: 'backlog', priority: 'P2', position: null, acceptance: [], tags: [], assignees: [],
+    kind: 'task', description: '', project: 'shop', status: 'backlog', priority: 'P2', position: null, acceptance: [], tags: [], assignees: [],
     feature: null, feature_title: null, blockers: [], open_blockers: [], tasks: [], blocking: [], blocked: null, holder: null,
     previous_holder: null, stalling: false, stale: false, worked_by: null, last_checkpoint: null, checkpoints: 0, comments: [],
     comment_count: 0, created_at: now - 3600, created_by: { kind: 'user', device: 'laptop' }, updated_at: now - 60, ended_at: null,
@@ -34,12 +34,25 @@ async function mockBoard(page: Page, tasks: Task[], inbox: { comments?: unknown[
     asked.push({ method: request.method(), path: url.pathname, body, query: url.searchParams });
     const parts = url.pathname.split('/').slice(3);  // after /api/tasks
     if (parts[0] === 'board') {
+      // As the API: a Feature's status follows its Tasks, so it has no column (ADR 0242).
       const tag = url.searchParams.get('tag');
-      const shown = tasks.filter(t => !tag || t.tags.includes(tag));
+      const feature = url.searchParams.get('feature');
+      const shown = tasks.filter(t => t.kind !== 'feature' && (!tag || t.tags.includes(tag)) && (!feature || t.feature === feature));
       const columns = Object.fromEntries(STATUSES.map(s => [s, shown.filter(t => t.status === s)]));
       return route.fulfill({ json: { workspace: 'default', columns, total: shown.length, autonomy: 'ready', options: {
         projects: [...new Set(tasks.map(t => t.project))], tags: [...new Set(tasks.flatMap(t => t.tags))], assignees: [], holders: ['grimforge'],
-        features: [] } } });
+        features: tasks.filter(t => t.kind === 'feature').map(t => ({ id: t.id, title: t.title })) } } });
+    }
+    if (parts[0] === 'features') {
+      const entries = tasks.filter(t => t.kind === 'feature').map(feature => {
+        const members = tasks.filter(t => t.feature === feature.id);
+        const live = members.filter(t => t.status !== 'cancelled');
+        const count = (status: Status) => live.filter(t => t.status === status).length;
+        return { feature, tasks: members, summary: { total: live.length, done: count('done'), cancelled: members.length - live.length,
+          blocked: 0, stale: 0, counts: { backlog: count('backlog'), ready: count('ready'), in_progress: count('in_progress'),
+            review: count('review'), done: count('done') }, finished_recently: count('done'), pace: 0, days_left: null } };
+      });
+      return route.fulfill({ json: { workspace: 'default', features: entries } });
     }
     if (parts[0] === 'inbox') return route.fulfill({ json: { comments: inbox.comments ?? [], review: inbox.review ?? [] } });
     if (parts[0] === 'progress') {
@@ -52,7 +65,7 @@ async function mockBoard(page: Page, tasks: Task[], inbox: { comments?: unknown[
     }
     if (parts.length === 0 && request.method() === 'POST') {
       const made = task({ id: 'T-new01', title: String(body.title), project: String(body.project), status: body.status ?? 'backlog',
-        acceptance: body.acceptance ?? [], tags: body.tags ?? [] });
+        acceptance: body.acceptance ?? [], tags: body.tags ?? [], kind: body.kind ?? 'task', feature: body.feature ?? null });
       tasks.push(made);
       return route.fulfill({ json: { task: made } });
     }
@@ -70,7 +83,10 @@ async function mockBoard(page: Page, tasks: Task[], inbox: { comments?: unknown[
           stale: !!t.stale, blocked: !!t.blocked }])) } });
     }
     if (parts[1] === 'move') {
-      if (body.status === 'ready' && !found.acceptance.length) {
+      if (found.kind === 'feature' && body.status !== 'cancelled' && found.status !== 'cancelled') {
+        return route.fulfill({ status: 400, json: { error: `${found.id} is a Feature: its status follows its Tasks` } });
+      }
+      if (found.kind !== 'feature' && body.status === 'ready' && !found.acceptance.length) {
         return route.fulfill({ status: 400, json: { error: 'A task moves to ready only with at least one acceptance criterion' } });
       }
       found.status = body.status;
@@ -262,7 +278,7 @@ test("the drawer says a Feature and its Tasks are taken only when asked (ADR 021
   await base(page, { mode: 'advanced', tutorials: false });
   await mockBoard(page, [
     ...board(),
-    task({ id: 'T-feat1', title: 'Checkout redesign', tasks: ['T-part1'], progress: { done: 0, total: 1 } }),
+    task({ id: 'T-feat1', title: 'Checkout redesign', kind: 'feature', status: 'ready', tasks: ['T-part1'], progress: { done: 0, total: 1 } }),
     task({ id: 'T-part1', title: 'Cart page', status: 'ready', acceptance: ['x'], feature: 'T-feat1', feature_title: 'Checkout redesign' }),
   ]);
   const hints: [string, RegExp, string][] = [
@@ -278,14 +294,12 @@ test("the drawer says a Feature and its Tasks are taken only when asked (ADR 021
   await expect(page.getByRole('combobox', { name: /Agents take unasked/ })).toContainText('Standalone Ready and Stale tasks');
 });
 
-test("a Feature's card shows its progress, and Progress says how long is left", async ({ page }) => {
+test("a Feature has no card on the Board, and Progress says how long is left", async ({ page }) => {
   await base(page, { mode: 'advanced', tutorials: false });
-  await mockBoard(page, [...board(), task({ id: 'T-feat1', title: 'Checkout redesign', tasks: ['T-aaaa1', 'T-bbbb2'], progress: { done: 1, total: 2 } })]);
+  await mockBoard(page, [...board(), task({ id: 'T-feat1', title: 'Checkout redesign', kind: 'feature', tasks: ['T-aaaa1', 'T-bbbb2'], progress: { done: 1, total: 2 } })]);
   await page.goto('/agents/#board');
-  const card = page.locator('li[data-task="T-feat1"]');
-  await expect(card).toContainText('Feature · 2 tasks');
-  await expect(card).toContainText('1 of 2 done');
-  await expect(card.getByRole('progressbar', { name: 'Checkout redesign: 1 of 2 done' })).toBeVisible();
+  await expect(page.locator('li[data-task="T-aaaa1"]')).toBeVisible();
+  await expect(page.locator('li[data-task="T-feat1"]')).toHaveCount(0);
   await page.getByRole('button', { name: 'Progress' }).click();
   const panel = page.getByRole('dialog', { name: 'Progress' });
   await expect(panel.getByRole('progressbar', { name: 'shop: 7 of 12 done' })).toBeVisible();
@@ -312,8 +326,8 @@ test('the drawer links a Task to its Feature, the Feature\'s Tasks and what wait
   await base(page, { mode: 'advanced', tutorials: false });
   const asked = await mockBoard(page, [
     ...board(),
-    task({ id: 'T-feat1', title: 'Checkout redesign', tasks: ['T-part1', 'T-part2'], progress: { done: 1, working: 0, total: 2 },
-      description: 'Start with T-part1, then the summary.' }),
+    task({ id: 'T-feat1', title: 'Checkout redesign', kind: 'feature', status: 'in_progress', tasks: ['T-part1', 'T-part2'],
+      progress: { done: 1, working: 0, total: 2 }, description: 'Start with T-part1, then the summary.' }),
     task({ id: 'T-part1', title: 'Cart page', status: 'done', feature: 'T-feat1', feature_title: 'Checkout redesign' }),
     task({ id: 'T-part2', title: 'Summary page', feature: 'T-feat1', feature_title: 'Checkout redesign', blockers: ['T-part1'] }),
   ]);
@@ -379,4 +393,99 @@ test("in the desktop app a Task alert opens the Agents window; that window alone
   // Without the sidebar, its window buttons are in the top bar: the frameless window can still be closed.
   await page.getByRole('button', { name: 'Close the Agents window' }).click();
   expect(await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened)).toContain('close');
+});
+
+// The Features tab (ADR 0242): Features apart from the Board's columns, each
+// with its progress, what of it waits, and its Tasks in working order.
+const planned = () => [
+  ...board(),
+  task({ id: 'T-feat1', title: 'Checkout redesign', kind: 'feature', status: 'in_progress', priority: 'P1',
+    tasks: ['T-part1', 'T-part2', 'T-part3'], progress: { done: 1, working: 1, total: 3 } }),
+  task({ id: 'T-part1', title: 'Cart page', status: 'done', feature: 'T-feat1', feature_title: 'Checkout redesign', ended_at: now - 600 }),
+  task({ id: 'T-part2', title: 'Summary page', status: 'review', feature: 'T-feat1', feature_title: 'Checkout redesign',
+    acceptance: ['x'], blockers: ['T-part1'] }),
+  task({ id: 'T-part3', title: 'Receipt email', feature: 'T-feat1', feature_title: 'Checkout redesign',
+    blockers: ['T-part2'], open_blockers: ['T-part2'] }),
+  task({ id: 'T-feat2', title: 'Old search', kind: 'feature', status: 'done', tasks: ['T-old01'], ended_at: now - 86400,
+    progress: { done: 1, working: 0, total: 1 } }),
+  task({ id: 'T-old01', title: 'Index the catalogue', status: 'done', feature: 'T-feat2', feature_title: 'Old search', ended_at: now - 86400 }),
+];
+
+test('the Features tab lists each Feature with its progress, what waits, and its Tasks in working order', async ({ page }) => {
+  await base(page, { mode: 'advanced', tutorials: false });
+  await mockBoard(page, planned());
+  await page.goto('/agents/#features');
+  await expect(page.getByRole('tab', { name: 'Features' })).toHaveAttribute('aria-selected', 'true');
+  const open = page.getByRole('list', { name: 'Open Features' });
+  const checkout = open.getByRole('listitem').filter({ has: page.getByRole('heading', { name: 'Checkout redesign' }) });
+  await expect(checkout).toContainText('In progress');
+  await expect(checkout).toContainText('1 of 3 done · 1 in progress');
+  await expect(checkout.getByRole('progressbar', { name: 'Checkout redesign: 1 of 3 done' })).toBeVisible();
+  await expect(checkout).toContainText('1 to review');
+  // Unfolded while few are open: its Tasks in the order the API gives, with what each waits on.
+  const steps = checkout.getByRole('list', { name: 'Tasks of Checkout redesign, in working order' });
+  await expect(steps.getByRole('button')).toHaveText([/T-part1.*Cart page/, /T-part2.*Summary page/, /T-part3.*Receipt email.*waits on T-part2/]);
+  // Finished Features fold away.
+  await expect(page.getByRole('heading', { name: 'Old search' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Finished (1)' }).click();
+  await expect(page.getByRole('heading', { name: 'Old search' })).toBeVisible();
+  // A Task opens its drawer here; Show on Board filters the Board to the Feature.
+  await steps.getByRole('button', { name: 'T-part2: Summary page, Review. Open' }).click();
+  await expect(page.getByRole('dialog', { name: /Summary page/ })).toBeVisible();
+  await expect(page).toHaveURL(/\?task=T-part2#features$/);
+  await page.keyboard.press('Escape');
+  await checkout.getByRole('button', { name: 'Show the tasks of Checkout redesign on the Board' }).click();
+  await expect(page.getByRole('tab', { name: 'Board' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByLabel('Filters on')).toContainText('Feature: Checkout redesign');
+  await expect(page.locator('li[data-task="T-part2"]')).toBeVisible();
+  await expect(page.locator('li[data-task="T-aaaa1"]')).toHaveCount(0);
+});
+
+test("a Feature's drawer says its status follows its Tasks, and offers Cancel and Reopen", async ({ page }) => {
+  await base(page, { mode: 'advanced', tutorials: false });
+  const asked = await mockBoard(page, planned());
+  await page.goto('/agents/?task=T-feat1#features');
+  const drawer = page.getByRole('dialog', { name: /Checkout redesign/ });
+  await expect(drawer.getByTestId('feature-status')).toHaveText('In progress · follows its tasks');
+  await expect(drawer.getByRole('combobox', { name: 'Status' })).toHaveCount(0);
+  await expect(drawer.getByText('A Feature is Done once every task of it that was not cancelled is Done.')).toBeVisible();
+  await drawer.getByRole('button', { name: 'Cancel Feature' }).click();
+  expect(asked.find(a => a.path === '/api/tasks/T-feat1/move')?.body).toEqual({ status: 'cancelled' });
+  await expect(drawer.getByTestId('feature-status')).toHaveText('Cancelled · set by hand');
+  await drawer.getByRole('button', { name: 'Reopen Feature' }).click();
+  expect(asked.filter(a => a.path === '/api/tasks/T-feat1/move').at(-1)?.body).toEqual({ status: 'backlog' });
+});
+
+test('New Feature creates a Feature, and a Task is added to it from its row', async ({ page }) => {
+  await base(page, { mode: 'advanced', tutorials: false });
+  const asked = await mockBoard(page, planned());
+  await page.goto('/agents/#features');
+  await page.getByRole('button', { name: 'New Feature' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New Feature' });
+  await expect(dialog.getByLabel('Ready for agents')).toHaveCount(0);
+  await dialog.getByLabel('Title').fill('Resumable uploads');
+  await dialog.getByLabel('Project').fill('shop');
+  await dialog.getByRole('button', { name: 'Create Feature' }).click();
+  const made = asked.find(a => a.method === 'POST' && a.path === '/api/tasks');
+  expect(made?.body).toMatchObject({ title: 'Resumable uploads', project: 'shop', kind: 'feature' });
+  expect(made?.body).not.toHaveProperty('status');
+  await expect(page.getByRole('dialog', { name: /Resumable uploads/ })).toBeVisible();
+  await page.keyboard.press('Escape');
+  const empty = page.getByRole('list', { name: 'Open Features' }).getByRole('listitem')
+    .filter({ has: page.getByRole('heading', { name: 'Resumable uploads' }) });
+  await expect(empty).toContainText('No tasks yet');
+  await empty.getByRole('button', { name: 'add one' }).click();
+  const adding = page.getByRole('dialog', { name: 'New task' });
+  await expect(adding.getByRole('combobox', { name: 'Feature' })).toContainText('Resumable uploads');
+});
+
+test('the Features tab is in the simple dashboard too and fits a phone', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await base(page, { mode: 'simple', tutorials: false });
+  await mockBoard(page, planned());
+  await page.goto('/agents/#features');
+  await expect(page.getByRole('tab', { name: 'Features' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('heading', { name: 'Checkout redesign' })).toBeVisible();
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
 });

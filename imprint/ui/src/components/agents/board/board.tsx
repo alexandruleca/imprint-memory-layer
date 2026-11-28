@@ -10,7 +10,6 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useNow } from "@/components/timestamp";
 import {
@@ -25,7 +24,7 @@ import { DispatcherStrip } from "./dispatcher-strip";
 import { NewTaskDialog } from "./new-task-dialog";
 import { ProgressPanel } from "./progress";
 import { TaskCard } from "./task-card";
-import { TaskDrawer } from "./task-drawer";
+import { TaskSheet, useLinkedTask } from "./task-sheet";
 
 type Group = "none" | "project" | "feature";
 /** The viewer's filters and grouping, and the ended columns they unfolded. */
@@ -78,18 +77,15 @@ function parseView(raw: string): View {
   return EMPTY_VIEW;
 }
 
-// The Task the address opens (/agents/?task=T-…#board): a notification or a
-// link opens it, and opening or closing one updates the address.
-const TASK_EVENT = "imprint:board-task";
-
-function linkedTask(): string | null {
-  return new URLSearchParams(window.location.search).get("task");
-}
-
-function subscribeTask(notify: () => void) {
-  window.addEventListener("popstate", notify);
-  window.addEventListener(TASK_EVENT, notify);
-  return () => { window.removeEventListener("popstate", notify); window.removeEventListener(TASK_EVENT, notify); };
+/** Open the Board on one Feature's Tasks, keeping how the viewer groups it. */
+export function showFeatureOnBoard(feature: string) {
+  const current = parseView(readView());
+  writeView({ ...current, filters: { feature } });
+  const url = new URL(window.location.href);
+  url.searchParams.delete("task");
+  url.hash = "board";
+  window.history.replaceState(null, "", url);
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
 }
 
 /** The workspace's Board: what needs the user, a column per status, cards
@@ -113,41 +109,20 @@ export function BoardView() {
     }, 250);
     return () => clearTimeout(timer);
   }, [typed]);
-  const openTask = useSyncExternalStore(subscribeTask, linkedTask, () => null);
+  const linked = useLinkedTask();
+  const { open } = linked;
 
   const board = useCached<BoardData>(`tasks-board:${JSON.stringify(view.filters)}`, () => getBoard(view.filters), { refreshInterval: 5000 });
   const [creating, setCreating] = useState(false);
   const [attention, setAttention] = useState<Attention | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<TaskStatus | null>(null);
-  // The Tasks the drawer came through, to go back to: opening a linked Task adds one.
-  const [trail, setTrail] = useState<string[]>([]);
 
   const setFilter = (name: keyof BoardFilters, value: string) =>
     setView((v) => ({ ...v, filters: { ...v.filters, [name]: value || undefined } }));
   const clear = () => { setText(""); setAttention(null); setView((v) => ({ ...v, filters: {} })); };
   const fold = (status: TaskStatus, open: boolean) => setView((v) => ({
     ...v, unfolded: open ? [...new Set([...v.unfolded, status])] : v.unfolded.filter((s) => s !== status) }));
-
-  function open(id: string | null) {
-    const url = new URL(window.location.href);
-    if (id) url.searchParams.set("task", id); else url.searchParams.delete("task");
-    window.history.replaceState(null, "", url);
-    window.dispatchEvent(new Event(TASK_EVENT));
-    if (!id) setTrail([]);
-  }
-
-  /** Open a Task the open one links to, remembering the way back. */
-  function openLinked(id: string) {
-    if (openTask && openTask !== id) setTrail((t) => [...t, openTask]);
-    open(id);
-  }
-
-  function back() {
-    const previous = trail.at(-1);
-    setTrail((t) => t.slice(0, -1));
-    open(previous ?? null);
-  }
 
   async function move(task: BoardTask, status: TaskStatus, position?: number) {
     if (!board.data || (task.status === status && position === undefined)) return;
@@ -335,13 +310,7 @@ export function BoardView() {
       <NewTaskDialog open={creating} onOpenChange={setCreating} options={options}
         defaultProject={view.filters.project ?? (options.projects.length === 1 ? options.projects[0] : "")}
         onCreated={(task) => { void board.refresh(); open(task.id); }} />
-      <Sheet open={!!openTask} onOpenChange={(o) => { if (!o) open(null); }}>
-        <SheetContent className="gap-0 data-[side=right]:w-full data-[side=right]:sm:max-w-2xl">
-          {openTask && <TaskDrawer key={openTask} taskId={openTask} options={options} known={everything} now={now} simple={simple}
-            backTo={trail.at(-1)} onOpenTask={openLinked} onBack={back}
-            onChanged={() => void board.refresh()} onClose={() => open(null)} />}
-        </SheetContent>
-      </Sheet>
+      <TaskSheet linked={linked} options={options} known={everything} now={now} simple={simple} onChanged={() => void board.refresh()} />
     </div>
   );
 }
@@ -376,7 +345,7 @@ function Column({ status, tasks, group, now, simple, showProject, folded, onFold
     if (group === "none") return [{ key: "", tasks }];
     const by = new Map<string, BoardTask[]>();
     for (const task of tasks) {
-      const name = group === "project" ? task.project : (task.feature_title ?? (task.tasks.length ? task.title : "No Feature"));
+      const name = group === "project" ? task.project : (task.feature_title ?? "No Feature");
       by.set(name, [...(by.get(name) ?? []), task]);
     }
     return [...by.entries()].map(([key, list]) => ({ key, tasks: list }));

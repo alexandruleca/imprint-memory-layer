@@ -2,8 +2,7 @@
 
 import { useEffect, useId, useMemo, useState } from "react";
 import {
-  ArrowLeft, Ban, Circle, CircleCheck, CircleDashed, CircleDot, CircleX, Eye, GitBranch, Link2, Pencil, Plus, Send, Trash2, Unlock,
-  UserMinus, X,
+  ArrowLeft, Ban, Circle, GitBranch, Link2, Pencil, Plus, RotateCcw, Send, Trash2, Unlock, UserMinus, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Markdown } from "@/components/markdown";
@@ -29,7 +28,7 @@ import {
 import { useCached } from "@/lib/use-cached";
 import { cn } from "@/lib/utils";
 import { StatusDot } from "../status";
-import { PRIORITY_LABELS, STATUS_HINTS, STATUS_LABELS, ago, who } from "./format";
+import { FEATURE_HINTS, PRIORITY_LABELS, STATUS_HINTS, STATUS_LABELS, STATUS_MARKS, ago, who } from "./format";
 import { CopyId, TaskRefs, copyTask, remarkTaskLinks, taskLinkRenderer } from "./links";
 import { lines } from "./new-task-dialog";
 import { ProgressSummary } from "./progress";
@@ -119,6 +118,8 @@ export function TaskDrawer({ taskId, options, known, now, simple, backTo, onOpen
   const { task, history, handoff } = details.data;
   const related = details.data.related ?? {};
   const ended = task.status === "done" || task.status === "cancelled";
+  // A Feature's status follows its Tasks; only cancelling it is set by hand (ADR 0242).
+  const feature = task.kind === "feature";
   const refs = (text: string) => <TaskRefs text={text} onOpen={onOpenTask} />;
   return (
     <>
@@ -134,17 +135,22 @@ export function TaskDrawer({ taskId, options, known, now, simple, backTo, onOpen
         </div>
         <EditableTitle task={task} onSave={(title) => act("edit", { title })} />
         <SheetDescription className="text-xs">
-          {task.project}{task.tasks.length ? <> · a Feature of {task.tasks.length} tasks</> : null}
+          {task.project}{feature ? <> · a Feature of {task.tasks.length ? `${task.tasks.length} ${task.tasks.length === 1 ? "task" : "tasks"}` : "no tasks yet"}</> : null}
         </SheetDescription>
       </SheetHeader>
       <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4">
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Status">
-            <Select items={TASK_STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] }))} value={task.status}
-              onValueChange={(next) => { if (next && next !== task.status) void act("move", { status: next }, `Moved to ${STATUS_LABELS[next as TaskStatus]}`); }}>
-              <SelectTrigger aria-label="Status" className="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>{TASK_STATUSES.map((s) => <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>)}</SelectContent>
-            </Select>
+            {feature ? (
+              <p className="py-1.5 text-sm" data-testid="feature-status">{STATUS_LABELS[task.status]}
+                <span className="text-muted-foreground">{task.status === "cancelled" ? " · set by hand" : " · follows its tasks"}</span></p>
+            ) : (
+              <Select items={TASK_STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] }))} value={task.status}
+                onValueChange={(next) => { if (next && next !== task.status) void act("move", { status: next }, `Moved to ${STATUS_LABELS[next as TaskStatus]}`); }}>
+                <SelectTrigger aria-label="Status" className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>{TASK_STATUSES.map((s) => <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>)}</SelectContent>
+              </Select>
+            )}
           </Field>
           <Field label="Priority">
             <Select items={PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABELS[p] }))} value={task.priority}
@@ -155,10 +161,14 @@ export function TaskDrawer({ taskId, options, known, now, simple, backTo, onOpen
           </Field>
           <ProjectField task={task} options={options} onSave={(project) => act("edit", { project }, `Project: ${project}`)} />
           <FeatureField task={task} options={options} onLink={(feature) => act("link", { feature })} />
-          <p className="-mt-1 text-xs text-muted-foreground sm:col-span-2">{STATUS_LABELS[task.status]}: {STATUS_HINTS[task.status].toLowerCase()}.</p>
+          <p className="-mt-1 text-xs text-muted-foreground sm:col-span-2">
+            {feature
+              ? <>{FEATURE_HINTS[task.status]}. A Feature is Done once every task of it that was not cancelled is Done.</>
+              : <>{STATUS_LABELS[task.status]}: {STATUS_HINTS[task.status].toLowerCase()}.</>}
+          </p>
         </div>
 
-        {task.tasks.length > 0 && <FeatureProgress task={task} />}
+        {feature && task.tasks.length > 0 && <FeatureProgress task={task} />}
         <HolderPanel task={task} now={now} simple={simple} onRelease={() => act("release", {}, "Claim released")}
           onBack={() => act("move", { status: task.acceptance.length ? "ready" : "backlog" }, task.acceptance.length ? "Back in Ready" : "Back in Backlog")} />
         <BlockedPanel task={task} refs={refs} onBlock={(reason) => act("block", { reason })} onUnblock={() => act("unblock")} />
@@ -168,7 +178,8 @@ export function TaskDrawer({ taskId, options, known, now, simple, backTo, onOpen
           onRemoveBlocker={(id) => act("link", { remove_blockers: [id] }, `No longer waits on ${id}`)} />
 
         <Section title="Acceptance criteria">
-          <ListEditor items={task.acceptance} refs={refs} empty="None yet: add some before moving it to Ready."
+          <ListEditor items={task.acceptance} refs={refs}
+            empty={feature ? "None: it is Done when its tasks are." : "None yet: add some before moving it to Ready."}
             label="Acceptance criteria, one per line" onSave={(items) => act("edit", { acceptance: items })} />
         </Section>
         <Section title="Description">
@@ -181,7 +192,7 @@ export function TaskDrawer({ taskId, options, known, now, simple, backTo, onOpen
           <Chips values={task.assignees} label="assignee" onAdd={(v) => act("assignees", { add: [v] })} onRemove={(v) => act("assignees", { remove: [v] })} />
           <p className="text-xs text-muted-foreground">
             {task.feature ? "Agents take it when you ask for its Feature, never unasked."
-              : task.tasks.length ? "Agents work this Feature's tasks when you ask for it, never unasked."
+              : feature ? "Agents work this Feature's tasks when you ask for it, never unasked."
               : task.assignees.length ? "Only these take it unasked." : "None: any agent may take it."} &quot;user&quot; is you; also a client (codex), a device (@laptop) or both (codex@laptop).
           </p>
         </Section>
@@ -232,7 +243,12 @@ export function TaskDrawer({ taskId, options, known, now, simple, backTo, onOpen
         <div className="mt-auto flex flex-wrap gap-2 border-t border-border pt-4">
           {!ended && (
             <Button variant="outline" size="sm" onClick={() => void act("move", { status: "cancelled" }, "Cancelled")}>
-              <Ban aria-hidden /> Cancel task
+              <Ban aria-hidden /> {feature ? "Cancel Feature" : "Cancel task"}
+            </Button>
+          )}
+          {feature && task.status === "cancelled" && (
+            <Button variant="outline" size="sm" onClick={() => void act("move", { status: "backlog" }, "Reopened: its status follows its tasks again")}>
+              <RotateCcw aria-hidden /> Reopen Feature
             </Button>
           )}
           <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setDeleting(true)}>
@@ -315,8 +331,9 @@ function EditableTitle({ task, onSave }: { task: BoardTask; onSave: (title: stri
 
 function FeatureField({ task, options, onLink }: { task: BoardTask; options: BoardOptions; onLink: (feature: string) => Promise<boolean> }) {
   const features = options.features.filter((f) => f.id !== task.id);
-  if (task.tasks.length > 0) {
-    return <Field label="Feature"><p className="py-1.5 text-sm text-muted-foreground">This is a Feature with {task.tasks.length} Tasks.</p></Field>;
+  if (task.kind === "feature") {
+    return <Field label="Feature"><p className="py-1.5 text-sm text-muted-foreground">
+      {task.tasks.length ? `This is a Feature with ${task.tasks.length} ${task.tasks.length === 1 ? "task" : "tasks"}.` : "This is a Feature, with no tasks yet."}</p></Field>;
   }
   const items = [{ value: NO_FEATURE, label: "No Feature" }, ...features.map((f) => ({ value: f.id, label: f.title }))];
   return (
@@ -547,15 +564,6 @@ function ProjectField({ task, options, onSave }: { task: BoardTask; options: Boa
     </Field>
   );
 }
-
-const STATUS_MARKS: Record<TaskStatus, { icon: typeof Circle; tone: string }> = {
-  backlog: { icon: CircleDashed, tone: "text-muted-foreground" },
-  ready: { icon: Circle, tone: "text-muted-foreground" },
-  in_progress: { icon: CircleDot, tone: "text-amber-600 dark:text-amber-400" },
-  review: { icon: Eye, tone: "text-sky-600 dark:text-sky-400" },
-  done: { icon: CircleCheck, tone: "text-emerald-600 dark:text-emerald-400" },
-  cancelled: { icon: CircleX, tone: "text-muted-foreground" },
-};
 
 type Link = { id: string; info: RelatedTask | null };
 

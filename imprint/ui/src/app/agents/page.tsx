@@ -15,6 +15,7 @@ import { Timestamp, useNow } from "@/components/timestamp";
 import { clientName, folderName, plural, sessionLength, whenInGroup } from "@/components/agents/format";
 import { LoadMore } from "@/components/agents/load-more";
 import { BoardView } from "@/components/agents/board/board";
+import { FeaturesView } from "@/components/agents/board/features";
 import { LiveView, openTask, tokens } from "@/components/agents/live";
 import { TaskLink } from "@/components/agents/board/links";
 import { SourceReader, type ReaderTarget } from "@/components/source-reader";
@@ -32,11 +33,12 @@ const DESCRIPTION = "Every session an AI client ran with Imprint: its agent, Tas
 const BOARD_DESCRIPTION = "The workspace's Tasks, shared by every connected agent: what is ready, who is working on what, and what is stuck or waiting for you.";
 const SIMPLE_DESCRIPTION = "What your AI agents are working on, what is ready for them, and what waits for you.";
 const LIVE_DESCRIPTION = "What each agent on this device is doing right now, its Task and its tokens, read from its own transcript without asking any model.";
+const FEATURES_DESCRIPTION = "Each piece of work planned as a Feature: how far it is, what of it waits for you, and its tasks in the order they can be done. A Feature is Done once its tasks are.";
 /** The page's tabs; the address keeps the open one (/agents/#board). */
-const TABS = ["live", "board", "history"] as const;
+const TABS = ["live", "board", "features", "history"] as const;
 type Tab = (typeof TABS)[number];
 /** The simple dashboard's tabs: no session history (ADR 0217). */
-const SIMPLE_TABS: Tab[] = ["live", "board"];
+const SIMPLE_TABS: Tab[] = ["live", "board", "features"];
 /** Addresses from before History had its name. */
 const ALIASES: Record<string, Tab> = { sessions: "history" };
 
@@ -75,7 +77,8 @@ export default function AgentsPage() {
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${next}`);
     window.dispatchEvent(new HashChangeEvent("hashchange"));
   }
-  const description = simple ? SIMPLE_DESCRIPTION : tab === "board" ? BOARD_DESCRIPTION : tab === "live" ? LIVE_DESCRIPTION : DESCRIPTION;
+  const description = simple ? SIMPLE_DESCRIPTION : tab === "board" ? BOARD_DESCRIPTION : tab === "live" ? LIVE_DESCRIPTION
+    : tab === "features" ? FEATURES_DESCRIPTION : DESCRIPTION;
   return (
     <div className={cn("mx-auto", tab === "board" ? "max-w-none" : tab === "live" ? "max-w-7xl" : "max-w-5xl")}>
       <PageHeader title={simple ? "Tasks" : "Agents"} description={description} />
@@ -84,11 +87,13 @@ export default function AgentsPage() {
           <TabsList variant="line" data-tour="agents-tabs" className="w-full justify-start border-b border-border">
             <TabsTrigger value="live" className="flex-none px-2.5 sm:px-3">Live</TabsTrigger>
             <TabsTrigger value="board" className="flex-none px-2.5 sm:px-3">Board</TabsTrigger>
+            <TabsTrigger value="features" className="flex-none px-2.5 sm:px-3">Features</TabsTrigger>
             {!simple && <TabsTrigger value="history" className="flex-none px-2.5 sm:px-3">History</TabsTrigger>}
           </TabsList>
         </div>
         <TabsContent value="live"><LiveView /></TabsContent>
         <TabsContent value="board"><BoardView /></TabsContent>
+        <TabsContent value="features"><FeaturesView /></TabsContent>
         {!simple && <TabsContent value="history"><SessionsView /></TabsContent>}
       </Tabs>
     </div>

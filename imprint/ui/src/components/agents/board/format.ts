@@ -1,3 +1,4 @@
+import { Circle, CircleCheck, CircleDashed, CircleDot, CircleX, Eye } from "lucide-react";
 import type { BoardTask, TaskHolder, TaskPerson, TaskPriority, TaskStatus } from "@/lib/api";
 import { clientName } from "../format";
 
@@ -12,6 +13,24 @@ export const STATUS_HINTS: Record<TaskStatus, string> = {
   review: "Finished, waiting to be checked",
   done: "Checked and finished",
   cancelled: "Will not be done",
+};
+/** Each status's mark beside a Task's title in a list. */
+export const STATUS_MARKS: Record<TaskStatus, { icon: typeof Circle; tone: string }> = {
+  backlog: { icon: CircleDashed, tone: "text-muted-foreground" },
+  ready: { icon: Circle, tone: "text-muted-foreground" },
+  in_progress: { icon: CircleDot, tone: "text-amber-600 dark:text-amber-400" },
+  review: { icon: Eye, tone: "text-sky-600 dark:text-sky-400" },
+  done: { icon: CircleCheck, tone: "text-emerald-600 dark:text-emerald-400" },
+  cancelled: { icon: CircleX, tone: "text-muted-foreground" },
+};
+/** What a Feature's status says, since its Tasks decide it (ADR 0242). */
+export const FEATURE_HINTS: Record<TaskStatus, string> = {
+  backlog: "No task of it is Ready yet",
+  ready: "A task of it is Ready, and none has started",
+  in_progress: "Its tasks are being worked on",
+  review: "Its tasks are being checked",
+  done: "Every task of it is Done",
+  cancelled: "Cancelled by hand: its tasks no longer decide its status",
 };
 export const PRIORITY_LABELS: Record<TaskPriority, string> = { P0: "P0 · urgent", P1: "P1 · high", P2: "P2 · normal", P3: "P3 · low" };
 

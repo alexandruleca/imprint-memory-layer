@@ -1283,6 +1283,8 @@ export type TaskComment = { id: string; text: string; to: string[]; by: TaskPers
 export type TaskCheckpoint = { text: string; next?: string; branch?: string; commit?: string; files?: string[]; by: TaskPerson; at: number };
 export type BoardTask = {
   id: string; title: string; description: string; project: string; status: TaskStatus; priority: TaskPriority;
+  /** A Feature groups Tasks, and its status follows theirs (ADR 0242). */
+  kind: "task" | "feature";
   position: number | null; acceptance: string[]; tags: string[]; assignees: string[];
   feature: string | null; feature_title: string | null; blockers: string[]; open_blockers: string[]; tasks: string[];
   /** The Tasks that wait on this one. */
@@ -1320,7 +1322,10 @@ export type TaskDetails = { task: BoardTask; history: TaskEvent[]; handoff: Task
   /** Its Feature, the Feature's Tasks, the Tasks it waits on and those waiting on it, by id. */
   related?: Record<string, RelatedTask> };
 export type NewTask = { title: string; project: string; description?: string; status?: "backlog" | "ready"; priority?: TaskPriority;
-  acceptance?: string[]; tags?: string[]; assignees?: string[]; feature?: string };
+  acceptance?: string[]; tags?: string[]; assignees?: string[]; feature?: string; kind?: "task" | "feature" };
+/** A Feature, how far it is, and its Tasks in the order they can be worked in. */
+export type FeatureEntry = { feature: BoardTask; summary: ProgressEntry; tasks: BoardTask[] };
+export type FeaturesData = { workspace: string; features: FeatureEntry[] };
 export type TaskAction = "move" | "edit" | "append" | "comment" | "tags" | "assignees" | "link" | "block" | "unblock" | "release";
 /** Comments to the user from every workspace (each names its own), and the Tasks in Review on the workspace on show. */
 export type TaskInbox = { workspace?: string; comments: (TaskComment & { task: string; title: string; workspace?: string })[]; review: BoardTask[] };
@@ -1344,6 +1349,13 @@ export function getBoard(filters: BoardFilters = {}) {
   const qs = new URLSearchParams();
   for (const [key, value] of Object.entries(filters)) if (value) qs.set(key, String(value));
   return fetchAPI<BoardData>(`/api/tasks/board${qs.size ? `?${qs}` : ""}`);
+}
+/** Every Feature with its Tasks; those that ended over 14 days ago only with `archived`. */
+export function getFeatures(filters: { project?: string; archived?: boolean } = {}) {
+  const qs = new URLSearchParams();
+  if (filters.project) qs.set("project", filters.project);
+  if (filters.archived) qs.set("archived", "true");
+  return fetchAPI<FeaturesData>(`/api/tasks/features${qs.size ? `?${qs}` : ""}`);
 }
 export function getTask(id: string) {
   return fetchAPI<TaskDetails>(`/api/tasks/${encodeURIComponent(id)}`);
