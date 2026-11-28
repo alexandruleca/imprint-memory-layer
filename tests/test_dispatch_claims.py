@@ -210,12 +210,16 @@ class ClaimEndedTests(DispatchCase):
             session = dispatched.Session(run, proc)
             took = Path(str(self.record) + '.took')
             deadline = time.monotonic() + 20
-            while mode != 'hang' and not took.exists() and time.monotonic() < deadline:
-                self.assertIsNone(session.step())
+            ended = None
+            # The check may see the session's own change before its marker is written (slower on Windows).
+            while mode != 'hang' and not took.exists() and ended is None and time.monotonic() < deadline:
+                ended = session.step()
                 time.sleep(0.05)
             if act:
+                self.assertIsNone(ended, 'the session ended before the test acted')
                 act()
-            while (ended := session.step()) is None and time.monotonic() < deadline + 20:
+            while ended is None and time.monotonic() < deadline + 20:
+                ended = session.step()
                 time.sleep(0.1)
         self.assertIsNotNone(proc.poll(), 'the session was not stopped')
         return run, ended
